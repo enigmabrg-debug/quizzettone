@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Quizzettone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --stage: #150C2B;
+    --panel: #221240;
+    --panel-2: #2C1856;
+    --gold: #F2B705;
+    --gold-dim: #b98f0a;
+    --pink: #FF4D6D;
+    --green: #34D399;
+    --ink: #F5F1FF;
+    --ink-dim: #B7ADD9;
+    --line: rgba(245,241,255,0.12);
+    --radius: 18px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    min-height:100vh;
+    background:
+      radial-gradient(ellipse at top, #2c1856 0%, var(--stage) 55%),
+      var(--stage);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;
+    justify-content:center;
+    padding:0;
+  }
+  #app{
+    width:100%;
+    max-width:560px;
+    min-height:100vh;
+    padding:22px 18px 60px;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  #app.admin-wide{max-width:900px;}
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif;margin:0;}
+  .eyebrow{
+    font-family:'Inter';font-weight:700;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--gold);
+  }
+  .brand{
+    font-family:'Archivo Black',sans-serif;
+    font-size:34px;line-height:1;
+    letter-spacing:-0.01em;
+    background:linear-gradient(90deg,var(--gold),#ffe08a);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    margin:2px 0 0;
+  }
+  .header{display:flex;flex-direction:column;gap:2px;margin-bottom:4px;}
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:20px;
+  }
+  .card.raised{background:var(--panel-2);}
+  .btn{
+    appearance:none;border:none;cursor:pointer;
+    font-family:'Inter';font-weight:700;font-size:15px;
+    padding:14px 18px;border-radius:14px;
+    background:var(--gold);color:#1B1030;
+    transition:transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+    width:100%;
+  }
+  .btn:hover{transform:translateY(-1px);}
+  .btn:active{transform:translateY(0px) scale(.99);}
+  .btn:disabled{opacity:.35;cursor:not-allowed;transform:none;}
+  .btn.secondary{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  .btn.danger{background:var(--pink);color:#2b0512;}
+  .btn.ghost{background:rgba(245,241,255,0.06);color:var(--ink);}
+  .btn.small{padding:9px 12px;font-size:13px;width:auto;}
+  .row{display:flex;gap:10px;}
+  .row > *{flex:1;}
+  .stack{display:flex;flex-direction:column;gap:10px;}
+  input[type=text]{
+    width:100%;padding:14px 16px;border-radius:14px;
+    border:1px solid var(--line);background:rgba(0,0,0,0.25);
+    color:var(--ink);font-family:'Inter';font-size:16px;
+  }
+  input[type=text]:focus{outline:2px solid var(--gold);}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;
+    background:rgba(245,241,255,0.08);
+    border:1px solid var(--line);
+    padding:5px 12px;border-radius:999px;
+    font-size:12px;font-weight:600;color:var(--ink-dim);
+  }
+  .pill.gold{color:var(--gold);border-color:rgba(242,183,5,.4);background:rgba(242,183,5,.1);}
+  .timer-wrap{display:flex;justify-content:center;margin:6px 0 2px;}
+  .timer{
+    position:relative;width:118px;height:118px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .timer svg{position:absolute;inset:0;transform:rotate(-90deg);}
+  .timer-num{
+    font-family:'Archivo Black';font-size:38px;color:var(--ink);
+  }
+  .timer.urgent .timer-num{color:var(--pink);}
+  .qmeta{display:flex;gap:8px;flex-wrap:wrap;}
+  .qtext{font-family:'Space Grotesk';font-weight:700;font-size:21px;line-height:1.3;margin:8px 0 2px;}
+  .options{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
+  .opt{
+    text-align:left;padding:15px 16px;border-radius:14px;
+    background:rgba(245,241,255,0.05);border:1px solid var(--line);
+    color:var(--ink);font-family:'Inter';font-weight:600;font-size:15px;
+    cursor:pointer;display:flex;gap:12px;align-items:center;
+  }
+  .opt .letter{
+    width:26px;height:26px;border-radius:8px;background:rgba(245,241,255,.1);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk';font-weight:700;font-size:13px;flex-shrink:0;
+  }
+  .opt.selected{border-color:var(--gold);background:rgba(242,183,5,.12);}
+  .opt.correct{border-color:var(--green);background:rgba(52,211,153,.15);}
+  .opt.wrong{border-color:var(--pink);background:rgba(255,77,109,.15);}
+  .opt:disabled{cursor:default;opacity:.85;}
+  .status-banner{
+    text-align:center;padding:12px;border-radius:14px;
+    font-weight:700;font-family:'Space Grotesk';
+    background:rgba(245,241,255,.06);border:1px solid var(--line);
+  }
+  .status-banner.sent{color:var(--green);border-color:rgba(52,211,153,.4);}
+  .status-banner.expired{color:var(--pink);border-color:rgba(255,77,109,.4);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);}
+  th{color:var(--ink-dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
+  .status-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;}
+  .dot-wait{background:#8b83ab;}
+  .dot-ok{background:var(--green);}
+  .dot-late{background:var(--pink);}
+  .center{text-align:center;}
+  .muted{color:var(--ink-dim);}
+  .divider{height:1px;background:var(--line);margin:6px 0;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .rank-row{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line);}
+  .rank-num{
+    font-family:'Archivo Black';font-size:18px;color:var(--gold);width:26px;
+  }
+  .rank-name{flex:1;font-weight:700;font-family:'Space Grotesk';}
+  .rank-score{font-family:'Space Grotesk';font-weight:700;color:var(--ink-dim);}
+  .top1 .rank-num{color:#FFD700;}
+  .top2 .rank-num{color:#D9D9D9;}
+  .top3 .rank-num{color:#CD7F32;}
+  .stage-title{font-family:'Archivo Black';font-size:26px;line-height:1.15;}
+  .final-glow{
+    background:radial-gradient(circle at 50% 0%, rgba(242,183,5,.25), transparent 60%);
+  }
+  .winner-card{
+    text-align:center;padding:40px 20px;
+    background:linear-gradient(180deg, rgba(242,183,5,.18), transparent);
+    border:1px solid rgba(242,183,5,.4);
+    border-radius:24px;
+  }
+  .winner-name{
+    font-family:'Archivo Black';font-size:40px;margin:12px 0;
+    background:linear-gradient(90deg,var(--gold),#fff2c9);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .team-tag{
+    display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+    background:rgba(245,241,255,.08);font-size:12px;font-weight:700;
+  }
+  ::selection{background:var(--gold);color:#1B1030;}
+  a{color:var(--gold);}
+  .note{font-size:12px;color:var(--ink-dim);margin-top:4px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ================== DOMANDE ================== */
+const Q1 = [
+ {category:"Geografia", question:"Quale città è attraversata dal fiume Moldava?", options:["Praga","Budapest","Vienna","Cracovia"], correctIndex:0},
+ {category:"Storia", question:"In quale anno cadde il Muro di Berlino?", options:["1987","1989","1991","1993"], correctIndex:1},
+ {category:"Matematica", question:"Se un treno percorre 180 km in 2 ore e 15 minuti, qual è la sua velocità media?", options:["72 km/h","80 km/h","85 km/h","90 km/h"], correctIndex:1},
+ {category:"Musica", question:"Che canzone è?", options:["Sere nere","Ti scatterò una foto","Non me lo so spiegare","Imbranato"], correctIndex:2, adminNote:"Tiziano Ferro"},
+ {category:"Scienze", question:"Quale pianeta del Sistema Solare ha il giorno più lungo rispetto alla sua durata di rotazione?", options:["Marte","Venere","Saturno","Nettuno"], correctIndex:1},
+ {category:"Cinema", question:"In quale film compare il personaggio di Tyler Durden?", options:["American Psycho","Fight Club","Trainspotting","Seven"], correctIndex:1},
+ {category:"Sport", question:"Quale nazione ha vinto i Mondiali di calcio del 2010?", options:["Germania","Spagna","Argentina","Olanda"], correctIndex:1},
+ {category:"Geografia", question:"Quale tra questi Paesi non confina con la Germania?", options:["Danimarca","Svizzera","Ungheria","Polonia"], correctIndex:2},
+ {category:"Musica", question:"Che canzone è?", options:["Mr. Brightside","Sex on Fire","Use Somebody","Somebody Told Me"], correctIndex:1, adminNote:"Kings of Leon"},
+ {category:"Serie TV", question:"Nella serie TV Breaking Bad, qual è il soprannome criminale di Walter White?", options:["Saul Goodman","Gustavo Fring","Heisenberg","El Camino"], correctIndex:2},
+ {category:"Tecnologia", question:"Quale azienda ha creato il sistema operativo Android?", options:["Google","Apple","Microsoft","Samsung"], correctIndex:0},
+ {category:"Storia", question:"Quale civiltà costruì Machu Picchu?", options:["Maya","Aztechi","Inca","Olmechi"], correctIndex:2},
+ {category:"Scienze", question:"Quale elemento chimico ha simbolo Fe?", options:["Fluoro","Ferro","Francio","Fosforo"], correctIndex:1},
+ {category:"Musica", question:"Che canzone è?", options:["A Sky Full of Stars","Viva la Vida","Paradise","Hymn for the Weekend"], correctIndex:2, adminNote:"Coldplay"},
+ {category:"Videogiochi", question:"Quale personaggio dei videogiochi è il protagonista della saga The Legend of Zelda?", options:["Link","Zelda","Ganondorf","Epona"], correctIndex:0},
+];
+const Q2 = [
+ {category:"Geografia", question:"Quale capitale europea si trova più a nord?", options:["Dublino","Copenaghen","Amsterdam","Berlino"], correctIndex:1},
+ {category:"Storia", question:"Quale imperatore romano fece costruire il Colosseo?", options:["Augusto","Nerone","Vespasiano","Traiano"], correctIndex:2},
+ {category:"Musica", question:"Che canzone è?", options:["Brividi","Soldi","Due vite","Zitti e buoni"], correctIndex:2, adminNote:"Marco Mengoni"},
+ {category:"Matematica", question:"In matematica, quanto vale il 25% di 360?", options:["75","80","90","100"], correctIndex:2},
+ {category:"Scienze", question:"Quale organo del corpo umano produce l'insulina?", options:["Fegato","Pancreas","Milza","Rene"], correctIndex:1},
+ {category:"Cinema", question:"Quale film ha vinto l'Oscar come miglior film nel 2020?", options:["Joker","1917","Parasite","Once Upon a Time in Hollywood"], correctIndex:2},
+ {category:"Sport", question:"Quale tennista spagnolo è famoso per il suo dominio sulla terra rossa?", options:["Carlos Alcaraz","Rafael Nadal","David Ferrer","Juan Carlos Ferrero"], correctIndex:1},
+ {category:"Musica", question:"Che canzone è?", options:["Shape of You","Thinking Out Loud","Perfect","Photograph"], correctIndex:1, adminNote:"Ed Sheeran"},
+ {category:"Geografia", question:"Quale tra questi laghi si trova in Italia?", options:["Lago Balaton","Lago di Bled","Lago Trasimeno","Lago Lemano"], correctIndex:2},
+ {category:"Serie TV", question:"Nella serie TV Stranger Things, come si chiama la dimensione parallela oscura?", options:["Sottosopra","Zona d'Ombra","Mondo Nero","Oltreterra"], correctIndex:0},
+ {category:"Tecnologia", question:"Quale social network è nato originariamente come app per condividere foto quadrate?", options:["TikTok","Instagram","Snapchat","Pinterest"], correctIndex:1},
+ {category:"Scienze", question:"Quale tra questi animali è un mammifero?", options:["Squalo bianco","Delfino","Pinguino","Coccodrillo"], correctIndex:1},
+ {category:"Musica", question:"Che canzone è?", options:["Certe notti","Gli ostacoli del cuore","Piccola stella senza cielo","Urlando contro il cielo"], correctIndex:1, adminNote:"Ligabue"},
+ {category:"Sport", question:"Quale Paese ha ospitato le Olimpiadi estive del 2016?", options:["Cina","Brasile","Giappone","Regno Unito"], correctIndex:1},
+ {category:"Cinema", question:"Quale tra questi personaggi appartiene all'universo Marvel?", options:["Aquaman","Flash","Doctor Strange","Green Lantern"], correctIndex:2},
+];
+const QF = [
+ {category:"Geografia", question:"Quale Stato ha come capitale Canberra?", options:["Nuova Zelanda","Australia","Canada","Sudafrica"], correctIndex:1},
+ {category:"Filosofia", question:"Quale filosofo greco fu maestro di Alessandro Magno?", options:["Socrate","Platone","Aristotele","Epicuro"], correctIndex:2},
+ {category:"Matematica", question:"Una password è composta da 2 lettere seguite da 2 numeri. Se le lettere possibili sono 26 e i numeri possibili sono 10, quante combinazioni esistono?", options:["6.760","67.600","676.000","760.000"], correctIndex:1},
+ {category:"Scienze", question:"Quale gas è più abbondante nell'atmosfera terrestre?", options:["Ossigeno","Azoto","Anidride carbonica","Argon"], correctIndex:1},
+ {category:"Cinema", question:"Quale regista ha diretto Inception?", options:["Christopher Nolan","Martin Scorsese","David Fincher","Quentin Tarantino"], correctIndex:0},
+ {category:"Sport", question:"In quale sport si assegna il Pallone d'Oro?", options:["Basket","Calcio","Rugby","Tennis"], correctIndex:1},
+ {category:"Geografia", question:"Quale tra questi Paesi non fa parte della Scandinavia in senso stretto?", options:["Norvegia","Svezia","Danimarca","Finlandia"], correctIndex:3},
+ {category:"Tecnologia", question:"Quale azienda produce la console PlayStation?", options:["Microsoft","Nintendo","Sony","Sega"], correctIndex:2},
+ {category:"Serie TV", question:"Quale serie TV ha come protagonista Thomas Shelby?", options:["Peaky Blinders","The Crown","Vikings","Boardwalk Empire"], correctIndex:0},
+ {category:"Storia", question:"Quale tra questi eventi è avvenuto per primo?", options:["Primo uomo sulla Luna","Caduta del Muro di Berlino","Nascita di Internet commerciale","Attentati dell'11 settembre 2001"], correctIndex:0},
+];
+const POINTS = {1:1, 2:1, final:2, tiebreak:1};
+function getList(round){ return round===1?Q1: round===2?Q2: round==='final'?QF: round==='tiebreak'? (window.__tb_list||[]) : []; }
+function getQuestion(round, idx){ return getList(round)[idx]; }
+function qkey(round, idx){ return round+'-'+idx; }
+
+/* ================== STORAGE HELPERS ================== */
+async function safeGet(key, shared){
+  try{ const r = await window.storage.get(key, shared); return r ? JSON.parse(r.value) : null; }
+  catch(e){ return null; }
+}
+async function safeSet(key, value, shared){
+  try{ await window.storage.set(key, JSON.stringify(value), shared); return true; }
+  catch(e){ console.error('storage set failed', key, e); return false; }
+}
+async function safeDelete(key, shared){
+  try{ await window.storage.delete(key, shared); }catch(e){}
+}
+async function safeList(prefix, shared){
+  try{ const r = await window.storage.list(prefix, shared); return r ? r.keys : []; }
+  catch(e){ return []; }
+}
+
+/* ================== APP STATE (locale) ================== */
+let role = null;          // 'admin' | 'team'
+let teamId = null;
+let teamName = null;
+let joined = false;
+let pollTimer = null;
+
+let state = null;         // stato di gioco condiviso
+let teams = {};           // id -> {id, name}
+let answersByTeam = {};   // id -> {qkey: {optionIndex, ts}}
+let overridesByTeam = {}; // id -> {qkey: points}
+
+function defaultState(){
+  return {
+    phase:'lobby', round:1, qIndex:0,
+    questionStartedAt:null, timerDuration:20000,
+    checkpoint:null, checkpointMode:null,
+    finalists:null, eliminated:null,
+    tiebreak:null, winner:null, finalWinnerScoreSnapshot:null
+  };
+}
+
+async function refresh(){
+  const teamKeys = await safeList('teaminfo:', true);
+  const newTeams = {};
+  for(const k of teamKeys){ const t = await safeGet(k, true); if(t) newTeams[t.id]=t; }
+  teams = newTeams;
+  state = await safeGet('state', true) || defaultState();
+  const newAnswers = {}, newOverrides = {};
+  for(const id of Object.keys(teams)){
+    newAnswers[id] = await safeGet('answers:'+id, true) || {};
+    newOverrides[id] = await safeGet('overrides:'+id, true) || {};
+  }
+  answersByTeam = newAnswers; overridesByTeam = newOverrides;
+  render();
+}
+
+function startPolling(){
+  if(pollTimer) return;
+  refresh();
+  pollTimer = setInterval(refresh, 1100);
+}
+
+/* ================== LOGICA PUNTEGGI ================== */
+function pointsForAnswer(round, idx, optionIndex){
+  const q = getQuestion(round, idx);
+  if(!q) return 0;
+  return optionIndex === q.correctIndex ? (POINTS[round]||1) : 0;
+}
+function teamPointsForQuestion(id, round, idx){
+  const key = qkey(round, idx);
+  const ov = overridesByTeam[id] && overridesByTeam[id][key];
+  if(ov !== undefined && ov !== null) return ov;
+  const ans = answersByTeam[id] && answersByTeam[id][key];
+  if(!ans) return 0;
+  return pointsForAnswer(round, idx, ans.optionIndex);
+}
+function roundScore(id, round){
+  const list = getList(round);
+  let sum = 0;
+  for(let i=0;i<list.length;i++) sum += teamPointsForQuestion(id, round, i);
+  return sum;
+}
+function qualificationScore(id){ return roundScore(id,1) + roundScore(id,2); }
+function totalScore(id){ return qualificationScore(id) + roundScore(id,'final'); }
+
+/* ================== AZIONI ADMIN (scrivono su 'state') ================== */
+async function adminStartGame(){
+  const s = defaultState();
+  s.phase='question'; s.round=1; s.qIndex=0; s.questionStartedAt=Date.now();
+  await safeSet('state', s, true); await refresh();
+}
+async function adminCloseAnswers(){
+  const s = {...state, phase:'closed'};
+  await safeSet('state', s, true); await refresh();
+}
+async function adminAdjustPoints(id, round, idx, delta){
+  const key = qkey(round, idx);
+  const current = teamPointsForQuestion(id, round, idx);
+  const ov = overridesByTeam[id] || {};
+  ov[key] = Math.max(0, current + delta);
+  await safeSet('overrides:'+id, ov, true); await refresh();
+}
+async function adminNextQuestion(){
+  const round = state.round, idx = state.qIndex;
+  const list = getList(round);
+  const qNumber = idx+1;
+  if(round===1 || round===2){
+    if(qNumber===8){
+      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
+    } else if(qNumber===list.length){
+      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
+    } else {
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now()}, true);
+    }
+  } else if(round==='final'){
+    if(qNumber===list.length){
+      await safeSet('state', {...state, phase:'final_ready'}, true);
+    } else {
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now()}, true);
+    }
+  } else if(round==='tiebreak'){
+    await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
+  }
+  await refresh();
+}
+async function adminSetCheckpointMode(mode){
+  await safeSet('state', {...state, checkpointMode:mode}, true); await refresh();
+}
+async function adminContinueFromCheckpoint(){
+  const cp = state.checkpoint;
+  if(cp.type==='mid'){
+    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null}, true);
+  } else if(cp.type==='end' && cp.round===1){
+    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null}, true);
+  }
+  await refresh();
+}
+async function adminRevealFinalists(){
+  const ids = Object.keys(teams);
+  const ranked = ids.map(id=>({id, score:qualificationScore(id)})).sort((a,b)=>b.score-a.score);
+  if(ranked.length<=2){
+    await safeSet('state', {...state, phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]}, true);
+    await refresh(); return;
+  }
+  const secondScore = ranked[1].score;
+  const tiedForSecond = ranked.filter(r=>r.score===secondScore);
+  if(tiedForSecond.length>1 && ranked[0].score!==secondScore){
+    // primo posto chiaro, spareggio per il secondo posto
+    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[ranked[0].id], candidates: tiedForSecond.map(r=>r.id), question:null, qIndex:null}}, true);
+  } else if(ranked[0].score===secondScore){
+    // pareggio anche per il primo posto: tutti i pari merito in spareggio, si prendono i primi 2
+    const topScore = ranked[0].score;
+    const tiedTop = ranked.filter(r=>r.score===topScore).map(r=>r.id);
+    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop, question:null, qIndex:null}}, true);
+  } else {
+    await safeSet('state', {...state, phase:'reveal_finalists', finalists:[ranked[0].id, ranked[1].id], eliminated: ranked.slice(2).map(r=>r.id)}, true);
+  }
+  await refresh();
+}
+async function adminStartTiebreakQuestion(qIdx){
+  const tb = {...state.tiebreak, question: QF[qIdx], qIndex:qIdx};
+  await safeSet('state', {...state, round:'tiebreak', qIndex:qIdx, phase:'question', questionStartedAt:Date.now(), tiebreak: tb}, true);
+  window.__tb_list = QF;
+  await refresh();
+}
+async function adminAssignTiebreakWinner(winnerId){
+  const need = 2 - state.tiebreak.qualifiedSoFar.length;
+  const finalists = [...state.tiebreak.qualifiedSoFar, winnerId].slice(0,2);
+  const eliminated = Object.keys(teams).filter(id=>!finalists.includes(id));
+  await safeSet('state', {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null}, true);
+  await refresh();
+}
+async function adminContinueToFinal(){
+  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null}, true);
+  await refresh();
+}
+async function adminRevealWinner(){
+  const finalists = state.finalists || [];
+  const scores = finalists.map(id=>({id, score: roundScore(id,'final')}));
+  scores.sort((a,b)=>b.score-a.score);
+  let winner = scores[0] ? scores[0].id : null;
+  if(scores.length===2 && scores[0].score===scores[1].score) winner = 'TIE';
+  await safeSet('state', {...state, phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
+  await refresh();
+}
+async function adminDeclareWinnerManually(id){
+  const finalists = state.finalists || [];
+  const scores = finalists.map(fid=>({id:fid, score: roundScore(fid,'final')}));
+  await safeSet('state', {...state, phase:'reveal_winner', winner:id, finalWinnerScoreSnapshot:scores}, true);
+  await refresh();
+}
+async function adminResetGame(){
+  const teamKeys = await safeList('teaminfo:', true);
+  for(const k of teamKeys) await safeDelete(k, true);
+  const ids = Object.keys(teams);
+  for(const id of ids){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
+  await safeSet('state', defaultState(), true);
+  await refresh();
+}
+
+/* ================== AZIONI SQUADRA ================== */
+async function teamJoin(name){
+  teamId = 'team_' + Math.random().toString(36).slice(2,9);
+  teamName = name.trim();
+  await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now()}, true);
+  joined = true;
+  setUrlSession('team', teamId);
+  startPolling();
+}
+
+/* ================== SESSIONE VIA URL (niente local/session storage) ================== */
+function setUrlSession(r, id){
+  const url = new URL(window.location.href);
+  url.searchParams.set('role', r);
+  if(id) url.searchParams.set('id', id); else url.searchParams.delete('id');
+  window.history.replaceState({}, '', url.toString());
+}
+function clearUrlSession(){
+  const url = new URL(window.location.href);
+  url.searchParams.delete('role'); url.searchParams.delete('id');
+  window.history.replaceState({}, '', url.toString());
+}
+async function restoreFromUrl(){
+  const params = new URLSearchParams(window.location.search);
+  const r = params.get('role');
+  const id = params.get('id');
+  if(r==='admin'){
+    role = 'admin';
+    startPolling();
+    return true;
+  }
+  if(r==='team' && id){
+    const info = await safeGet('teaminfo:'+id, true);
+    if(info){
+      role = 'team'; teamId = info.id; teamName = info.name; joined = true;
+      startPolling();
+      return true;
+    } else {
+      clearUrlSession();
+    }
+  }
+  return false;
+}
+async function teamSubmitAnswer(round, idx, optionIndex){
+  const key = qkey(round, idx);
+  const current = await safeGet('answers:'+teamId, true) || {};
+  if(current[key]) return; // già risposto
+  current[key] = {optionIndex, ts: Date.now()};
+  await safeSet('answers:'+teamId, current, true);
+  await refresh();
+}
+
+/* ================== HELPERS UI ================== */
+function letter(i){ return ['A','B','C','D'][i]; }
+function timeRemaining(){
+  if(!state || !state.questionStartedAt) return 0;
+  const elapsed = Date.now() - state.questionStartedAt;
+  return Math.max(0, state.timerDuration - elapsed);
+}
+function circleTimer(remainingMs, total){
+  const pct = Math.max(0, Math.min(1, remainingMs/total));
+  const r = 52, c = 2*Math.PI*r;
+  const urgent = remainingMs < 6000;
+  return `<div class="timer ${urgent?'urgent':''}">
+    <svg width="118" height="118" viewBox="0 0 118 118">
+      <circle cx="59" cy="59" r="${r}" fill="none" stroke="rgba(245,241,255,.12)" stroke-width="8"/>
+      <circle cx="59" cy="59" r="${r}" fill="none" stroke="${urgent?'#FF4D6D':'#F2B705'}" stroke-width="8"
+        stroke-dasharray="${c}" stroke-dashoffset="${c*(1-pct)}" stroke-linecap="round"/>
+    </svg>
+    <div class="timer-num">${Math.ceil(remainingMs/1000)}</div>
+  </div>`;
+}
+function rankRows(idsWithScores){
+  return idsWithScores.map((r,i)=>`
+    <div class="rank-row ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
+      <div class="rank-num">${i+1}</div>
+      <div class="rank-name">${teams[r.id] ? teams[r.id].name : '—'}</div>
+      <div class="rank-score">${r.score} pt</div>
+    </div>`).join('');
+}
+
+/* ================== RENDER: SELEZIONE RUOLO ================== */
+function renderRoleSelect(){
+  const app = document.getElementById('app');
+  app.className = '';
+  app.innerHTML = `
+    <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+      <div class="eyebrow">Party Quiz</div>
+      <h1 class="brand">QUIZZETTONE</h1>
+    </div>
+    <div class="card stack" style="margin-top:20px;">
+      <button class="btn" id="btnTeam">Sono una squadra 🎉</button>
+      <button class="btn secondary" id="btnAdmin">Sono l'admin 🎛️</button>
+    </div>
+    <p class="note center">Tieni questa scheda aperta per tutta la partita: se la ricarichi dovrai rientrare come nuova squadra.</p>
+  `;
+  document.getElementById('btnTeam').onclick = renderTeamJoin;
+  document.getElementById('btnAdmin').onclick = ()=>{ role='admin'; setUrlSession('admin'); startPolling(); };
+}
+
+function renderTeamJoin(){
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+      <div class="eyebrow">Party Quiz</div>
+      <h1 class="brand">QUIZZETTONE</h1>
+    </div>
+    <div class="card stack" style="margin-top:20px;">
+      <h3>Nome squadra</h3>
+      <input type="text" id="teamNameInput" placeholder="Es. I Fenomeni" maxlength="24">
+      <button class="btn" id="btnJoin">Entra in partita</button>
+      <button class="btn ghost small" id="btnBack">← Indietro</button>
+    </div>
+  `;
+  document.getElementById('btnBack').onclick = renderRoleSelect;
+  const input = document.getElementById('teamNameInput');
+  input.focus();
+  const doJoin = async ()=>{
+    if(!input.value.trim()) return;
+    role='team';
+    await teamJoin(input.value);
+  };
+  document.getElementById('btnJoin').onclick = doJoin;
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') doJoin(); });
+}
+
+/* ================== RENDER PRINCIPALE ================== */
+function render(){
+  if(role==='team' && joined) return renderTeam();
+  if(role==='admin') return renderAdmin();
+}
+
+/* ================== VISTA SQUADRA ================== */
+function renderTeam(){
+  const app = document.getElementById('app');
+  app.className = '';
+  const s = state;
+  const isFinalist = !s.finalists || s.finalists.includes(teamId);
+  const isEliminated = s.eliminated && s.eliminated.includes(teamId);
+  const inTiebreak = s.round==='tiebreak';
+  const isTiebreakCandidate = inTiebreak && s.tiebreak && s.tiebreak.candidates && s.tiebreak.candidates.includes(teamId);
+
+  let body = '';
+
+  if(s.phase==='lobby'){
+    body = `
+      <div class="card center stack">
+        <div class="eyebrow">Sei dentro!</div>
+        <h2>${teamName}</h2>
+        <p class="muted">In attesa che l'admin avvii la Manche 1...</p>
+      </div>`;
+  }
+  else if(s.phase==='question' && !inTiebreak){
+    body = renderTeamQuestion(s.round, s.qIndex, true);
+  }
+  else if(s.phase==='question' && inTiebreak){
+    if(isTiebreakCandidate){
+      body = renderTeamQuestion('tiebreak', s.qIndex, false, true);
+    } else {
+      body = `<div class="card center stack">
+        <div class="eyebrow pill gold">Spareggio in corso</div>
+        <h3>Due squadre si giocano l'accesso in finale</h3>
+        <p class="muted">Restate collegati, tra poco si continua.</p>
+      </div>`;
+    }
+  }
+  else if(s.phase==='closed'){
+    body = renderTeamQuestion(s.round, s.qIndex, false);
+  }
+  else if(s.phase==='tiebreak_closed'){
+    body = `<div class="card center stack"><div class="eyebrow pill gold">Spareggio</div><p class="muted">L'admin sta verificando le risposte...</p></div>`;
+  }
+  else if(s.phase==='checkpoint'){
+    const cp = s.checkpoint;
+    if(cp.type==='mid'){
+      const total = getList(cp.round).length;
+      body = `<div class="card center stack">
+        <div class="eyebrow pill gold">Checkpoint · Metà Manche ${cp.round}</div>
+        <h2>Prendete fiato ☕</h2>
+        <p class="muted">${cp.round===1?8:8} domande giocate, ${total-8} da giocare</p>
+        ${s.checkpointMode==='classifica' ? renderProvisionalStandings(cp.round) : ''}
+      </div>`;
+    } else if(cp.type==='end' && cp.round===1){
+      body = `<div class="card center stack">
+        <div class="eyebrow pill gold">Fine Manche 1</div>
+        <h2>Prendete fiato: la qualificazione continua con la Manche 2</h2>
+        ${renderEndRound1Standings(s.checkpointMode)}
+      </div>`;
+    } else if(cp.type==='end' && cp.round===2){
+      body = `<div class="card center stack">
+        <div class="eyebrow pill gold">Fine qualificazione</div>
+        <h2>Le due manche sono finite!</h2>
+        <p class="muted">L'admin sta per svelare le finaliste...</p>
+      </div>`;
+    }
+  }
+  else if(s.phase==='tiebreak_setup'){
+    body = `<div class="card center stack">
+      <div class="eyebrow pill gold">Spareggio</div>
+      <h2>C'è un pareggio per l'accesso in finale!</h2>
+      <p class="muted">L'admin sta preparando la domanda decisiva...</p>
+    </div>`;
+  }
+  else if(s.phase==='reveal_finalists'){
+    if(isEliminated){
+      body = `<div class="card center stack">
+        <div class="eyebrow">Verdetto</div>
+        <h2>Siete eliminati, godetevi la finale 🍿</h2>
+        <div class="divider"></div>
+        <p class="muted">In finale: ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
+      </div>`;
+    } else {
+      body = `<div class="card center stack final-glow">
+        <div class="eyebrow pill gold">Verdetto</div>
+        <h2>Siete in finale! 🏆</h2>
+        <p class="muted">Contro: ${s.finalists.filter(id=>id!==teamId).map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+      </div>`;
+    }
+  }
+  else if(s.phase==='final_ready'){
+    body = `<div class="card center stack">
+      <div class="eyebrow pill gold">Finale conclusa</div>
+      <h2>Il momento della verità sta per arrivare...</h2>
+      <p class="muted">Attendete il verdetto dell'admin</p>
+    </div>`;
+  }
+  else if(s.phase==='reveal_winner'){
+    if(s.winner==='TIE'){
+      body = `<div class="winner-card"><div class="eyebrow pill gold">Pareggio!</div><h2>Serve un supplementare 😅</h2></div>`;
+    } else if(s.winner===teamId){
+      body = `<div class="winner-card">
+        <div class="eyebrow pill gold">Campioni</div>
+        <div class="winner-name">${teamName}</div>
+        <p>Campioni del Quizzettone! 🏆🎉</p>
+      </div>`;
+    } else if(isFinalist){
+      body = `<div class="card center stack">
+        <div class="eyebrow">Finale</div>
+        <h2>Secondo posto, ma che partita! 🥈</h2>
+        <p class="muted">Vince ${teams[s.winner]?teams[s.winner].name:'—'}</p>
+      </div>`;
+    } else {
+      body = `<div class="card center stack">
+        <h2>🏆 ${teams[s.winner]?teams[s.winner].name:'—'} è campione del Quizzettone!</h2>
+      </div>`;
+    }
+  }
+
+  const app2 = document.getElementById('app');
+  app2.innerHTML = `
+    <div class="header">
+      <div class="eyebrow">Quizzettone · ${teamName} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
+    </div>
+    ${body}
+  `;
+  attachTeamOptionHandlers();
+  const exitLink = document.getElementById('lnkExit');
+  if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ clearUrlSession(); if(pollTimer){clearInterval(pollTimer); pollTimer=null;} role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
+}
+
+function renderTeamQuestion(round, idx, active, isTiebreak){
+  const q = getQuestion(round, idx);
+  if(!q) return '<div class="card center">Un attimo...</div>';
+  const key = qkey(round, idx);
+  const myAnswer = answersByTeam[teamId] && answersByTeam[teamId][key];
+  const remaining = active ? timeRemaining() : 0;
+  const expired = active && remaining<=0 && !myAnswer;
+  const showCorrectness = round!=='final' && round!=='tiebreak' && !active;
+
+  let optionsHtml = q.options.map((opt,i)=>{
+    let cls = 'opt';
+    if(myAnswer && myAnswer.optionIndex===i) cls += ' selected';
+    if(showCorrectness){
+      if(i===q.correctIndex) cls += ' correct';
+      else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
+    }
+    const disabled = !active || !!myAnswer || remaining<=0;
+    return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
+      <span class="letter">${letter(i)}</span><span>${opt}</span>
+    </button>`;
+  }).join('');
+
+  let banner = '';
+  if(myAnswer) banner = `<div class="status-banner sent">✓ Risposta inviata</div>`;
+  else if(expired || (!active && !myAnswer)) banner = `<div class="status-banner expired">⏱ Tempo scaduto</div>`;
+
+  const roundLabel = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
+
+  return `
+    <div class="card stack">
+      <div class="qmeta">
+        <span class="pill gold">${roundLabel}</span>
+        <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
+        <span class="pill">${q.category}</span>
+      </div>
+      ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timerDuration)}</div>` : ''}
+      <div class="qtext">${q.question}</div>
+      <div class="options">${optionsHtml}</div>
+      ${banner}
+    </div>
+  `;
+}
+
+function attachTeamOptionHandlers(){
+  document.querySelectorAll('.opt[data-idx]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      if(btn.disabled) return;
+      const idx = parseInt(btn.getAttribute('data-idx'));
+      const round = state.round, qIdx = state.qIndex;
+      await teamSubmitAnswer(round, qIdx, idx);
+    };
+  });
+}
+
+function renderProvisionalStandings(round){
+  const ids = Object.keys(teams);
+  const ranked = ids.map(id=>({id, score: roundScore(id, round)})).sort((a,b)=>b.score-a.score);
+  return `<div class="divider"></div><h3 class="center">Classifica provvisoria</h3>${rankRows(ranked)}`;
+}
+function renderEndRound1Standings(mode){
+  const ids = Object.keys(teams);
+  const ranked = ids.map(id=>({id, score: roundScore(id,1)})).sort((a,b)=>b.score-a.score);
+  if(mode==='complete') return `<div class="divider"></div><h3 class="center">Classifica Manche 1</h3>${rankRows(ranked)}`;
+  if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div></div>`).join('')}`;
+  return '';
+}
+
+/* ================== VISTA ADMIN ================== */
+function renderAdmin(){
+  const app = document.getElementById('app');
+  app.className = 'admin-wide';
+  const s = state;
+  const teamIds = Object.keys(teams);
+
+  let controlPanel = '';
+  let liveTable = '';
+
+  if(s.phase==='lobby'){
+    controlPanel = `
+      <div class="card stack">
+        <h3>Lobby</h3>
+        <p class="muted">${teamIds.length} squadre collegate</p>
+        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${teams[id].name}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
+        <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
+      </div>`;
+  }
+  else if(s.phase==='question' || s.phase==='closed'){
+    const round = s.round, idx = s.qIndex;
+    const q = getQuestion(round, idx);
+    const remaining = s.phase==='question' ? timeRemaining() : 0;
+    const closed = s.phase==='closed' || remaining<=0;
+    if(s.phase==='question' && remaining<=0){
+      // auto-chiudi quando scade il tempo
+      setTimeout(()=>{ if(state.phase==='question' && timeRemaining()<=0) adminCloseAnswers(); }, 50);
+    }
+    const roundLabel = round==='final'?'FINALE': round==='tiebreak'?'SPAREGGIO':`MANCHE ${round}`;
+    const activeTeams = round==='final' ? (s.finalists||teamIds) : round==='tiebreak' ? (s.tiebreak?.candidates||[]) : teamIds;
+
+    controlPanel = `
+      <div class="card stack">
+        <div class="qmeta">
+          <span class="pill gold">${roundLabel}</span>
+          <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
+          <span class="pill">${q.category}</span>
+        </div>
+        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timerDuration)}</div>`:''}
+        <div class="qtext">${q.question}</div>
+        <div class="options">
+          ${q.options.map((opt,i)=>`<div class="opt ${i===q.correctIndex?'correct':''}" style="cursor:default;">
+            <span class="letter">${letter(i)}</span><span>${opt}</span>${i===q.correctIndex?' ✓':''}
+          </div>`).join('')}
+        </div>
+        ${q.adminNote?`<p class="note">Nota: ${q.adminNote}</p>`:''}
+        <div class="row">
+          ${!closed?`<button class="btn danger" id="btnCloseNow">Chiudi subito risposte</button>`:`<button class="btn" id="btnNext">${round==='tiebreak'?'Verifica risultato spareggio':'Domanda successiva'}</button>`}
+        </div>
+      </div>`;
+
+    liveTable = `
+      <div class="card">
+        <h3>Stato squadre</h3>
+        <table><thead><tr><th>Squadra</th><th>Stato</th><th>Risposta</th><th>Punti</th></tr></thead><tbody>
+        ${activeTeams.map(id=>{
+          const key = qkey(round, idx);
+          const ans = answersByTeam[id] && answersByTeam[id][key];
+          const status = ans ? `<span class="status-dot dot-ok"></span>Risposto` : (closed ? `<span class="status-dot dot-late"></span>Nessuna risposta` : `<span class="status-dot dot-wait"></span>In attesa`);
+          const answerTxt = ans ? letter(ans.optionIndex)+') '+q.options[ans.optionIndex] : '—';
+          const pts = closed ? teamPointsForQuestion(id, round, idx) : '—';
+          return `<tr>
+            <td>${teams[id]?teams[id].name:'—'}</td>
+            <td>${status}</td>
+            <td>${answerTxt}</td>
+            <td>${pts} ${closed?`<button class="btn ghost small" data-adjust="-1" data-team="${id}">−</button><button class="btn ghost small" data-adjust="1" data-team="${id}">+</button>`:''}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table>
+      </div>`;
+  }
+  else if(s.phase==='checkpoint'){
+    const cp = s.checkpoint;
+    if(cp.type==='mid'){
+      controlPanel = `
+        <div class="card stack">
+          <h3>Checkpoint · Metà Manche ${cp.round}</h3>
+          <div class="row">
+            <button class="btn ${s.checkpointMode==='pause'?'':'secondary'}" id="btnModePause">Mostra solo pausa</button>
+            <button class="btn ${s.checkpointMode==='classifica'?'':'secondary'}" id="btnModeClassifica">Mostra classifica provvisoria</button>
+          </div>
+          <div class="divider"></div>
+          ${renderAdminStandings(cp.round)}
+          <button class="btn" id="btnContinue">Continua</button>
+        </div>`;
+    } else if(cp.type==='end' && cp.round===1){
+      controlPanel = `
+        <div class="card stack">
+          <h3>Fine Manche 1</h3>
+          <div class="stack">
+            <button class="btn ${s.checkpointMode==='complete'?'':'secondary'}" id="btnModeComplete">Mostra classifica completa</button>
+            <button class="btn ${s.checkpointMode==='message'?'':'secondary'}" id="btnModeMessage">Solo messaggio, niente punteggi</button>
+            <button class="btn ${s.checkpointMode==='partial'?'':'secondary'}" id="btnModePartial">Solo posizioni, punti nascosti</button>
+          </div>
+          <div class="divider"></div>
+          ${renderAdminStandings(1)}
+          <button class="btn" id="btnContinue">Continua con Manche 2</button>
+        </div>`;
+    } else if(cp.type==='end' && cp.round===2){
+      controlPanel = `
+        <div class="card stack">
+          <h3>Fine qualificazione</h3>
+          ${renderAdminStandings(2, true)}
+          <button class="btn" id="btnRevealFinalists">Svela finaliste</button>
+        </div>`;
+    }
+  }
+  else if(s.phase==='tiebreak_setup'){
+    controlPanel = `
+      <div class="card stack">
+        <h3>Spareggio necessario</h3>
+        <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+        <p class="muted">Scegli una domanda dal pool finale da usare come spareggio:</p>
+        <div class="stack">
+          ${QF.map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. ${q.question.slice(0,50)}...</button>`).join('')}
+        </div>
+      </div>`;
+  }
+  else if(s.phase==='tiebreak_closed'){
+    const tb = s.tiebreak; const q = tb.question;
+    controlPanel = `
+      <div class="card stack">
+        <h3>Risultato spareggio</h3>
+        <p class="qtext">${q.question}</p>
+        <p class="muted">Corretta: ${letter(q.correctIndex)}) ${q.options[q.correctIndex]}</p>
+        <div class="stack">
+          ${tb.candidates.map(id=>{
+            const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', tb.qIndex)];
+            const correct = ans && ans.optionIndex===q.correctIndex;
+            return `<div class="row" style="align-items:center;">
+              <div>${teams[id]?teams[id].name:'—'} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'}</div>
+              <button class="btn small" data-assign-winner="${id}">Assegna finale a questa squadra</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+  else if(s.phase==='reveal_finalists'){
+    controlPanel = `
+      <div class="card stack">
+        <h3>Finaliste svelate</h3>
+        <p>🏆 ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
+        <p class="muted">Eliminate: ${(s.eliminated||[]).map(id=>teams[id]?teams[id].name:'—').join(', ') || 'nessuna'}</p>
+        <button class="btn" id="btnGoFinal">Inizia la Finale</button>
+      </div>`;
+  }
+  else if(s.phase==='final_ready'){
+    const scores = (s.finalists||[]).map(id=>({id, score:roundScore(id,'final')}));
+    controlPanel = `
+      <div class="card stack">
+        <h3>Finale conclusa</h3>
+        ${scores.map(r=>`<div class="rank-row"><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div><div class="rank-score">${r.score} pt</div></div>`).join('')}
+        <button class="btn" id="btnRevealWinner">Svela vincitore</button>
+      </div>`;
+  }
+  else if(s.phase==='reveal_winner'){
+    controlPanel = `
+      <div class="winner-card">
+        <div class="eyebrow pill gold">Campioni del Quizzettone</div>
+        <div class="winner-name">${s.winner==='TIE' ? 'Pareggio!' : (teams[s.winner]?teams[s.winner].name:'—')}</div>
+        ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teams[r.id]?teams[r.id].name:'—'}: ${r.score} pt</p>`).join('')}
+        ${s.winner==='TIE' ? `<div class="row">${(s.finalists||[]).map(id=>`<button class="btn small" data-declare="${id}">Dichiara ${teams[id]?teams[id].name:'—'} vincitrice</button>`).join('')}</div>`:''}
+      </div>`;
+  }
+
+  const globalStandings = `
+    <div class="card">
+      <h3>Classifica generale (solo admin)</h3>
+      <table><thead><tr><th>Squadra</th><th>Manche 1</th><th>Manche 2</th><th>Finale</th><th>Totale</th></tr></thead><tbody>
+      ${teamIds.map(id=>`<tr>
+        <td>${teams[id].name}</td>
+        <td>${roundScore(id,1)}</td>
+        <td>${roundScore(id,2)}</td>
+        <td>${state.finalists && state.finalists.includes(id) ? roundScore(id,'final') : '—'}</td>
+        <td><b>${totalScore(id)}</b></td>
+      </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+
+  const app2 = document.getElementById('app');
+  app2.innerHTML = `
+    <div class="header">
+      <div class="eyebrow">Quizzettone · Pannello Admin</div>
+    </div>
+    ${controlPanel}
+    ${liveTable}
+    ${globalStandings}
+    <div class="row">
+      <button class="btn ghost small" id="btnReset">↺ Reset partita</button>
+      <button class="btn ghost small" id="btnExitAdmin">Esci da admin</button>
+    </div>
+  `;
+  attachAdminHandlers();
+  const exitAdmin = document.getElementById('btnExitAdmin');
+  if(exitAdmin) exitAdmin.onclick = ()=>{ clearUrlSession(); if(pollTimer){clearInterval(pollTimer); pollTimer=null;} role=null; renderRoleSelect(); };
+}
+
+function renderAdminStandings(round, qualification){
+  const ids = Object.keys(teams);
+  const ranked = ids.map(id=>({id, score: qualification? qualificationScore(id) : roundScore(id, round)})).sort((a,b)=>b.score-a.score);
+  return `<h3 class="center">${qualification?'Classifica qualificazione':'Classifica Manche '+round}</h3>${rankRows(ranked)}`;
+}
+
+function attachAdminHandlers(){
+  const byId = id=>document.getElementById(id);
+  if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
+  if(byId('btnCloseNow')) byId('btnCloseNow').onclick = adminCloseAnswers;
+  if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;
+  if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;
+  if(byId('btnModePause')) byId('btnModePause').onclick = ()=>adminSetCheckpointMode('pause');
+  if(byId('btnModeClassifica')) byId('btnModeClassifica').onclick = ()=>adminSetCheckpointMode('classifica');
+  if(byId('btnModeComplete')) byId('btnModeComplete').onclick = ()=>adminSetCheckpointMode('complete');
+  if(byId('btnModeMessage')) byId('btnModeMessage').onclick = ()=>adminSetCheckpointMode('message');
+  if(byId('btnModePartial')) byId('btnModePartial').onclick = ()=>adminSetCheckpointMode('partial');
+  if(byId('btnRevealFinalists')) byId('btnRevealFinalists').onclick = adminRevealFinalists;
+  if(byId('btnGoFinal')) byId('btnGoFinal').onclick = adminContinueToFinal;
+  if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
+  if(byId('btnReset')) byId('btnReset').onclick = ()=>{ if(confirm('Sicuro di voler azzerare tutta la partita?')) adminResetGame(); };
+  document.querySelectorAll('[data-adjust]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-team');
+      const delta = parseInt(btn.getAttribute('data-adjust'));
+      adminAdjustPoints(id, state.round, state.qIndex, delta);
+    };
+  });
+  document.querySelectorAll('[data-tb-q]').forEach(btn=>{
+    btn.onclick = ()=> adminStartTiebreakQuestion(parseInt(btn.getAttribute('data-tb-q')));
+  });
+  document.querySelectorAll('[data-assign-winner]').forEach(btn=>{
+    btn.onclick = ()=> adminAssignTiebreakWinner(btn.getAttribute('data-assign-winner'));
+  });
+  document.querySelectorAll('[data-declare]').forEach(btn=>{
+    btn.onclick = ()=> adminDeclareWinnerManually(btn.getAttribute('data-declare'));
+  });
+}
+
+/* ================== AVVIO ================== */
+(async function boot(){
+  const restored = await restoreFromUrl();
+  if(!restored) renderRoleSelect();
+})();
+</script>
+</body>
+</html>
