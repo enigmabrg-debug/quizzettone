@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -6,6 +7,9 @@
 <title>Quizzettone</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Firebase: libreria che ci permette di salvare/leggere dati condivisi tra tutti i dispositivi -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
   :root{
     --stage: #150C2B;
@@ -232,21 +236,46 @@ function getList(round){ return round===1?Q1: round===2?Q2: round==='final'?QF: 
 function getQuestion(round, idx){ return getList(round)[idx]; }
 function qkey(round, idx){ return round+'-'+idx; }
 
-/* ================== STORAGE HELPERS ================== */
+/* ================== STORAGE HELPERS (Firebase Realtime Database) ==================
+   Qui sotto sostituiamo "window.storage" (che funziona solo dentro Claude.ai)
+   con Firebase, che funziona da qualunque hosting, incluso GitHub Pages.
+
+   *** DEVI INCOLLARE QUI LA TUA CONFIGURAZIONE FIREBASE ***
+   La trovi nella console Firebase seguendo la guida che ti ho scritto in chat.
+*/
+const firebaseConfig = {
+  apiKey: "AIzaSyAjJ6LLpzw-5jAhqaCzhkJaL4p5aTuRo7Q",
+  authDomain: "quizzettone-49543.firebaseapp.com",
+  databaseURL: "https://quizzettone-49543-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "quizzettone-49543",
+  storageBucket: "quizzettone-49543.firebasestorage.app",
+  messagingSenderId: "503932476992",
+  appId: "1:503932476992:web:2b14ecd90cd6a2a2f609a5"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const DB_ROOT = 'quizzettone'; // tutti i dati del gioco vivono sotto questo "nodo" del database
+
 async function safeGet(key, shared){
-  try{ const r = await window.storage.get(key, shared); return r ? JSON.parse(r.value) : null; }
-  catch(e){ return null; }
+  try{
+    const snap = await db.ref(DB_ROOT + '/' + key).once('value');
+    const val = snap.val();
+    return (val === null || val === undefined) ? null : val;
+  } catch(e){ console.error('storage get failed', key, e); return null; }
 }
 async function safeSet(key, value, shared){
-  try{ await window.storage.set(key, JSON.stringify(value), shared); return true; }
+  try{ await db.ref(DB_ROOT + '/' + key).set(value); return true; }
   catch(e){ console.error('storage set failed', key, e); return false; }
 }
 async function safeDelete(key, shared){
-  try{ await window.storage.delete(key, shared); }catch(e){}
+  try{ await db.ref(DB_ROOT + '/' + key).remove(); }catch(e){}
 }
 async function safeList(prefix, shared){
-  try{ const r = await window.storage.list(prefix, shared); return r ? r.keys : []; }
-  catch(e){ return []; }
+  try{
+    const snap = await db.ref(DB_ROOT).once('value');
+    const all = snap.val() || {};
+    return Object.keys(all).filter(k => k.startsWith(prefix));
+  } catch(e){ console.error('storage list failed', prefix, e); return []; }
 }
 
 /* ================== APP STATE (locale) ================== */
