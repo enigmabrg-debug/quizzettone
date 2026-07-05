@@ -283,7 +283,9 @@ let role = null;          // 'admin' | 'team'
 let teamId = null;
 let teamName = null;
 let joined = false;
-let pollTimer = null;
+let listening = false;
+let uiTickTimer = null;
+let connected = true;     // stato connessione Firebase (.info/connected)
 
 let state = null;         // stato di gioco condiviso
 let teams = {};           // id -> {id, name}
@@ -296,30 +298,48 @@ function defaultState(){
     questionStartedAt:null, timerDuration:20000,
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
-    tiebreak:null, winner:null, finalWinnerScoreSnapshot:null
+    tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
+    standingsVisible:false
   };
 }
 
-async function refresh(){
-  const teamKeys = await safeList('teaminfo:', true);
-  const newTeams = {};
-  for(const k of teamKeys){ const t = await safeGet(k, true); if(t) newTeams[t.id]=t; }
-  teams = newTeams;
-  state = await safeGet('state', true) || defaultState();
-  const newAnswers = {}, newOverrides = {};
-  for(const id of Object.keys(teams)){
-    newAnswers[id] = await safeGet('answers:'+id, true) || {};
-    newOverrides[id] = await safeGet('overrides:'+id, true) || {};
-  }
-  answersByTeam = newAnswers; overridesByTeam = newOverrides;
-  render();
+/* Un solo listener realtime su tutto il nodo del gioco, al posto del polling
+   ogni 1.1s: Firebase applica gli aggiornamenti in locale in modo pressoché
+   istantaneo, anche per le scritture fatte da questo stesso client. */
+function startListening(){
+  if(listening) return;
+  listening = true;
+  db.ref(DB_ROOT).on('value', snap=>{
+    const all = snap.val() || {};
+    const newTeams = {}, newAnswers = {}, newOverrides = {};
+    Object.keys(all).forEach(k=>{
+      if(k.startsWith('teaminfo:')){ if(all[k]) newTeams[all[k].id] = all[k]; }
+      else if(k.startsWith('answers:')){ newAnswers[k.slice('answers:'.length)] = all[k] || {}; }
+      else if(k.startsWith('overrides:')){ newOverrides[k.slice('overrides:'.length)] = all[k] || {}; }
+    });
+    teams = newTeams;
+    answersByTeam = newAnswers;
+    overridesByTeam = newOverrides;
+    state = all.state || defaultState();
+    render();
+  }, err=>{ console.error('listener fallito', err); });
+  db.ref('.info/connected').on('value', snap=>{
+    connected = snap.val() === true;
+    render();
+  });
+  startUiTick();
 }
-
-function startPolling(){
-  if(pollTimer) return;
-  refresh();
-  pollTimer = setInterval(refresh, 1100);
+function stopListening(){
+  db.ref(DB_ROOT).off('value');
+  db.ref('.info/connected').off('value');
+  listening = false;
+  if(uiTickTimer){ clearInterval(uiTickTimer); uiTickTimer = null; }
 }
+function startUiTick(){
+  if(uiTickTimer) return;
+  uiTickTimer = setInterval(()=>{ if(state && state.phase==='question') render(); }, 250);
+}
+async function refresh(){ render(); }
 
 /* ================== LOGICA PUNTEGGI ================== */
 function pointsForAnswer(round, idx, optionIndex){
@@ -450,6 +470,10 @@ async function adminDeclareWinnerManually(id){
   await safeSet('state', {...state, phase:'reveal_winner', winner:id, finalWinnerScoreSnapshot:scores}, true);
   await refresh();
 }
+async function adminToggleStandings(){
+  await safeSet('state', {...state, standingsVisible: !state.standingsVisible}, true);
+  await refresh();
+}
 async function adminResetGame(){
   const teamKeys = await safeList('teaminfo:', true);
   for(const k of teamKeys) await safeDelete(k, true);
@@ -460,16 +484,52 @@ async function adminResetGame(){
 }
 
 /* ================== AZIONI SQUADRA ================== */
+async function findTeamByName(name){
+  const teamKeys = await safeList('teaminfo:', true);
+  for(const k of teamKeys){
+    const t = await safeGet(k, true);
+    if(t && t.name && t.name.trim().toLowerCase() === name.trim().toLowerCase()) return t;
+  }
+  return null;
+}
 async function teamJoin(name){
-  teamId = 'team_' + Math.random().toString(36).slice(2,9);
-  teamName = name.trim();
-  await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now()}, true);
+  const trimmed = name.trim();
+  const existing = await findTeamByName(trimmed);
+  if(existing){
+    teamId = existing.id; teamName = existing.name;
+  } else {
+    teamId = 'team_' + Math.random().toString(36).slice(2,9);
+    teamName = trimmed;
+    await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now()}, true);
+  }
   joined = true;
   setUrlSession('team', teamId);
-  startPolling();
+  saveTeamSession(teamId, teamName);
+  startListening();
 }
 
-/* ================== SESSIONE VIA URL (niente local/session storage) ================== */
+/* ================== SESSIONE (URL + localStorage) ==================
+   L'URL mantiene la sessione se ricarichi la pagina; localStorage la
+   recupera anche se il browser viene chiuso del tutto (l'URL con i
+   parametri va perso, ma il dispositivo è lo stesso). */
+const LS_TEAM_KEY = 'quizzettone_team';
+const LS_ADMIN_KEY = 'quizzettone_admin_unlocked';
+const ADMIN_PIN = '2468'; // cambia questo codice per proteggere l'ingresso admin
+function saveTeamSession(id, name){
+  try{ localStorage.setItem(LS_TEAM_KEY, JSON.stringify({id, name})); }catch(e){}
+}
+function loadTeamSession(){
+  try{ return JSON.parse(localStorage.getItem(LS_TEAM_KEY)); }catch(e){ return null; }
+}
+function clearTeamSession(){
+  try{ localStorage.removeItem(LS_TEAM_KEY); }catch(e){}
+}
+function isAdminUnlocked(){
+  try{ return localStorage.getItem(LS_ADMIN_KEY)==='1'; }catch(e){ return false; }
+}
+function setAdminUnlocked(){
+  try{ localStorage.setItem(LS_ADMIN_KEY, '1'); }catch(e){}
+}
 function setUrlSession(r, id){
   const url = new URL(window.location.href);
   url.searchParams.set('role', r);
@@ -486,18 +546,34 @@ async function restoreFromUrl(){
   const r = params.get('role');
   const id = params.get('id');
   if(r==='admin'){
+    if(!isAdminUnlocked()){ renderAdminPinEntry(); return true; }
     role = 'admin';
-    startPolling();
+    startListening();
     return true;
   }
   if(r==='team' && id){
     const info = await safeGet('teaminfo:'+id, true);
     if(info){
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
-      startPolling();
+      saveTeamSession(teamId, teamName);
+      startListening();
       return true;
     } else {
       clearUrlSession();
+    }
+  }
+  // Nessuna sessione nell'URL: prova a recuperarla da localStorage
+  // (es. il browser è stato chiuso del tutto e poi riaperto).
+  const saved = loadTeamSession();
+  if(saved && saved.id){
+    const info = await safeGet('teaminfo:'+saved.id, true);
+    if(info){
+      role = 'team'; teamId = info.id; teamName = info.name; joined = true;
+      setUrlSession('team', teamId);
+      startListening();
+      return true;
+    } else {
+      clearTeamSession();
     }
   }
   return false;
@@ -539,6 +615,24 @@ function rankRows(idsWithScores){
       <div class="rank-score">${r.score} pt</div>
     </div>`).join('');
 }
+function activeTeamsForRound(round){
+  if(round==='final') return state.finalists || Object.keys(teams);
+  if(round==='tiebreak') return (state.tiebreak && state.tiebreak.candidates) || [];
+  return Object.keys(teams);
+}
+function connectionBadge(){
+  if(connected) return '';
+  return `<div class="pill" style="color:var(--pink);border-color:rgba(255,77,109,.4);background:rgba(255,77,109,.1);margin-top:6px;">⚠ Connessione persa, riconnessione in corso…</div>`;
+}
+function renderLiveStandingsCard(){
+  const ids = Object.keys(teams);
+  const ranked = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>b.score-a.score);
+  return `<div class="card center stack final-glow">
+    <div class="eyebrow pill gold">Classifica</div>
+    <h2>Classifica generale</h2>
+    ${rankRows(ranked)}
+  </div>`;
+}
 
 /* ================== RENDER: SELEZIONE RUOLO ================== */
 function renderRoleSelect(){
@@ -553,10 +647,48 @@ function renderRoleSelect(){
       <button class="btn" id="btnTeam">Sono una squadra 🎉</button>
       <button class="btn secondary" id="btnAdmin">Sono l'admin 🎛️</button>
     </div>
-    <p class="note center">Tieni questa scheda aperta per tutta la partita: se la ricarichi dovrai rientrare come nuova squadra.</p>
+    <p class="note center">Tieni questa scheda aperta per tutta la partita. Se la chiudi per sbaglio, rientra scegliendo lo stesso nome squadra.</p>
   `;
   document.getElementById('btnTeam').onclick = renderTeamJoin;
-  document.getElementById('btnAdmin').onclick = ()=>{ role='admin'; setUrlSession('admin'); startPolling(); };
+  document.getElementById('btnAdmin').onclick = ()=>{
+    if(isAdminUnlocked()){ role='admin'; setUrlSession('admin'); startListening(); }
+    else renderAdminPinEntry();
+  };
+}
+
+function renderAdminPinEntry(){
+  const app = document.getElementById('app');
+  app.className = '';
+  app.innerHTML = `
+    <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+      <div class="eyebrow">Party Quiz</div>
+      <h1 class="brand">QUIZZETTONE</h1>
+    </div>
+    <div class="card stack" style="margin-top:20px;">
+      <h3>Codice admin</h3>
+      <input type="text" id="adminPinInput" placeholder="Codice" maxlength="12" inputmode="numeric" autocomplete="off">
+      <div id="pinError" class="note" style="color:var(--pink);display:none;">Codice errato, riprova.</div>
+      <button class="btn" id="btnPinConfirm">Entra</button>
+      <button class="btn ghost small" id="btnPinBack">← Indietro</button>
+    </div>
+  `;
+  document.getElementById('btnPinBack').onclick = renderRoleSelect;
+  const input = document.getElementById('adminPinInput');
+  input.focus();
+  const tryUnlock = ()=>{
+    if(input.value === ADMIN_PIN){
+      setAdminUnlocked();
+      role = 'admin';
+      setUrlSession('admin');
+      startListening();
+    } else {
+      document.getElementById('pinError').style.display = 'block';
+      input.value = '';
+      input.focus();
+    }
+  };
+  document.getElementById('btnPinConfirm').onclick = tryUnlock;
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') tryUnlock(); });
 }
 
 function renderTeamJoin(){
@@ -603,7 +735,10 @@ function renderTeam(){
 
   let body = '';
 
-  if(s.phase==='lobby'){
+  if(s.standingsVisible){
+    body = renderLiveStandingsCard();
+  }
+  else if(s.phase==='lobby'){
     body = `
       <div class="card center stack">
         <div class="eyebrow">Sei dentro!</div>
@@ -711,12 +846,13 @@ function renderTeam(){
   app2.innerHTML = `
     <div class="header">
       <div class="eyebrow">Quizzettone · ${teamName} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
+      ${connectionBadge()}
     </div>
     ${body}
   `;
   attachTeamOptionHandlers();
   const exitLink = document.getElementById('lnkExit');
-  if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ clearUrlSession(); if(pollTimer){clearInterval(pollTimer); pollTimer=null;} role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
+  if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
 function renderTeamQuestion(round, idx, active, isTiebreak){
@@ -746,6 +882,8 @@ function renderTeamQuestion(round, idx, active, isTiebreak){
   else if(expired || (!active && !myAnswer)) banner = `<div class="status-banner expired">⏱ Tempo scaduto</div>`;
 
   const roundLabel = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
+  const activeIds = active ? activeTeamsForRound(round) : [];
+  const answeredCount = active ? activeIds.filter(id=>answersByTeam[id] && answersByTeam[id][key]).length : 0;
 
   return `
     <div class="card stack">
@@ -753,6 +891,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak){
         <span class="pill gold">${roundLabel}</span>
         <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
         <span class="pill">${q.category}</span>
+        ${active ? `<span class="pill">✓ ${answeredCount}/${activeIds.length} risposto</span>` : ''}
       </div>
       ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timerDuration)}</div>` : ''}
       <div class="qtext">${q.question}</div>
@@ -815,7 +954,7 @@ function renderAdmin(){
       setTimeout(()=>{ if(state.phase==='question' && timeRemaining()<=0) adminCloseAnswers(); }, 50);
     }
     const roundLabel = round==='final'?'FINALE': round==='tiebreak'?'SPAREGGIO':`MANCHE ${round}`;
-    const activeTeams = round==='final' ? (s.finalists||teamIds) : round==='tiebreak' ? (s.tiebreak?.candidates||[]) : teamIds;
+    const activeTeams = activeTeamsForRound(round);
 
     controlPanel = `
       <div class="card stack">
@@ -965,11 +1104,22 @@ function renderAdmin(){
       </tbody></table>
     </div>`;
 
+  const standingsToggle = `
+    <div class="card row" style="align-items:center;">
+      <div style="flex:2;">
+        <div class="eyebrow">Classifica squadre</div>
+        <p class="muted" style="margin:2px 0 0;">${s.standingsVisible ? 'Visibile ora sugli schermi delle squadre' : 'Nascosta agli schermi delle squadre'}</p>
+      </div>
+      <button class="btn ${s.standingsVisible?'danger':''}" id="btnToggleStandings" style="flex:1;">${s.standingsVisible?'Nascondi classifica':'Mostra classifica'}</button>
+    </div>`;
+
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
       <div class="eyebrow">Quizzettone · Pannello Admin</div>
+      ${connectionBadge()}
     </div>
+    ${standingsToggle}
     ${controlPanel}
     ${liveTable}
     ${globalStandings}
@@ -980,7 +1130,7 @@ function renderAdmin(){
   `;
   attachAdminHandlers();
   const exitAdmin = document.getElementById('btnExitAdmin');
-  if(exitAdmin) exitAdmin.onclick = ()=>{ clearUrlSession(); if(pollTimer){clearInterval(pollTimer); pollTimer=null;} role=null; renderRoleSelect(); };
+  if(exitAdmin) exitAdmin.onclick = ()=>{ clearUrlSession(); stopListening(); role=null; renderRoleSelect(); };
 }
 
 function renderAdminStandings(round, qualification){
@@ -1004,6 +1154,7 @@ function attachAdminHandlers(){
   if(byId('btnGoFinal')) byId('btnGoFinal').onclick = adminContinueToFinal;
   if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
   if(byId('btnReset')) byId('btnReset').onclick = ()=>{ if(confirm('Sicuro di voler azzerare tutta la partita?')) adminResetGame(); };
+  if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;
   document.querySelectorAll('[data-adjust]').forEach(btn=>{
     btn.onclick = ()=>{
       const id = btn.getAttribute('data-team');
