@@ -158,6 +158,11 @@
   .top1 .rank-num{color:#FFD700;}
   .top2 .rank-num{color:#D9D9D9;}
   .top3 .rank-num{color:#CD7F32;}
+  @keyframes revealIn{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+  .reveal-row{display:flex;align-items:center;gap:16px;padding:16px 6px;border-bottom:1px solid var(--line);}
+  .reveal-pos{font-family:'Archivo Black';font-size:30px;color:var(--gold);width:56px;opacity:0;animation:revealIn .5s ease forwards;}
+  .reveal-name{flex:1;font-weight:700;font-family:'Space Grotesk';font-size:21px;opacity:0;animation:revealIn .5s ease forwards;animation-delay:.4s;}
+  .reveal-score{font-family:'Space Grotesk';font-weight:700;color:var(--gold);font-size:19px;opacity:0;animation:revealIn .5s ease forwards;animation-delay:.8s;}
   .stage-title{font-family:'Archivo Black';font-size:26px;line-height:1.15;}
   .final-glow{
     background:radial-gradient(circle at 50% 0%, rgba(242,183,5,.25), transparent 60%);
@@ -233,8 +238,8 @@ const QF = [
  {category:"Serie TV", question:"Quale serie TV ha come protagonista Thomas Shelby?", options:["Peaky Blinders","The Crown","Vikings","Boardwalk Empire"], correctIndex:0},
  {category:"Storia", question:"Quale tra questi eventi è avvenuto per primo?", options:["Primo uomo sulla Luna","Caduta del Muro di Berlino","Nascita di Internet commerciale","Attentati dell'11 settembre 2001"], correctIndex:0},
 ];
-const POINTS = {1:1, 2:1, final:2, tiebreak:1};
-const CATEGORIES = ["Geografia","Storia","Matematica","Musica","Scienze","Cinema","Sport","Serie TV","Tecnologia","Videogiochi","Filosofia","Arte","Letteratura","Attualità e Società","Natura e Animali","Mitologia","Food e Bevande","Moda e Costume","Fumetti e Anime","Cartoni Animati e Disney","Curiosità e Record"];
+const DEFAULT_SCORING = {correct:1, wrong:0, noAnswer:0};
+const CATEGORIES =["Geografia","Storia","Matematica","Musica","Scienze","Cinema","Sport","Serie TV","Tecnologia","Videogiochi","Filosofia","Arte","Letteratura","Attualità e Società","Natura e Animali","Mitologia","Food e Bevande","Moda e Costume","Fumetti e Anime","Cartoni Animati e Disney","Curiosità e Record"];
 /* Le domande giocate in una partita vivono in state.gameQuestions (pescate dal
    mazzo Firebase all'avvio di ogni fase). Q1/Q2/QF restano solo come mazzo
    "di partenza" con cui popolare il database la prima volta che l'app parte
@@ -308,6 +313,8 @@ let answersByTeam = {};   // id -> {qkey: {optionIndex, ts}}
 let overridesByTeam = {}; // id -> {qkey: points}
 let questionBank = {};    // id -> domanda (persiste tra una partita e l'altra)
 let showQuestionManager = false; // toggle locale (solo per questo admin), non condiviso
+let scoringDefaults = DEFAULT_SCORING; // punteggio di default, persiste tra le partite
+let showScoringSettings = false; // toggle locale (solo per questo admin), non condiviso
 
 function defaultState(){
   return {
@@ -316,7 +323,7 @@ function defaultState(){
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
-    standingsVisible:false, gameQuestions:null
+    standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null
   };
 }
 
@@ -339,6 +346,7 @@ function startListening(){
     answersByTeam = newAnswers;
     overridesByTeam = newOverrides;
     questionBank = newQuestionBank;
+    scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
     state = all.state || defaultState();
     if(role==='admin') ensureSeedQuestions();
     render();
@@ -362,17 +370,23 @@ function startUiTick(){
 async function refresh(){ render(); }
 
 /* ================== LOGICA PUNTEGGI ================== */
+function scoringFor(round, idx){
+  const key = qkey(round, idx);
+  const override = state && state.scoringOverrides && state.scoringOverrides[key];
+  return override || scoringDefaults || DEFAULT_SCORING;
+}
 function pointsForAnswer(round, idx, optionIndex){
   const q = getQuestion(round, idx);
   if(!q) return 0;
-  return optionIndex === q.correctIndex ? (POINTS[round]||1) : 0;
+  const sc = scoringFor(round, idx);
+  return optionIndex === q.correctIndex ? sc.correct : sc.wrong;
 }
 function teamPointsForQuestion(id, round, idx){
   const key = qkey(round, idx);
   const ov = overridesByTeam[id] && overridesByTeam[id][key];
   if(ov !== undefined && ov !== null) return ov;
   const ans = answersByTeam[id] && answersByTeam[id][key];
-  if(!ans) return 0;
+  if(!ans) return scoringFor(round, idx).noAnswer;
   return pointsForAnswer(round, idx, ans.optionIndex);
 }
 function roundScore(id, round){
@@ -481,11 +495,14 @@ async function adminCloseAnswers(){
   const s = {...state, phase:'closed'};
   await safeSet('state', s, true); await refresh();
 }
+async function adminRevealSolution(){
+  await safeSet('state', {...state, solutionRevealed:true}, true); await refresh();
+}
 async function adminAdjustPoints(id, round, idx, delta){
   const key = qkey(round, idx);
   const current = teamPointsForQuestion(id, round, idx);
   const ov = overridesByTeam[id] || {};
-  ov[key] = Math.max(0, current + delta);
+  ov[key] = current + delta;
   await safeSet('overrides:'+id, ov, true); await refresh();
 }
 async function adminNextQuestion(){
@@ -499,13 +516,13 @@ async function adminNextQuestion(){
     } else if(qNumber===list.length){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now()}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false}, true);
     }
   } else if(round==='final'){
     if(qNumber===list.length){
       await safeSet('state', {...state, phase:'final_ready'}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now()}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false}, true);
     }
   } else if(round==='tiebreak'){
     await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
@@ -518,9 +535,9 @@ async function adminSetCheckpointMode(mode){
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
   if(cp.type==='mid'){
-    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null}, true);
+    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null}, true);
   } else if(cp.type==='end' && cp.round===1){
-    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null}, true);
+    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null}, true);
   }
   await refresh();
 }
@@ -552,7 +569,7 @@ async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}}, true);
+  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}}, true);
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
@@ -565,7 +582,7 @@ async function adminAssignTiebreakWinner(winnerId){
 async function adminContinueToFinal(){
   const drawn = drawQuestionsForGame('finale', 10);
   await markQuestionsUsed(drawn);
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}}, true);
+  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}}, true);
   await refresh();
 }
 async function adminRevealWinner(){
@@ -585,6 +602,40 @@ async function adminDeclareWinnerManually(id){
 }
 async function adminToggleStandings(){
   await safeSet('state', {...state, standingsVisible: !state.standingsVisible}, true);
+  await refresh();
+}
+async function adminSetupStandingsReveal(){
+  const ids = Object.keys(teams);
+  const order = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>a.score-b.score).map(r=>r.id);
+  await safeSet('state', {...state, standingsReveal:{order, revealedCount:0}}, true);
+  await refresh();
+}
+async function adminMoveStandingsRevealOrder(index, direction){
+  const order = [...state.standingsReveal.order];
+  const target = index + direction;
+  if(target<0 || target>=order.length) return;
+  [order[index], order[target]] = [order[target], order[index]];
+  await safeSet('state', {...state, standingsReveal:{...state.standingsReveal, order}}, true);
+  await refresh();
+}
+async function adminRevealNextStanding(){
+  const sr = state.standingsReveal;
+  const revealedCount = Math.min(sr.order.length, sr.revealedCount+1);
+  await safeSet('state', {...state, standingsReveal:{...sr, revealedCount}}, true);
+  await refresh();
+}
+async function adminCloseStandingsReveal(){
+  await safeSet('state', {...state, standingsReveal:null}, true);
+  await refresh();
+}
+async function adminSetScoringDefaults(values){
+  await safeSet('scoringDefaults', values, true);
+  await refresh();
+}
+async function adminSetQuestionScoring(round, idx, values){
+  const key = qkey(round, idx);
+  const overrides = {...(state.scoringOverrides||{}), [key]: values};
+  await safeSet('state', {...state, scoringOverrides: overrides}, true);
   await refresh();
 }
 async function adminResetGame(){
@@ -749,6 +800,23 @@ function renderLiveStandingsCard(){
     ${rankRows(ranked)}
   </div>`;
 }
+function renderStandingsRevealScreen(sr){
+  const total = sr.order.length;
+  const revealed = sr.order.slice(0, sr.revealedCount);
+  const rows = revealed.map((id,i)=>{
+    const pos = total - i;
+    return `<div class="reveal-row">
+      <div class="reveal-pos">${pos}°</div>
+      <div class="reveal-name">${escapeHtml(teams[id] ? teams[id].name : '—')}</div>
+      <div class="reveal-score">${totalScore(id)} pt</div>
+    </div>`;
+  }).join('');
+  return `<div class="card center stack final-glow">
+    <div class="eyebrow pill gold">Il momento della verità</div>
+    <h2>Classifica</h2>
+    <div class="stack">${rows || '<p class="muted">Rullo di tamburi...</p>'}</div>
+  </div>`;
+}
 
 /* ================== RENDER: SELEZIONE RUOLO ================== */
 function renderRoleSelect(){
@@ -852,7 +920,10 @@ function renderTeam(){
 
   let body = '';
 
-  if(s.standingsVisible){
+  if(s.standingsReveal){
+    body = renderStandingsRevealScreen(s.standingsReveal);
+  }
+  else if(s.standingsVisible){
     body = renderLiveStandingsCard();
   }
   else if(s.phase==='lobby'){
@@ -979,7 +1050,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak){
   const myAnswer = answersByTeam[teamId] && answersByTeam[teamId][key];
   const remaining = active ? timeRemaining() : 0;
   const expired = active && remaining<=0 && !myAnswer;
-  const showCorrectness = round!=='final' && round!=='tiebreak' && !active;
+  const showCorrectness = round!=='tiebreak' && !active && !!state.solutionRevealed;
 
   let optionsHtml = q.options.map((opt,i)=>{
     let cls = 'opt';
@@ -1095,10 +1166,30 @@ function renderAdmin(){
           </div>`).join('')}
         </div>
         ${q.adminNote?`<p class="note">Nota: ${escapeHtml(q.adminNote)}</p>`:''}
+        <div class="divider"></div>
+        <div class="eyebrow">Punteggio per questa domanda</div>
         <div class="row">
-          ${!closed?`<button class="btn danger" id="btnCloseNow">Chiudi subito risposte</button>`:`<button class="btn" id="btnNext">${round==='tiebreak'?'Verifica risultato spareggio':'Domanda successiva'}</button>`}
+          <label class="stack">Corretta<input type="text" inputmode="numeric" id="qsCorrect" value="${scoringFor(round, idx).correct}"></label>
+          <label class="stack">Sbagliata (malus)<input type="text" inputmode="numeric" id="qsWrong" value="${scoringFor(round, idx).wrong}"></label>
+          <label class="stack">Non data<input type="text" inputmode="numeric" id="qsNoAnswer" value="${scoringFor(round, idx).noAnswer}"></label>
+        </div>
+        <button class="btn ghost small" id="btnApplyQuestionScoring">Applica solo a questa domanda</button>
+        <div class="row">
+          ${!closed?`<button class="btn danger" id="btnCloseNow">Chiudi subito risposte</button>`:''}
+          ${closed && !s.solutionRevealed && round!=='tiebreak' ?`<button class="btn secondary" id="btnRevealSolution">Svela soluzione alle squadre</button>`:''}
+          ${closed?`<button class="btn" id="btnNext">${round==='tiebreak'?'Verifica risultato spareggio':'Domanda successiva'}</button>`:''}
         </div>
       </div>`;
+
+    const nextQ = round==='tiebreak' ? null : getQuestion(round, idx+1);
+    if(nextQ){
+      controlPanel += `
+        <div class="card stack" style="opacity:.8;">
+          <div class="eyebrow">Prossima domanda · solo tu la vedi</div>
+          <div class="qmeta"><span class="pill">${escapeHtml(nextQ.category)}</span></div>
+          <div class="qtext" style="font-size:16px;">${escapeHtml(nextQ.question)}</div>
+        </div>`;
+    }
 
     liveTable = `
       <div class="card">
@@ -1237,6 +1328,45 @@ function renderAdmin(){
       <button class="btn ${s.standingsVisible?'danger':''}" id="btnToggleStandings" style="flex:1;">${s.standingsVisible?'Nascondi classifica':'Mostra classifica'}</button>
     </div>`;
 
+  let standingsRevealPanel = '';
+  if(!s.standingsReveal){
+    standingsRevealPanel = `
+      <div class="card stack">
+        <h3>Classifica animata</h3>
+        <p class="muted">Per i momenti clou: rivela le squadre una alla volta con animazione, nell'ordine che scegli tu.</p>
+        <button class="btn secondary" id="btnSetupStandingsReveal" ${teamIds.length<1?'disabled':''}>Prepara rivelazione classifica</button>
+      </div>`;
+  } else if(s.standingsReveal.revealedCount===0){
+    standingsRevealPanel = `
+      <div class="card stack">
+        <h3>Classifica animata · ordina la rivelazione</h3>
+        <p class="muted">Verrà rivelata dall'alto verso il basso di questa lista (di norma dall'ultima alla prima posizione).</p>
+        <div class="stack">
+          ${s.standingsReveal.order.map((id,i)=>`
+            <div class="row" style="align-items:center;">
+              <div style="flex:2;">${i+1}. ${teams[id]?teams[id].name:'—'} (${totalScore(id)} pt)</div>
+              <button class="btn ghost small" data-move-reveal="${i}" data-dir="-1" ${i===0?'disabled':''}>↑</button>
+              <button class="btn ghost small" data-move-reveal="${i}" data-dir="1" ${i===s.standingsReveal.order.length-1?'disabled':''}>↓</button>
+            </div>`).join('')}
+        </div>
+        <div class="row">
+          <button class="btn" id="btnRevealNextStanding">Inizia rivelazione</button>
+          <button class="btn ghost" id="btnCloseStandingsReveal">Annulla</button>
+        </div>
+      </div>`;
+  } else {
+    const done = s.standingsReveal.revealedCount >= s.standingsReveal.order.length;
+    standingsRevealPanel = `
+      <div class="card stack">
+        <h3>Classifica animata in corso</h3>
+        <p class="muted">Rivelate ${s.standingsReveal.revealedCount}/${s.standingsReveal.order.length}</p>
+        <div class="row">
+          ${!done?`<button class="btn" id="btnRevealNextStanding">Rivela prossima</button>`:''}
+          <button class="btn ghost" id="btnCloseStandingsReveal">Chiudi</button>
+        </div>
+      </div>`;
+  }
+
   const questionManagerToggle = `
     <div class="card row" style="align-items:center;">
       <div style="flex:2;">
@@ -1246,6 +1376,26 @@ function renderAdmin(){
       <button class="btn secondary" id="btnToggleQuestionManager" style="flex:1;">${showQuestionManager?'Nascondi gestione':'Gestisci domande'}</button>
     </div>`;
 
+  const scoringSettingsToggle = `
+    <div class="card row" style="align-items:center;">
+      <div style="flex:2;">
+        <div class="eyebrow">Punteggio di default</div>
+        <p class="muted" style="margin:2px 0 0;">Corretta ${scoringDefaults.correct} · Sbagliata ${scoringDefaults.wrong} · Non data ${scoringDefaults.noAnswer}</p>
+      </div>
+      <button class="btn secondary" id="btnToggleScoringSettings" style="flex:1;">${showScoringSettings?'Nascondi':'Modifica default'}</button>
+    </div>`;
+  const scoringSettingsPanel = showScoringSettings ? `
+    <div class="card stack">
+      <h3>Punteggio di default per tutte le domande</h3>
+      <p class="note">Vale per ogni domanda, a meno che tu non lo cambi per una domanda specifica mentre è in corso.</p>
+      <div class="row">
+        <label class="stack">Corretta<input type="text" inputmode="numeric" id="scDefCorrect" value="${scoringDefaults.correct}"></label>
+        <label class="stack">Sbagliata (malus)<input type="text" inputmode="numeric" id="scDefWrong" value="${scoringDefaults.wrong}"></label>
+        <label class="stack">Non data<input type="text" inputmode="numeric" id="scDefNoAnswer" value="${scoringDefaults.noAnswer}"></label>
+      </div>
+      <button class="btn" id="btnSaveScoringDefaults">Salva default</button>
+    </div>` : '';
+
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
@@ -1253,11 +1403,14 @@ function renderAdmin(){
       ${connectionBadge()}
     </div>
     ${standingsToggle}
+    ${standingsRevealPanel}
     ${controlPanel}
     ${liveTable}
     ${globalStandings}
     ${questionManagerToggle}
     ${showQuestionManager ? renderQuestionManager() : ''}
+    ${scoringSettingsToggle}
+    ${scoringSettingsPanel}
     <div class="row">
       <button class="btn ghost small" id="btnReset">↺ Reset partita</button>
       <button class="btn ghost small" id="btnExitAdmin">Esci da admin</button>
@@ -1362,6 +1515,7 @@ function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
   if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
   if(byId('btnCloseNow')) byId('btnCloseNow').onclick = adminCloseAnswers;
+  if(byId('btnRevealSolution')) byId('btnRevealSolution').onclick = adminRevealSolution;
   if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;
   if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;
   if(byId('btnModePause')) byId('btnModePause').onclick = ()=>adminSetCheckpointMode('pause');
@@ -1374,7 +1528,26 @@ function attachAdminHandlers(){
   if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
   if(byId('btnReset')) byId('btnReset').onclick = ()=>{ if(confirm('Sicuro di voler azzerare tutta la partita?')) adminResetGame(); };
   if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;
+  if(byId('btnSetupStandingsReveal')) byId('btnSetupStandingsReveal').onclick = adminSetupStandingsReveal;
+  if(byId('btnRevealNextStanding')) byId('btnRevealNextStanding').onclick = adminRevealNextStanding;
+  if(byId('btnCloseStandingsReveal')) byId('btnCloseStandingsReveal').onclick = adminCloseStandingsReveal;
+  document.querySelectorAll('[data-move-reveal]').forEach(btn=>{
+    btn.onclick = ()=> adminMoveStandingsRevealOrder(parseInt(btn.getAttribute('data-move-reveal')), parseInt(btn.getAttribute('data-dir')));
+  });
   if(byId('btnToggleQuestionManager')) byId('btnToggleQuestionManager').onclick = ()=>{ showQuestionManager = !showQuestionManager; render(); };
+  if(byId('btnToggleScoringSettings')) byId('btnToggleScoringSettings').onclick = ()=>{ showScoringSettings = !showScoringSettings; render(); };
+  if(byId('btnSaveScoringDefaults')) byId('btnSaveScoringDefaults').onclick = ()=>{
+    const correct = parseInt(byId('scDefCorrect').value, 10) || 0;
+    const wrong = parseInt(byId('scDefWrong').value, 10) || 0;
+    const noAnswer = parseInt(byId('scDefNoAnswer').value, 10) || 0;
+    adminSetScoringDefaults({correct, wrong, noAnswer});
+  };
+  if(byId('btnApplyQuestionScoring')) byId('btnApplyQuestionScoring').onclick = ()=>{
+    const correct = parseInt(byId('qsCorrect').value, 10) || 0;
+    const wrong = parseInt(byId('qsWrong').value, 10) || 0;
+    const noAnswer = parseInt(byId('qsNoAnswer').value, 10) || 0;
+    adminSetQuestionScoring(state.round, state.qIndex, {correct, wrong, noAnswer});
+  };
   if(byId('btnAddQuestion')) byId('btnAddQuestion').onclick = async ()=>{
     const pool = byId('qmPool').value;
     const category = byId('qmCategory').value;
