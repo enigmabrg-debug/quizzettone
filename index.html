@@ -87,12 +87,14 @@
   .row{display:flex;gap:10px;}
   .row > *{flex:1;}
   .stack{display:flex;flex-direction:column;gap:10px;}
-  input[type=text]{
+  input[type=text], select, textarea{
     width:100%;padding:14px 16px;border-radius:14px;
     border:1px solid var(--line);background:rgba(0,0,0,0.25);
     color:var(--ink);font-family:'Inter';font-size:16px;
   }
-  input[type=text]:focus{outline:2px solid var(--gold);}
+  input[type=text]:focus, select:focus, textarea:focus{outline:2px solid var(--gold);}
+  textarea{resize:vertical;}
+  code{background:rgba(0,0,0,.3);padding:2px 6px;border-radius:6px;font-size:12px;}
   .pill{
     display:inline-flex;align-items:center;gap:6px;
     background:rgba(245,241,255,0.08);
@@ -232,7 +234,20 @@ const QF = [
  {category:"Storia", question:"Quale tra questi eventi è avvenuto per primo?", options:["Primo uomo sulla Luna","Caduta del Muro di Berlino","Nascita di Internet commerciale","Attentati dell'11 settembre 2001"], correctIndex:0},
 ];
 const POINTS = {1:1, 2:1, final:2, tiebreak:1};
-function getList(round){ return round===1?Q1: round===2?Q2: round==='final'?QF: round==='tiebreak'? (window.__tb_list||[]) : []; }
+const CATEGORIES = ["Geografia","Storia","Matematica","Musica","Scienze","Cinema","Sport","Serie TV","Tecnologia","Videogiochi","Filosofia","Arte","Letteratura","Attualità e Società","Natura e Animali","Mitologia","Food e Bevande","Moda e Costume","Fumetti e Anime","Cartoni Animati e Disney","Curiosità e Record"];
+/* Le domande giocate in una partita vivono in state.gameQuestions (pescate dal
+   mazzo Firebase all'avvio di ogni fase). Q1/Q2/QF restano solo come mazzo
+   "di partenza" con cui popolare il database la prima volta che l'app parte
+   a banca dati vuota (vedi ensureSeedQuestions). */
+function getList(round){
+  const gq = state && state.gameQuestions;
+  if(!gq) return [];
+  if(round===1) return gq.round1 || [];
+  if(round===2) return gq.round2 || [];
+  if(round==='final') return gq.final || [];
+  if(round==='tiebreak') return gq.tiebreak ? [gq.tiebreak] : [];
+  return [];
+}
 function getQuestion(round, idx){ return getList(round)[idx]; }
 function qkey(round, idx){ return round+'-'+idx; }
 
@@ -291,6 +306,8 @@ let state = null;         // stato di gioco condiviso
 let teams = {};           // id -> {id, name}
 let answersByTeam = {};   // id -> {qkey: {optionIndex, ts}}
 let overridesByTeam = {}; // id -> {qkey: points}
+let questionBank = {};    // id -> domanda (persiste tra una partita e l'altra)
+let showQuestionManager = false; // toggle locale (solo per questo admin), non condiviso
 
 function defaultState(){
   return {
@@ -299,7 +316,7 @@ function defaultState(){
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
-    standingsVisible:false
+    standingsVisible:false, gameQuestions:null
   };
 }
 
@@ -311,16 +328,19 @@ function startListening(){
   listening = true;
   db.ref(DB_ROOT).on('value', snap=>{
     const all = snap.val() || {};
-    const newTeams = {}, newAnswers = {}, newOverrides = {};
+    const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {};
     Object.keys(all).forEach(k=>{
       if(k.startsWith('teaminfo:')){ if(all[k]) newTeams[all[k].id] = all[k]; }
       else if(k.startsWith('answers:')){ newAnswers[k.slice('answers:'.length)] = all[k] || {}; }
       else if(k.startsWith('overrides:')){ newOverrides[k.slice('overrides:'.length)] = all[k] || {}; }
+      else if(k.startsWith('question:')){ if(all[k]) newQuestionBank[all[k].id] = all[k]; }
     });
     teams = newTeams;
     answersByTeam = newAnswers;
     overridesByTeam = newOverrides;
+    questionBank = newQuestionBank;
     state = all.state || defaultState();
+    if(role==='admin') ensureSeedQuestions();
     render();
   }, err=>{ console.error('listener fallito', err); });
   db.ref('.info/connected').on('value', snap=>{
@@ -364,10 +384,97 @@ function roundScore(id, round){
 function qualificationScore(id){ return roundScore(id,1) + roundScore(id,2); }
 function totalScore(id){ return qualificationScore(id) + roundScore(id,'final'); }
 
+/* ================== BANCA DOMANDE (Firebase, persiste tra le partite) ================== */
+function newQuestionId(){ return 'q_' + Math.random().toString(36).slice(2,10); }
+
+async function addQuestion(q){
+  const id = newQuestionId();
+  const entry = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, lastUsedAt:null};
+  await safeSet('question:'+id, entry, true);
+  return id;
+}
+async function deleteQuestion(id){ await safeDelete('question:'+id, true); }
+
+function parseBulkQuestions(text){
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const parsed = [], errors = [];
+  lines.forEach((line, i)=>{
+    const parts = line.split('|').map(p=>p.trim());
+    if(parts.length<7){ errors.push('Riga '+(i+1)+': mancano dei campi (servono almeno 7 valori separati da "|")'); return; }
+    const [pool, category, question, o1,o2,o3,o4, correctRaw, note] = parts;
+    if(pool!=='manche' && pool!=='finale'){ errors.push('Riga '+(i+1)+': il pool deve essere "manche" o "finale"'); return; }
+    const correct = parseInt(correctRaw, 10);
+    if(!correct || correct<1 || correct>4){ errors.push('Riga '+(i+1)+': la colonna della risposta corretta deve essere 1, 2, 3 o 4'); return; }
+    if(!category || !question || !o1 || !o2 || !o3 || !o4){ errors.push('Riga '+(i+1)+': un campo obbligatorio è vuoto'); return; }
+    parsed.push({pool, category, question, options:[o1,o2,o3,o4], correctIndex:correct-1, adminNote: note || null});
+  });
+  return {parsed, errors};
+}
+async function bulkAddQuestions(list){
+  const updates = {};
+  list.forEach(q=>{
+    const id = newQuestionId();
+    updates['question:'+id] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, lastUsedAt:null};
+  });
+  await db.ref(DB_ROOT).update(updates);
+}
+
+/* La prima volta che un admin si collega a banca dati vuota, la popoliamo con
+   le domande "storiche" (quelle che prima erano fisse nel codice), così il
+   gioco resta uguale a prima finché non se ne aggiungono di nuove. */
+let seedAttempted = false;
+async function ensureSeedQuestions(){
+  if(seedAttempted) return;
+  seedAttempted = true;
+  const existing = await safeList('question:', true);
+  if(existing.length>0) return;
+  const updates = {};
+  const seed = (list, pool)=> list.forEach(q=>{
+    const id = newQuestionId();
+    updates['question:'+id] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, lastUsedAt:null};
+  });
+  seed(Q1, 'manche'); seed(Q2, 'manche'); seed(QF, 'finale');
+  await db.ref(DB_ROOT).update(updates);
+}
+
+/* Pesca "count" domande da un pool, ruotando tra le categorie presenti e
+   preferendo sempre quelle usate da più tempo (o mai usate). Se il mazzo ha
+   meno domande di quelle richieste, restituisce solo quelle disponibili
+   invece di ripeterne qualcuna nella stessa partita. */
+function drawQuestionsForGame(pool, count, excludeIds){
+  excludeIds = excludeIds || [];
+  const candidates = Object.values(questionBank).filter(q=>q.pool===pool && !excludeIds.includes(q.id));
+  const byCategory = {};
+  candidates.forEach(q=>{ (byCategory[q.category] = byCategory[q.category] || []).push(q); });
+  Object.values(byCategory).forEach(arr=> arr.sort((a,b)=> (a.lastUsedAt||0) - (b.lastUsedAt||0)) );
+  const categories = Object.keys(byCategory).sort(()=>Math.random()-0.5);
+  const picked = [], pickedIds = new Set();
+  let progress = true;
+  while(picked.length<count && progress){
+    progress = false;
+    for(const cat of categories){
+      if(picked.length>=count) break;
+      const next = byCategory[cat].find(q=>!pickedIds.has(q.id));
+      if(next){ picked.push(next); pickedIds.add(next.id); progress = true; }
+    }
+  }
+  return picked.sort(()=>Math.random()-0.5);
+}
+async function markQuestionsUsed(questions){
+  if(!questions.length) return;
+  const updates = {};
+  const now = Date.now();
+  questions.forEach(q=>{ updates['question:'+q.id+'/lastUsedAt'] = now; });
+  await db.ref(DB_ROOT).update(updates);
+}
+
 /* ================== AZIONI ADMIN (scrivono su 'state') ================== */
 async function adminStartGame(){
+  const drawn = drawQuestionsForGame('manche', 30);
+  await markQuestionsUsed(drawn);
   const s = defaultState();
   s.phase='question'; s.round=1; s.qIndex=0; s.questionStartedAt=Date.now();
+  s.gameQuestions = { round1: drawn.slice(0,15), round2: drawn.slice(15,30), final:null, tiebreak:null };
   await safeSet('state', s, true); await refresh();
 }
 async function adminCloseAnswers(){
@@ -386,7 +493,8 @@ async function adminNextQuestion(){
   const list = getList(round);
   const qNumber = idx+1;
   if(round===1 || round===2){
-    if(qNumber===8){
+    const midPoint = Math.ceil(list.length/2);
+    if(list.length>=4 && qNumber===midPoint){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
     } else if(qNumber===list.length){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
@@ -427,21 +535,24 @@ async function adminRevealFinalists(){
   const tiedForSecond = ranked.filter(r=>r.score===secondScore);
   if(tiedForSecond.length>1 && ranked[0].score!==secondScore){
     // primo posto chiaro, spareggio per il secondo posto
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[ranked[0].id], candidates: tiedForSecond.map(r=>r.id), question:null, qIndex:null}}, true);
+    const candidateQuestions = drawQuestionsForGame('finale', 5);
+    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[ranked[0].id], candidates: tiedForSecond.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
   } else if(ranked[0].score===secondScore){
     // pareggio anche per il primo posto: tutti i pari merito in spareggio, si prendono i primi 2
     const topScore = ranked[0].score;
     const tiedTop = ranked.filter(r=>r.score===topScore).map(r=>r.id);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop, question:null, qIndex:null}}, true);
+    const candidateQuestions = drawQuestionsForGame('finale', 5);
+    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop, candidateQuestions, question:null, qIndex:null}}, true);
   } else {
     await safeSet('state', {...state, phase:'reveal_finalists', finalists:[ranked[0].id, ranked[1].id], eliminated: ranked.slice(2).map(r=>r.id)}, true);
   }
   await refresh();
 }
 async function adminStartTiebreakQuestion(qIdx){
-  const tb = {...state.tiebreak, question: QF[qIdx], qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:qIdx, phase:'question', questionStartedAt:Date.now(), tiebreak: tb}, true);
-  window.__tb_list = QF;
+  const chosen = state.tiebreak.candidateQuestions[qIdx];
+  await markQuestionsUsed([chosen]);
+  const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
+  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}}, true);
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
@@ -452,7 +563,9 @@ async function adminAssignTiebreakWinner(winnerId){
   await refresh();
 }
 async function adminContinueToFinal(){
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null}, true);
+  const drawn = drawQuestionsForGame('finale', 10);
+  await markQuestionsUsed(drawn);
+  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}}, true);
   await refresh();
 }
 async function adminRevealWinner(){
@@ -589,6 +702,9 @@ async function teamSubmitAnswer(round, idx, optionIndex){
 
 /* ================== HELPERS UI ================== */
 function letter(i){ return ['A','B','C','D'][i]; }
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function timeRemaining(){
   if(!state || !state.questionStartedAt) return 0;
   const elapsed = Date.now() - state.questionStartedAt;
@@ -719,6 +835,7 @@ function renderTeamJoin(){
 
 /* ================== RENDER PRINCIPALE ================== */
 function render(){
+  if(!state) return; // il primo snapshot da Firebase non è ancora arrivato
   if(role==='team' && joined) return renderTeam();
   if(role==='admin') return renderAdmin();
 }
@@ -873,7 +990,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak){
     }
     const disabled = !active || !!myAnswer || remaining<=0;
     return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
-      <span class="letter">${letter(i)}</span><span>${opt}</span>
+      <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
     </button>`;
   }).join('');
 
@@ -890,11 +1007,11 @@ function renderTeamQuestion(round, idx, active, isTiebreak){
       <div class="qmeta">
         <span class="pill gold">${roundLabel}</span>
         <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
-        <span class="pill">${q.category}</span>
+        <span class="pill">${escapeHtml(q.category)}</span>
         ${active ? `<span class="pill">✓ ${answeredCount}/${activeIds.length} risposto</span>` : ''}
       </div>
       ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timerDuration)}</div>` : ''}
-      <div class="qtext">${q.question}</div>
+      <div class="qtext">${escapeHtml(q.question)}</div>
       <div class="options">${optionsHtml}</div>
       ${banner}
     </div>
@@ -944,6 +1061,13 @@ function renderAdmin(){
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
       </div>`;
   }
+  else if((s.phase==='question' || s.phase==='closed') && !getQuestion(s.round, s.qIndex)){
+    // stato anomalo (es. partita vecchia senza domande pescate dal mazzo): niente da mostrare, meglio resettare
+    controlPanel = `<div class="card stack">
+      <h3>Stato di gioco non valido</h3>
+      <p class="muted">Non ci sono domande disponibili per questo punto della partita. Usa "Reset partita" qui sotto per ripartire da zero.</p>
+    </div>`;
+  }
   else if(s.phase==='question' || s.phase==='closed'){
     const round = s.round, idx = s.qIndex;
     const q = getQuestion(round, idx);
@@ -961,16 +1085,16 @@ function renderAdmin(){
         <div class="qmeta">
           <span class="pill gold">${roundLabel}</span>
           <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
-          <span class="pill">${q.category}</span>
+          <span class="pill">${escapeHtml(q.category)}</span>
         </div>
         ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timerDuration)}</div>`:''}
-        <div class="qtext">${q.question}</div>
+        <div class="qtext">${escapeHtml(q.question)}</div>
         <div class="options">
           ${q.options.map((opt,i)=>`<div class="opt ${i===q.correctIndex?'correct':''}" style="cursor:default;">
-            <span class="letter">${letter(i)}</span><span>${opt}</span>${i===q.correctIndex?' ✓':''}
+            <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>${i===q.correctIndex?' ✓':''}
           </div>`).join('')}
         </div>
-        ${q.adminNote?`<p class="note">Nota: ${q.adminNote}</p>`:''}
+        ${q.adminNote?`<p class="note">Nota: ${escapeHtml(q.adminNote)}</p>`:''}
         <div class="row">
           ${!closed?`<button class="btn danger" id="btnCloseNow">Chiudi subito risposte</button>`:`<button class="btn" id="btnNext">${round==='tiebreak'?'Verifica risultato spareggio':'Domanda successiva'}</button>`}
         </div>
@@ -984,7 +1108,7 @@ function renderAdmin(){
           const key = qkey(round, idx);
           const ans = answersByTeam[id] && answersByTeam[id][key];
           const status = ans ? `<span class="status-dot dot-ok"></span>Risposto` : (closed ? `<span class="status-dot dot-late"></span>Nessuna risposta` : `<span class="status-dot dot-wait"></span>In attesa`);
-          const answerTxt = ans ? letter(ans.optionIndex)+') '+q.options[ans.optionIndex] : '—';
+          const answerTxt = ans ? letter(ans.optionIndex)+') '+escapeHtml(q.options[ans.optionIndex]) : '—';
           const pts = closed ? teamPointsForQuestion(id, round, idx) : '—';
           return `<tr>
             <td>${teams[id]?teams[id].name:'—'}</td>
@@ -1039,7 +1163,7 @@ function renderAdmin(){
         <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
         <p class="muted">Scegli una domanda dal pool finale da usare come spareggio:</p>
         <div class="stack">
-          ${QF.map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. ${q.question.slice(0,50)}...</button>`).join('')}
+          ${(s.tiebreak.candidateQuestions||[]).map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. [${escapeHtml(q.category)}] ${escapeHtml(q.question.slice(0,50))}...</button>`).join('') || '<p class="muted">Nessuna domanda disponibile nel pool finale.</p>'}
         </div>
       </div>`;
   }
@@ -1048,8 +1172,8 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Risultato spareggio</h3>
-        <p class="qtext">${q.question}</p>
-        <p class="muted">Corretta: ${letter(q.correctIndex)}) ${q.options[q.correctIndex]}</p>
+        <p class="qtext">${escapeHtml(q.question)}</p>
+        <p class="muted">Corretta: ${letter(q.correctIndex)}) ${escapeHtml(q.options[q.correctIndex])}</p>
         <div class="stack">
           ${tb.candidates.map(id=>{
             const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', tb.qIndex)];
@@ -1113,6 +1237,15 @@ function renderAdmin(){
       <button class="btn ${s.standingsVisible?'danger':''}" id="btnToggleStandings" style="flex:1;">${s.standingsVisible?'Nascondi classifica':'Mostra classifica'}</button>
     </div>`;
 
+  const questionManagerToggle = `
+    <div class="card row" style="align-items:center;">
+      <div style="flex:2;">
+        <div class="eyebrow">Banca domande</div>
+        <p class="muted" style="margin:2px 0 0;">${Object.keys(questionBank).length} domande nel mazzo</p>
+      </div>
+      <button class="btn secondary" id="btnToggleQuestionManager" style="flex:1;">${showQuestionManager?'Nascondi gestione':'Gestisci domande'}</button>
+    </div>`;
+
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
@@ -1123,6 +1256,8 @@ function renderAdmin(){
     ${controlPanel}
     ${liveTable}
     ${globalStandings}
+    ${questionManagerToggle}
+    ${showQuestionManager ? renderQuestionManager() : ''}
     <div class="row">
       <button class="btn ghost small" id="btnReset">↺ Reset partita</button>
       <button class="btn ghost small" id="btnExitAdmin">Esci da admin</button>
@@ -1131,6 +1266,90 @@ function renderAdmin(){
   attachAdminHandlers();
   const exitAdmin = document.getElementById('btnExitAdmin');
   if(exitAdmin) exitAdmin.onclick = ()=>{ clearUrlSession(); stopListening(); role=null; renderRoleSelect(); };
+}
+
+function renderQuestionManager(){
+  const all = Object.values(questionBank);
+  const pools = ['manche','finale'];
+  const byPoolCategory = {};
+  all.forEach(q=>{
+    byPoolCategory[q.pool] = byPoolCategory[q.pool] || {};
+    byPoolCategory[q.pool][q.category] = byPoolCategory[q.pool][q.category] || [];
+    byPoolCategory[q.pool][q.category].push(q);
+  });
+
+  const countsHtml = pools.map(pool=>{
+    const cats = byPoolCategory[pool] || {};
+    const catNames = Object.keys(cats).sort();
+    const rows = catNames.map(c=>{
+      const n = cats[c].length;
+      return `<div class="row" style="justify-content:space-between;"><span>${escapeHtml(c)}</span><span class="pill ${n<10?'':'gold'}">${n}</span></div>`;
+    }).join('') || '<p class="muted">Nessuna domanda in questo pool.</p>';
+    const total = all.filter(q=>q.pool===pool).length;
+    return `<div class="stack"><h3>${pool==='manche'?'Manche':'Finale'} (${total} totali)</h3>${rows}</div>`;
+  }).join('<div class="divider"></div>');
+
+  const listHtml = pools.map(pool=>{
+    const cats = byPoolCategory[pool] || {};
+    const catNames = Object.keys(cats).sort();
+    const details = catNames.map(c=>{
+      const items = cats[c].map(q=>`
+        <div class="row" style="align-items:center;">
+          <div style="flex:3;">
+            <div style="font-weight:600;">${escapeHtml(q.question)}</div>
+            <div class="muted" style="font-size:12px;">${q.options.map((o,i)=>(i===q.correctIndex?'✓ ':'')+escapeHtml(o)).join(' · ')}</div>
+          </div>
+          <button class="btn danger small" data-delete-question="${q.id}">Elimina</button>
+        </div>`).join('');
+      return `<details><summary>${escapeHtml(c)} (${cats[c].length})</summary>${items}</details>`;
+    }).join('') || '<p class="muted">Vuoto.</p>';
+    return `<div class="stack"><h3>${pool==='manche'?'Manche':'Finale'}</h3>${details}</div>`;
+  }).join('<div class="divider"></div>');
+
+  return `
+    <div class="card stack">
+      <h3>Riepilogo mazzo</h3>
+      <p class="note">Le categorie sotto le 10 domande sono evidenziate in oro: potrebbero ripetersi spesso finché non ne aggiungi altre.</p>
+      ${countsHtml}
+    </div>
+    <div class="card stack">
+      <h3>Aggiungi una domanda</h3>
+      <div class="row">
+        <select id="qmPool">
+          <option value="manche">Manche</option>
+          <option value="finale">Finale</option>
+        </select>
+        <select id="qmCategory">${CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select>
+      </div>
+      <input type="text" id="qmQuestion" placeholder="Testo della domanda">
+      <input type="text" id="qmOpt0" placeholder="Opzione A">
+      <input type="text" id="qmOpt1" placeholder="Opzione B">
+      <input type="text" id="qmOpt2" placeholder="Opzione C">
+      <input type="text" id="qmOpt3" placeholder="Opzione D">
+      <select id="qmCorrect">
+        <option value="0">Corretta: A</option>
+        <option value="1">Corretta: B</option>
+        <option value="2">Corretta: C</option>
+        <option value="3">Corretta: D</option>
+      </select>
+      <input type="text" id="qmNote" placeholder="Nota per l'admin (facoltativa, es. autore canzone)">
+      <button class="btn" id="btnAddQuestion">Aggiungi al mazzo</button>
+      <div id="qmAddMsg" class="note"></div>
+    </div>
+    <div class="card stack">
+      <h3>Incolla in blocco</h3>
+      <p class="note">Un rigo per domanda, campi separati da "|":<br>
+      <code>manche|Musica|Che canzone è?|Sere nere|Ti scatterò una foto|Non me lo so spiegare|Imbranato|2|Tiziano Ferro</code><br>
+      Il penultimo campo è la risposta corretta (1=A, 2=B, 3=C, 4=D); l'ultimo campo (nota) è facoltativo.</p>
+      <textarea id="qmBulkText" rows="6" placeholder="Incolla qui le domande, una per riga..."></textarea>
+      <button class="btn" id="btnBulkImport">Importa</button>
+      <div id="qmBulkMsg" class="note"></div>
+    </div>
+    <div class="card stack">
+      <h3>Elenco domande</h3>
+      ${listHtml}
+    </div>
+  `;
 }
 
 function renderAdminStandings(round, qualification){
@@ -1155,6 +1374,39 @@ function attachAdminHandlers(){
   if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
   if(byId('btnReset')) byId('btnReset').onclick = ()=>{ if(confirm('Sicuro di voler azzerare tutta la partita?')) adminResetGame(); };
   if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;
+  if(byId('btnToggleQuestionManager')) byId('btnToggleQuestionManager').onclick = ()=>{ showQuestionManager = !showQuestionManager; render(); };
+  if(byId('btnAddQuestion')) byId('btnAddQuestion').onclick = async ()=>{
+    const pool = byId('qmPool').value;
+    const category = byId('qmCategory').value;
+    const question = byId('qmQuestion').value.trim();
+    const opts = [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim(), byId('qmOpt2').value.trim(), byId('qmOpt3').value.trim()];
+    const correctIndex = parseInt(byId('qmCorrect').value, 10);
+    const note = byId('qmNote').value.trim();
+    const msg = byId('qmAddMsg');
+    if(!question || opts.some(o=>!o)){
+      msg.textContent = 'Compila la domanda e tutte e 4 le opzioni.';
+      msg.style.color = 'var(--pink)';
+      return;
+    }
+    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null});
+    msg.textContent = 'Domanda aggiunta!';
+    msg.style.color = 'var(--green)';
+    ['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote'].forEach(id=>byId(id).value='');
+  };
+  if(byId('btnBulkImport')) byId('btnBulkImport').onclick = async ()=>{
+    const text = byId('qmBulkText').value;
+    const {parsed, errors} = parseBulkQuestions(text);
+    if(parsed.length>0) await bulkAddQuestions(parsed);
+    const msg = byId('qmBulkMsg');
+    let text2 = parsed.length + ' domande importate.';
+    if(errors.length) text2 += ' Problemi: ' + errors.join('; ');
+    msg.textContent = text2;
+    msg.style.color = errors.length ? 'var(--pink)' : 'var(--green)';
+    if(parsed.length>0) byId('qmBulkText').value = '';
+  };
+  document.querySelectorAll('[data-delete-question]').forEach(btn=>{
+    btn.onclick = ()=>{ if(confirm('Eliminare questa domanda dal mazzo?')) deleteQuestion(btn.getAttribute('data-delete-question')); };
+  });
   document.querySelectorAll('[data-adjust]').forEach(btn=>{
     btn.onclick = ()=>{
       const id = btn.getAttribute('data-team');
