@@ -10,6 +10,7 @@
 <!-- Firebase: libreria che ci permette di salvare/leggere dati condivisi tra tutti i dispositivi -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <style>
   :root{
     --stage: #150C2B;
@@ -274,7 +275,16 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const storage = firebase.storage();
 const DB_ROOT = 'quizzettone'; // tutti i dati del gioco vivono sotto questo "nodo" del database
+
+async function uploadAudioFile(file, folder){
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = 'quizzettone-audio/' + folder + '/' + Date.now() + '_' + safeName;
+  const ref = storage.ref(path);
+  await ref.put(file);
+  return await ref.getDownloadURL();
+}
 
 async function safeGet(key, shared){
   try{
@@ -315,6 +325,10 @@ let questionBank = {};    // id -> domanda (persiste tra una partita e l'altra)
 let showQuestionManager = false; // toggle locale (solo per questo admin), non condiviso
 let scoringDefaults = DEFAULT_SCORING; // punteggio di default, persiste tra le partite
 let showScoringSettings = false; // toggle locale (solo per questo admin), non condiviso
+let soundEffects = {};    // id -> effetto sonoro (persiste tra una partita e l'altra)
+let showEffectsManager = false; // toggle locale (solo per questo admin), non condiviso
+let lastPlayedAudioNonce = null; // locale, mai su Firebase: evita di ri-suonare lo stesso cue
+let audioUnlocked = false; // locale: se questa scheda ha già sbloccato l'autoplay audio
 
 function defaultState(){
   return {
@@ -323,7 +337,8 @@ function defaultState(){
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
-    standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null
+    standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null,
+    audioCue:null
   };
 }
 
@@ -335,17 +350,19 @@ function startListening(){
   listening = true;
   db.ref(DB_ROOT).on('value', snap=>{
     const all = snap.val() || {};
-    const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {};
+    const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {}, newEffects = {};
     Object.keys(all).forEach(k=>{
       if(k.startsWith('teaminfo:')){ if(all[k]) newTeams[all[k].id] = all[k]; }
       else if(k.startsWith('answers:')){ newAnswers[k.slice('answers:'.length)] = all[k] || {}; }
       else if(k.startsWith('overrides:')){ newOverrides[k.slice('overrides:'.length)] = all[k] || {}; }
       else if(k.startsWith('question:')){ if(all[k]) newQuestionBank[all[k].id] = all[k]; }
+      else if(k.startsWith('effect:')){ if(all[k]) newEffects[all[k].id] = all[k]; }
     });
     teams = newTeams;
     answersByTeam = newAnswers;
     overridesByTeam = newOverrides;
     questionBank = newQuestionBank;
+    soundEffects = newEffects;
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
     state = all.state || defaultState();
     if(role==='admin') ensureSeedQuestions();
@@ -403,7 +420,7 @@ function newQuestionId(){ return 'q_' + Math.random().toString(36).slice(2,10); 
 
 async function addQuestion(q){
   const id = newQuestionId();
-  const entry = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, lastUsedAt:null};
+  const entry = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, lastUsedAt:null};
   await safeSet('question:'+id, entry, true);
   return id;
 }
@@ -415,12 +432,12 @@ function parseBulkQuestions(text){
   lines.forEach((line, i)=>{
     const parts = line.split('|').map(p=>p.trim());
     if(parts.length<7){ errors.push('Riga '+(i+1)+': mancano dei campi (servono almeno 7 valori separati da "|")'); return; }
-    const [pool, category, question, o1,o2,o3,o4, correctRaw, note] = parts;
+    const [pool, category, question, o1,o2,o3,o4, correctRaw, note, audioUrl] = parts;
     if(pool!=='manche' && pool!=='finale'){ errors.push('Riga '+(i+1)+': il pool deve essere "manche" o "finale"'); return; }
     const correct = parseInt(correctRaw, 10);
     if(!correct || correct<1 || correct>4){ errors.push('Riga '+(i+1)+': la colonna della risposta corretta deve essere 1, 2, 3 o 4'); return; }
     if(!category || !question || !o1 || !o2 || !o3 || !o4){ errors.push('Riga '+(i+1)+': un campo obbligatorio è vuoto'); return; }
-    parsed.push({pool, category, question, options:[o1,o2,o3,o4], correctIndex:correct-1, adminNote: note || null});
+    parsed.push({pool, category, question, options:[o1,o2,o3,o4], correctIndex:correct-1, adminNote: note || null, audioUrl: audioUrl || null});
   });
   return {parsed, errors};
 }
@@ -428,10 +445,19 @@ async function bulkAddQuestions(list){
   const updates = {};
   list.forEach(q=>{
     const id = newQuestionId();
-    updates['question:'+id] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, lastUsedAt:null};
+    updates['question:'+id] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null};
   });
   await db.ref(DB_ROOT).update(updates);
 }
+
+/* ================== EFFETTI SONORI (Firebase, persistono tra le partite) ================== */
+function newEffectId(){ return 'fx_' + Math.random().toString(36).slice(2,10); }
+async function addEffect(name, url){
+  const id = newEffectId();
+  await safeSet('effect:'+id, {id, name, url, createdAt:Date.now()}, true);
+  return id;
+}
+async function deleteEffect(id){ await safeDelete('effect:'+id, true); }
 
 /* La prima volta che un admin si collega a banca dati vuota, la popoliamo con
    le domande "storiche" (quelle che prima erano fisse nel codice), così il
@@ -445,7 +471,7 @@ async function ensureSeedQuestions(){
   const updates = {};
   const seed = (list, pool)=> list.forEach(q=>{
     const id = newQuestionId();
-    updates['question:'+id] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, lastUsedAt:null};
+    updates['question:'+id] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:null, lastUsedAt:null};
   });
   seed(Q1, 'manche'); seed(Q2, 'manche'); seed(QF, 'finale');
   await db.ref(DB_ROOT).update(updates);
@@ -482,6 +508,13 @@ async function markQuestionsUsed(questions){
   await db.ref(DB_ROOT).update(updates);
 }
 
+/* Se la domanda ha un audio associato, genera un "cue" con un nonce nuovo:
+   admin e Display lo notano tramite playPendingAudioCueIfAny() e lo suonano. */
+function audioCueForQuestion(q){
+  if(!q || !q.audioUrl) return null;
+  return {url:q.audioUrl, kind:'question', label:q.category, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)};
+}
+
 /* ================== AZIONI ADMIN (scrivono su 'state') ================== */
 async function adminStartGame(){
   const drawn = drawQuestionsForGame('manche', 30);
@@ -489,6 +522,7 @@ async function adminStartGame(){
   const s = defaultState();
   s.phase='question'; s.round=1; s.qIndex=0; s.questionStartedAt=Date.now();
   s.gameQuestions = { round1: drawn.slice(0,15), round2: drawn.slice(15,30), final:null, tiebreak:null };
+  s.audioCue = audioCueForQuestion(drawn[0]);
   await safeSet('state', s, true); await refresh();
 }
 async function adminCloseAnswers(){
@@ -497,6 +531,12 @@ async function adminCloseAnswers(){
 }
 async function adminRevealSolution(){
   await safeSet('state', {...state, solutionRevealed:true}, true); await refresh();
+}
+async function adminReplayCurrentAudio(){
+  const q = getQuestion(state.round, state.qIndex);
+  const cue = audioCueForQuestion(q);
+  if(cue) await safeSet('state', {...state, audioCue:cue}, true);
+  await refresh();
 }
 async function adminAdjustPoints(id, round, idx, delta){
   const key = qkey(round, idx);
@@ -516,13 +556,13 @@ async function adminNextQuestion(){
     } else if(qNumber===list.length){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='final'){
     if(qNumber===list.length){
       await safeSet('state', {...state, phase:'final_ready'}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='tiebreak'){
     await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
@@ -535,9 +575,11 @@ async function adminSetCheckpointMode(mode){
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
   if(cp.type==='mid'){
-    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null}, true);
+    const nextQ = getQuestion(cp.round, state.qIndex+1);
+    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   } else if(cp.type==='end' && cp.round===1){
-    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null}, true);
+    const nextQ = getQuestion(2, 0);
+    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   }
   await refresh();
 }
@@ -569,7 +611,7 @@ async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}}, true);
+  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
@@ -582,7 +624,7 @@ async function adminAssignTiebreakWinner(winnerId){
 async function adminContinueToFinal(){
   const drawn = drawQuestionsForGame('finale', 10);
   await markQuestionsUsed(drawn);
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}}, true);
+  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
   await refresh();
 }
 async function adminRevealWinner(){
@@ -715,6 +757,11 @@ async function restoreFromUrl(){
     startListening();
     return true;
   }
+  if(r==='display'){
+    role = 'display';
+    startListening();
+    return true;
+  }
   if(r==='team' && id){
     const info = await safeGet('teaminfo:'+id, true);
     if(info){
@@ -790,6 +837,41 @@ function activeTeamsForRound(round){
 function connectionBadge(){
   if(connected) return '';
   return `<div class="pill" style="color:var(--pink);border-color:rgba(255,77,109,.4);background:rgba(255,77,109,.1);margin-top:6px;">⚠ Connessione persa, riconnessione in corso…</div>`;
+}
+
+/* ================== AUDIO (cue condiviso via Firebase, suonato solo da admin + Display) ================== */
+const AUDIO_CUE_STALE_MS = 8000;
+function playPendingAudioCueIfAny(){
+  const cue = state && state.audioCue;
+  if(!cue || cue.nonce===lastPlayedAudioNonce) return;
+  lastPlayedAudioNonce = cue.nonce; // segnato come "visto" comunque, anche se scartato: mai riprovare un cue vecchio
+  if(Date.now() - cue.triggeredAt > AUDIO_CUE_STALE_MS) return; // scheda appena aperta a metà domanda: non sparare audio vecchio
+  const el = document.getElementById('displayAudioEl') || document.getElementById('adminAudioEl');
+  if(!el) return;
+  el.src = cue.url;
+  el.play().catch(err=>console.warn('audio bloccato dal browser', err));
+}
+function audioUnlockOverlayHtml(){
+  if(audioUnlocked) return '';
+  return `<div class="card center stack" id="audioUnlockCard" style="position:fixed;inset:0;z-index:999;justify-content:center;background:rgba(21,12,43,.96);border-radius:0;">
+    <h2>🔊 Attiva l'audio</h2>
+    <p class="muted">Tocca per abilitare la riproduzione automatica su questo schermo.</p>
+    <button class="btn" id="btnUnlockAudio">Attiva</button>
+  </div>`;
+}
+const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+function wireAudioUnlockOverlay(){
+  const btn = document.getElementById('btnUnlockAudio');
+  if(!btn) return;
+  btn.onclick = ()=>{
+    const el = document.getElementById('displayAudioEl');
+    const finish = ()=>{ if(audioUnlocked) return; el.muted=false; audioUnlocked=true; render(); };
+    el.muted = true;
+    el.src = SILENT_WAV;
+    const playPromise = el.play();
+    if(playPromise && playPromise.then) playPromise.then(()=>{ el.pause(); finish(); }).catch(finish);
+    setTimeout(finish, 1500); // rete di sicurezza se .play() resta in sospeso
+  };
 }
 function renderLiveStandingsCard(){
   const ids = Object.keys(teams);
@@ -906,6 +988,7 @@ function render(){
   if(!state) return; // il primo snapshot da Firebase non è ancora arrivato
   if(role==='team' && joined) return renderTeam();
   if(role==='admin') return renderAdmin();
+  if(role==='display') return renderDisplay();
 }
 
 /* ================== VISTA SQUADRA ================== */
@@ -1043,7 +1126,7 @@ function renderTeam(){
   if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
-function renderTeamQuestion(round, idx, active, isTiebreak){
+function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const q = getQuestion(round, idx);
   if(!q) return '<div class="card center">Un attimo...</div>';
   const key = qkey(round, idx);
@@ -1059,7 +1142,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak){
       if(i===q.correctIndex) cls += ' correct';
       else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
     }
-    const disabled = !active || !!myAnswer || remaining<=0;
+    const disabled = readOnly || !active || !!myAnswer || remaining<=0;
     return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
       <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
     </button>`;
@@ -1111,6 +1194,110 @@ function renderEndRound1Standings(mode){
   if(mode==='complete') return `<div class="divider"></div><h3 class="center">Classifica Manche 1</h3>${rankRows(ranked)}`;
   if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div></div>`).join('')}`;
   return '';
+}
+
+/* ================== VISTA DISPLAY (schermo pubblico, sola lettura) ================== */
+function renderDisplay(){
+  const app = document.getElementById('app');
+  app.className = '';
+  const s = state;
+  const inTiebreak = s.round==='tiebreak';
+
+  let body = '';
+
+  if(s.standingsReveal){
+    body = renderStandingsRevealScreen(s.standingsReveal);
+  }
+  else if(s.standingsVisible){
+    body = renderLiveStandingsCard();
+  }
+  else if(s.phase==='lobby'){
+    body = `
+      <div class="card center stack">
+        <div class="eyebrow">Quizzettone</div>
+        <h2>In attesa che l'admin avvii la Manche 1...</h2>
+      </div>`;
+  }
+  else if(s.phase==='question' && !inTiebreak){
+    body = renderTeamQuestion(s.round, s.qIndex, true, false, true);
+  }
+  else if(s.phase==='question' && inTiebreak){
+    body = `<div class="card center stack">
+      <div class="eyebrow pill gold">Spareggio in corso</div>
+      <h3>Due squadre si giocano l'accesso in finale</h3>
+    </div>`;
+  }
+  else if(s.phase==='closed'){
+    body = renderTeamQuestion(s.round, s.qIndex, false, false, true);
+  }
+  else if(s.phase==='tiebreak_closed'){
+    body = `<div class="card center stack"><div class="eyebrow pill gold">Spareggio</div><p class="muted">L'admin sta verificando le risposte...</p></div>`;
+  }
+  else if(s.phase==='checkpoint'){
+    const cp = s.checkpoint;
+    if(cp.type==='mid'){
+      const total = getList(cp.round).length;
+      body = `<div class="card center stack">
+        <div class="eyebrow pill gold">Checkpoint · Metà Manche ${cp.round}</div>
+        <h2>Prendete fiato ☕</h2>
+        <p class="muted">${cp.round===1?8:8} domande giocate, ${total-8} da giocare</p>
+        ${s.checkpointMode==='classifica' ? renderProvisionalStandings(cp.round) : ''}
+      </div>`;
+    } else if(cp.type==='end' && cp.round===1){
+      body = `<div class="card center stack">
+        <div class="eyebrow pill gold">Fine Manche 1</div>
+        <h2>Prendete fiato: la qualificazione continua con la Manche 2</h2>
+        ${renderEndRound1Standings(s.checkpointMode)}
+      </div>`;
+    } else if(cp.type==='end' && cp.round===2){
+      body = `<div class="card center stack">
+        <div class="eyebrow pill gold">Fine qualificazione</div>
+        <h2>Le due manche sono finite!</h2>
+        <p class="muted">L'admin sta per svelare le finaliste...</p>
+      </div>`;
+    }
+  }
+  else if(s.phase==='tiebreak_setup'){
+    body = `<div class="card center stack">
+      <div class="eyebrow pill gold">Spareggio</div>
+      <h2>C'è un pareggio per l'accesso in finale!</h2>
+      <p class="muted">L'admin sta preparando la domanda decisiva...</p>
+    </div>`;
+  }
+  else if(s.phase==='reveal_finalists'){
+    body = `<div class="card center stack final-glow">
+      <div class="eyebrow pill gold">Verdetto</div>
+      <h2>In finale: ${(s.finalists||[]).map(id=>escapeHtml(teams[id]?teams[id].name:'—')).join(' 🆚 ')}</h2>
+    </div>`;
+  }
+  else if(s.phase==='final_ready'){
+    body = `<div class="card center stack">
+      <div class="eyebrow pill gold">Finale conclusa</div>
+      <h2>Il momento della verità sta per arrivare...</h2>
+    </div>`;
+  }
+  else if(s.phase==='reveal_winner'){
+    if(s.winner==='TIE'){
+      body = `<div class="winner-card"><div class="eyebrow pill gold">Pareggio!</div><h2>Serve un supplementare 😅</h2></div>`;
+    } else {
+      body = `<div class="winner-card">
+        <div class="eyebrow pill gold">Campioni del Quizzettone</div>
+        <div class="winner-name">${escapeHtml(teams[s.winner]?teams[s.winner].name:'—')}</div>
+      </div>`;
+    }
+  }
+
+  app.innerHTML = `
+    <div class="header">
+      <div class="eyebrow">Quizzettone · Display</div>
+      ${connectionBadge()}
+    </div>
+    ${body}
+    ${audioUnlockOverlayHtml()}
+    <audio id="displayAudioEl" style="display:none;"></audio>
+  `;
+  wireAudioUnlockOverlay();
+  playPendingAudioCueIfAny();
 }
 
 /* ================== VISTA ADMIN ================== */
@@ -1166,6 +1353,7 @@ function renderAdmin(){
           </div>`).join('')}
         </div>
         ${q.adminNote?`<p class="note">Nota: ${escapeHtml(q.adminNote)}</p>`:''}
+        ${q.audioUrl?`<div class="row"><button class="btn secondary small" id="btnReplayAudio">▶ Riproduci audio</button></div>`:''}
         <div class="divider"></div>
         <div class="eyebrow">Punteggio per questa domanda</div>
         <div class="row">
@@ -1396,12 +1584,48 @@ function renderAdmin(){
       <button class="btn" id="btnSaveScoringDefaults">Salva default</button>
     </div>` : '';
 
+  const openDisplayCard = `
+    <div class="card row" style="align-items:center;">
+      <div style="flex:2;">
+        <div class="eyebrow">Schermo pubblico</div>
+        <p class="muted" style="margin:2px 0 0;">Apri in una nuova scheda da proiettare o condividere su uno schermo.</p>
+      </div>
+      <button class="btn secondary" id="btnOpenDisplay" style="flex:1;">🖥️ Apri Display</button>
+    </div>`;
+
+  const effectsToggle = `
+    <div class="card row" style="align-items:center;">
+      <div style="flex:2;">
+        <div class="eyebrow">Effetti sonori</div>
+        <p class="muted" style="margin:2px 0 0;">${Object.keys(soundEffects).length} effetti caricati</p>
+      </div>
+      <button class="btn secondary" id="btnToggleEffects" style="flex:1;">${showEffectsManager?'Nascondi':'Gestisci effetti'}</button>
+    </div>`;
+  const effectsPanel = showEffectsManager ? `
+    <div class="card stack">
+      <h3>Riproduci effetto</h3>
+      <div class="row" style="flex-wrap:wrap;">
+        ${Object.values(soundEffects).map(fx=>`<button class="btn small" data-play-effect="${fx.id}">🔊 ${escapeHtml(fx.name)}</button>`).join('') || '<p class="muted">Nessun effetto caricato.</p>'}
+      </div>
+      <div class="divider"></div>
+      <h3>Aggiungi effetto</h3>
+      <input type="text" id="fxName" placeholder="Nome effetto (es. Applausi)">
+      <input type="file" id="fxFile" accept="audio/*">
+      <button class="btn" id="btnUploadEffect">Carica</button>
+      <div id="fxUploadMsg" class="note"></div>
+      <div class="divider"></div>
+      <div class="stack">
+        ${Object.values(soundEffects).map(fx=>`<div class="row" style="align-items:center;"><span style="flex:2;">${escapeHtml(fx.name)}</span><button class="btn danger small" data-delete-effect="${fx.id}">Elimina</button></div>`).join('')}
+      </div>
+    </div>` : '';
+
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
       <div class="eyebrow">Quizzettone · Pannello Admin</div>
       ${connectionBadge()}
     </div>
+    ${openDisplayCard}
     ${standingsToggle}
     ${standingsRevealPanel}
     ${controlPanel}
@@ -1411,14 +1635,18 @@ function renderAdmin(){
     ${showQuestionManager ? renderQuestionManager() : ''}
     ${scoringSettingsToggle}
     ${scoringSettingsPanel}
+    ${effectsToggle}
+    ${effectsPanel}
     <div class="row">
       <button class="btn ghost small" id="btnReset">↺ Reset partita</button>
       <button class="btn ghost small" id="btnExitAdmin">Esci da admin</button>
     </div>
+    <audio id="adminAudioEl" style="display:none;"></audio>
   `;
   attachAdminHandlers();
   const exitAdmin = document.getElementById('btnExitAdmin');
   if(exitAdmin) exitAdmin.onclick = ()=>{ clearUrlSession(); stopListening(); role=null; renderRoleSelect(); };
+  playPendingAudioCueIfAny();
 }
 
 function renderQuestionManager(){
@@ -1486,6 +1714,8 @@ function renderQuestionManager(){
         <option value="3">Corretta: D</option>
       </select>
       <input type="text" id="qmNote" placeholder="Nota per l'admin (facoltativa, es. autore canzone)">
+      <input type="file" id="qmAudioFile" accept="audio/*">
+      <p class="note">Audio facoltativo (es. la canzone da indovinare): parte da solo quando la domanda diventa quella corrente.</p>
       <button class="btn" id="btnAddQuestion">Aggiungi al mazzo</button>
       <div id="qmAddMsg" class="note"></div>
     </div>
@@ -1493,7 +1723,7 @@ function renderQuestionManager(){
       <h3>Incolla in blocco</h3>
       <p class="note">Un rigo per domanda, campi separati da "|":<br>
       <code>manche|Musica|Che canzone è?|Sere nere|Ti scatterò una foto|Non me lo so spiegare|Imbranato|2|Tiziano Ferro</code><br>
-      Il penultimo campo è la risposta corretta (1=A, 2=B, 3=C, 4=D); l'ultimo campo (nota) è facoltativo.</p>
+      L'ottavo campo è la risposta corretta (1=A, 2=B, 3=C, 4=D). Il nono campo (nota) e il decimo campo (URL audio) sono facoltativi.</p>
       <textarea id="qmBulkText" rows="6" placeholder="Incolla qui le domande, una per riga..."></textarea>
       <button class="btn" id="btnBulkImport">Importa</button>
       <div id="qmBulkMsg" class="note"></div>
@@ -1555,16 +1785,24 @@ function attachAdminHandlers(){
     const opts = [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim(), byId('qmOpt2').value.trim(), byId('qmOpt3').value.trim()];
     const correctIndex = parseInt(byId('qmCorrect').value, 10);
     const note = byId('qmNote').value.trim();
+    const audioFile = byId('qmAudioFile').files[0];
     const msg = byId('qmAddMsg');
     if(!question || opts.some(o=>!o)){
       msg.textContent = 'Compila la domanda e tutte e 4 le opzioni.';
       msg.style.color = 'var(--pink)';
       return;
     }
-    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null});
+    let audioUrl = null;
+    if(audioFile){
+      msg.textContent = 'Caricamento audio...'; msg.style.color = '';
+      try{ audioUrl = await uploadAudioFile(audioFile, 'question-audio'); }
+      catch(e){ msg.textContent = 'Upload audio fallito: ' + e.message; msg.style.color = 'var(--pink)'; return; }
+    }
+    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl});
     msg.textContent = 'Domanda aggiunta!';
     msg.style.color = 'var(--green)';
     ['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote'].forEach(id=>byId(id).value='');
+    byId('qmAudioFile').value = '';
   };
   if(byId('btnBulkImport')) byId('btnBulkImport').onclick = async ()=>{
     const text = byId('qmBulkText').value;
@@ -1596,6 +1834,35 @@ function attachAdminHandlers(){
   document.querySelectorAll('[data-declare]').forEach(btn=>{
     btn.onclick = ()=> adminDeclareWinnerManually(btn.getAttribute('data-declare'));
   });
+  if(byId('btnOpenDisplay')) byId('btnOpenDisplay').onclick = ()=>{
+    const url = new URL(window.location.href);
+    url.searchParams.set('role','display'); url.searchParams.delete('id');
+    window.open(url.toString(), '_blank');
+  };
+  if(byId('btnReplayAudio')) byId('btnReplayAudio').onclick = adminReplayCurrentAudio;
+  if(byId('btnToggleEffects')) byId('btnToggleEffects').onclick = ()=>{ showEffectsManager = !showEffectsManager; render(); };
+  document.querySelectorAll('[data-play-effect]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const fx = soundEffects[btn.getAttribute('data-play-effect')];
+      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+    };
+  });
+  document.querySelectorAll('[data-delete-effect]').forEach(btn=>{
+    btn.onclick = ()=>{ if(confirm('Eliminare questo effetto?')) deleteEffect(btn.getAttribute('data-delete-effect')); };
+  });
+  if(byId('btnUploadEffect')) byId('btnUploadEffect').onclick = async ()=>{
+    const name = byId('fxName').value.trim();
+    const file = byId('fxFile').files[0];
+    const msg = byId('fxUploadMsg');
+    if(!name || !file){ msg.textContent = 'Inserisci nome e file.'; msg.style.color = 'var(--pink)'; return; }
+    msg.textContent = 'Caricamento...'; msg.style.color = '';
+    try{
+      const url = await uploadAudioFile(file, 'effects');
+      await addEffect(name, url);
+      msg.textContent = 'Effetto caricato!'; msg.style.color = 'var(--green)';
+      byId('fxName').value=''; byId('fxFile').value='';
+    }catch(e){ msg.textContent = 'Upload fallito: ' + e.message; msg.style.color = 'var(--pink)'; }
+  };
 }
 
 /* ================== AVVIO ================== */
