@@ -48,7 +48,11 @@
     flex-direction:column;
     gap:16px;
   }
-  #app.admin-wide{max-width:900px;}
+  #app.admin-wide{max-width:1280px;}
+  .admin-grid{display:grid;grid-template-columns:1fr;gap:16px;}
+  @media (min-width:980px){
+    .admin-grid{grid-template-columns:1.6fr 1fr;align-items:start;}
+  }
   h1,h2,h3{font-family:'Space Grotesk',sans-serif;margin:0;}
   .eyebrow{
     font-family:'Inter';font-weight:700;font-size:11px;letter-spacing:.14em;
@@ -190,6 +194,7 @@
 </head>
 <body>
 <div id="app"></div>
+<audio id="gameAudioEl" style="display:none;"></audio>
 
 <script>
 /* ================== DOMANDE ================== */
@@ -512,7 +517,7 @@ async function markQuestionsUsed(questions){
    admin e Display lo notano tramite playPendingAudioCueIfAny() e lo suonano. */
 function audioCueForQuestion(q){
   if(!q || !q.audioUrl) return null;
-  return {url:q.audioUrl, kind:'question', label:q.category, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)};
+  return {url:q.audioUrl, kind:'question', label:q.category, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)};
 }
 
 /* ================== AZIONI ADMIN (scrivono su 'state') ================== */
@@ -536,6 +541,20 @@ async function adminReplayCurrentAudio(){
   const q = getQuestion(state.round, state.qIndex);
   const cue = audioCueForQuestion(q);
   if(cue) await safeSet('state', {...state, audioCue:cue}, true);
+  await refresh();
+}
+async function adminStopAudio(){
+  const cue = state.audioCue;
+  if(!cue) return;
+  const el = document.getElementById('gameAudioEl');
+  const pos = el ? el.currentTime : 0;
+  await safeSet('state', {...state, audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await refresh();
+}
+async function adminResumeAudio(fromStart){
+  const cue = state.audioCue;
+  if(!cue) return;
+  await safeSet('state', {...state, audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
   await refresh();
 }
 async function adminAdjustPoints(id, round, idx, delta){
@@ -845,11 +864,20 @@ function playPendingAudioCueIfAny(){
   const cue = state && state.audioCue;
   if(!cue || cue.nonce===lastPlayedAudioNonce) return;
   lastPlayedAudioNonce = cue.nonce; // segnato come "visto" comunque, anche se scartato: mai riprovare un cue vecchio
-  if(Date.now() - cue.triggeredAt > AUDIO_CUE_STALE_MS) return; // scheda appena aperta a metà domanda: non sparare audio vecchio
-  const el = document.getElementById('displayAudioEl') || document.getElementById('adminAudioEl');
+  const el = document.getElementById('gameAudioEl');
   if(!el) return;
-  el.src = cue.url;
-  el.play().catch(err=>console.warn('audio bloccato dal browser', err));
+  if(cue.action==='stop'){ el.pause(); return; } // uno stop va sempre onorato, anche se il cue è "vecchio"
+  if(Date.now() - cue.triggeredAt > AUDIO_CUE_STALE_MS) return; // scheda appena aperta a metà domanda: non sparare audio vecchio
+  const seekAndPlay = ()=>{
+    try{ el.currentTime = cue.startAt||0; }catch(e){}
+    el.play().catch(err=>console.warn('audio bloccato dal browser', err));
+  };
+  if(el.src !== cue.url){
+    el.src = cue.url;
+    el.addEventListener('loadedmetadata', seekAndPlay, {once:true});
+  } else {
+    seekAndPlay();
+  }
 }
 function audioUnlockOverlayHtml(){
   if(audioUnlocked) return '';
@@ -864,7 +892,7 @@ function wireAudioUnlockOverlay(){
   const btn = document.getElementById('btnUnlockAudio');
   if(!btn) return;
   btn.onclick = ()=>{
-    const el = document.getElementById('displayAudioEl');
+    const el = document.getElementById('gameAudioEl');
     const finish = ()=>{ if(audioUnlocked) return; el.muted=false; audioUnlocked=true; render(); };
     el.muted = true;
     el.src = SILENT_WAV;
@@ -1294,7 +1322,6 @@ function renderDisplay(){
     </div>
     ${body}
     ${audioUnlockOverlayHtml()}
-    <audio id="displayAudioEl" style="display:none;"></audio>
   `;
   wireAudioUnlockOverlay();
   playPendingAudioCueIfAny();
@@ -1593,6 +1620,15 @@ function renderAdmin(){
       <button class="btn secondary" id="btnOpenDisplay" style="flex:1;">🖥️ Apri Display</button>
     </div>`;
 
+  const audioControlCard = s.audioCue ? `
+    <div class="card stack">
+      <div class="eyebrow">Audio ${s.audioCue.kind==='effect'?'(effetto)':'(domanda)'}</div>
+      <p class="muted" style="margin:2px 0 0;">${escapeHtml(s.audioCue.label||'')}</p>
+      ${s.audioCue.action==='play'
+        ? `<button class="btn danger" id="btnStopAudio">⏹ Stop</button>`
+        : `<div class="row"><button class="btn" id="btnResumeAudio">▶ Riprendi da qui</button><button class="btn secondary" id="btnRestartAudio">⟲ Da capo</button></div>`}
+    </div>` : '';
+
   const effectsToggle = `
     <div class="card row" style="align-items:center;">
       <div style="flex:2;">
@@ -1625,12 +1661,19 @@ function renderAdmin(){
       <div class="eyebrow">Quizzettone · Pannello Admin</div>
       ${connectionBadge()}
     </div>
-    ${openDisplayCard}
-    ${standingsToggle}
-    ${standingsRevealPanel}
-    ${controlPanel}
-    ${liveTable}
-    ${globalStandings}
+    <div class="admin-grid">
+      <div class="stack">
+        ${controlPanel}
+        ${liveTable}
+      </div>
+      <div class="stack">
+        ${openDisplayCard}
+        ${audioControlCard}
+        ${standingsToggle}
+        ${standingsRevealPanel}
+        ${globalStandings}
+      </div>
+    </div>
     ${questionManagerToggle}
     ${showQuestionManager ? renderQuestionManager() : ''}
     ${scoringSettingsToggle}
@@ -1641,7 +1684,6 @@ function renderAdmin(){
       <button class="btn ghost small" id="btnReset">↺ Reset partita</button>
       <button class="btn ghost small" id="btnExitAdmin">Esci da admin</button>
     </div>
-    <audio id="adminAudioEl" style="display:none;"></audio>
   `;
   attachAdminHandlers();
   const exitAdmin = document.getElementById('btnExitAdmin');
@@ -1840,11 +1882,14 @@ function attachAdminHandlers(){
     window.open(url.toString(), '_blank');
   };
   if(byId('btnReplayAudio')) byId('btnReplayAudio').onclick = adminReplayCurrentAudio;
+  if(byId('btnStopAudio')) byId('btnStopAudio').onclick = adminStopAudio;
+  if(byId('btnResumeAudio')) byId('btnResumeAudio').onclick = ()=>adminResumeAudio(false);
+  if(byId('btnRestartAudio')) byId('btnRestartAudio').onclick = ()=>adminResumeAudio(true);
   if(byId('btnToggleEffects')) byId('btnToggleEffects').onclick = ()=>{ showEffectsManager = !showEffectsManager; render(); };
   document.querySelectorAll('[data-play-effect]').forEach(btn=>{
     btn.onclick = ()=>{
       const fx = soundEffects[btn.getAttribute('data-play-effect')];
-      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
     };
   });
   document.querySelectorAll('[data-delete-effect]').forEach(btn=>{
