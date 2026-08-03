@@ -282,6 +282,16 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const storage = firebase.storage();
 const DB_ROOT = 'quizzettone'; // tutti i dati del gioco vivono sotto questo "nodo" del database
+/* Rami sotto DB_ROOT (FT-09 — una sola partita alla volta, nessun sessionId):
+   config             regole correnti (timer, override di punteggio per domanda)
+   runtime            fase, manche, domanda corrente, timer, finalisti, spareggio...
+   questionInstances  domande effettivamente pescate per questa partita (round1/round2/final/tiebreak)
+   teams/{teamId}      squadre iscritte
+   answers/{teamId}    risposte di ogni squadra, per domanda
+   scores/{teamId}     correzioni manuali di punteggio, per domanda
+   questionBank/{id}   banca domande (persiste tra le partite)
+   soundEffects/{id}   effetti sonori (persiste tra le partite)
+   scoringDefaults     punteggio di default (persiste tra le partite, non si resetta con la partita) */
 
 async function uploadAudioFile(file, folder){
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -309,12 +319,12 @@ async function safeDelete(key, shared){
   try{ await db.ref(DB_ROOT + '/' + key).remove(); return { ok:true }; }
   catch(e){ console.error('storage delete failed', key, e); return { ok:false, error:e }; }
 }
-async function safeList(prefix, shared){
-  try{
-    const snap = await db.ref(DB_ROOT).once('value');
-    const all = snap.val() || {};
-    return { ok:true, value: Object.keys(all).filter(k => k.startsWith(prefix)) };
-  } catch(e){ console.error('storage list failed', prefix, e); return { ok:false, value:[], error:e }; }
+/* Scrittura multi-ramo atomica (es. resettare config+runtime+questionInstances
+   in un solo colpo). Le chiavi di "updates" sono percorsi relativi a DB_ROOT,
+   come richiede l'API update() di Firebase; usare null per cancellare un ramo. */
+async function safeUpdate(updates, shared){
+  try{ await db.ref(DB_ROOT).update(updates); return { ok:true }; }
+  catch(e){ console.error('storage update failed', updates, e); return { ok:false, error:e }; }
 }
 
 /* ================== APP STATE (locale) ================== */
@@ -346,16 +356,33 @@ let answerSendKey = null; // qkey della domanda per cui è in corso/fallito un i
 let answerSendStatus = null; // 'sending' | 'error' | null
 let adminOpStatus = null; // {kind:'sending'|'error'|'success', message} — esito operazioni admin essenziali (locale, non condiviso)
 
-function defaultState(){
+/* 'state' (variabile locale) resta un unico oggetto per comodità di lettura in
+   tutto il resto del codice (render, scoring, ecc.): è la fusione di config +
+   runtime + questionInstances ricostruita a ogni snapshot da startListening().
+   Le scritture invece vanno sempre al ramo giusto: configFields()/runtimeFields()
+   estraggono dal 'state' fuso solo i campi di competenza di ciascun ramo. */
+function defaultConfig(){
+  return { timerDuration:20000, scoringOverrides:{} };
+}
+function defaultRuntime(){
   return {
-    phase:'lobby', round:1, qIndex:0,
-    questionStartedAt:null, timerDuration:20000,
+    phase:'lobby', round:1, qIndex:0, questionStartedAt:null,
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
-    standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null,
+    standingsVisible:false, solutionRevealed:false, standingsReveal:null,
     audioCue:null
   };
+}
+function configFields(s){
+  const { timerDuration, scoringOverrides } = s;
+  return { timerDuration, scoringOverrides };
+}
+function runtimeFields(s){
+  const { phase, round, qIndex, questionStartedAt, checkpoint, checkpointMode, finalists, eliminated,
+    tiebreak, winner, finalWinnerScoreSnapshot, standingsVisible, solutionRevealed, standingsReveal, audioCue } = s;
+  return { phase, round, qIndex, questionStartedAt, checkpoint, checkpointMode, finalists, eliminated,
+    tiebreak, winner, finalWinnerScoreSnapshot, standingsVisible, solutionRevealed, standingsReveal, audioCue };
 }
 
 /* Osserva la connessione Firebase per tutta la vita della pagina (non solo
@@ -389,21 +416,13 @@ function startListening(){
     clearFirstSnapshotTimeout();
     bootTimedOut = false;
     const all = snap.val() || {};
-    const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {}, newEffects = {};
-    Object.keys(all).forEach(k=>{
-      if(k.startsWith('teaminfo:')){ if(all[k]) newTeams[all[k].id] = all[k]; }
-      else if(k.startsWith('answers:')){ newAnswers[k.slice('answers:'.length)] = all[k] || {}; }
-      else if(k.startsWith('overrides:')){ newOverrides[k.slice('overrides:'.length)] = all[k] || {}; }
-      else if(k.startsWith('question:')){ if(all[k]) newQuestionBank[all[k].id] = all[k]; }
-      else if(k.startsWith('effect:')){ if(all[k]) newEffects[all[k].id] = all[k]; }
-    });
-    teams = newTeams;
-    answersByTeam = newAnswers;
-    overridesByTeam = newOverrides;
-    questionBank = newQuestionBank;
-    soundEffects = newEffects;
+    teams = all.teams || {};
+    answersByTeam = all.answers || {};
+    overridesByTeam = all.scores || {};
+    questionBank = all.questionBank || {};
+    soundEffects = all.soundEffects || {};
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
-    state = all.state || defaultState();
+    state = { ...defaultConfig(), ...(all.config||{}), ...defaultRuntime(), ...(all.runtime||{}), gameQuestions: all.questionInstances || null };
     if(role==='admin') ensureSeedQuestions();
     render();
   }, err=>{
@@ -460,10 +479,10 @@ function newQuestionId(){ return 'q_' + Math.random().toString(36).slice(2,10); 
 async function addQuestion(q){
   const id = newQuestionId();
   const entry = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, lastUsedAt:null};
-  await safeSet('question:'+id, entry, true);
+  await safeSet('questionBank/'+id, entry, true);
   return id;
 }
-async function deleteQuestion(id){ await safeDelete('question:'+id, true); }
+async function deleteQuestion(id){ await safeDelete('questionBank/'+id, true); }
 
 function parseBulkQuestions(text){
   const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
@@ -484,7 +503,7 @@ async function bulkAddQuestions(list){
   const updates = {};
   list.forEach(q=>{
     const id = newQuestionId();
-    updates['question:'+id] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null};
+    updates['questionBank/'+id] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null};
   });
   await db.ref(DB_ROOT).update(updates);
 }
@@ -493,10 +512,10 @@ async function bulkAddQuestions(list){
 function newEffectId(){ return 'fx_' + Math.random().toString(36).slice(2,10); }
 async function addEffect(name, url){
   const id = newEffectId();
-  await safeSet('effect:'+id, {id, name, url, createdAt:Date.now()}, true);
+  await safeSet('soundEffects/'+id, {id, name, url, createdAt:Date.now()}, true);
   return id;
 }
-async function deleteEffect(id){ await safeDelete('effect:'+id, true); }
+async function deleteEffect(id){ await safeDelete('soundEffects/'+id, true); }
 
 /* La prima volta che un admin si collega a banca dati vuota, la popoliamo con
    le domande "storiche" (quelle che prima erano fisse nel codice), così il
@@ -505,12 +524,12 @@ let seedAttempted = false;
 async function ensureSeedQuestions(){
   if(seedAttempted) return;
   seedAttempted = true;
-  const existing = await safeList('question:', true);
-  if(!existing.ok || existing.value.length>0) return;
+  const existing = await safeGet('questionBank', true);
+  if(!existing.ok || Object.keys(existing.value||{}).length>0) return;
   const updates = {};
   const seed = (list, pool)=> list.forEach(q=>{
     const id = newQuestionId();
-    updates['question:'+id] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:null, lastUsedAt:null};
+    updates['questionBank/'+id] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:null, lastUsedAt:null};
   });
   seed(Q1, 'manche'); seed(Q2, 'manche'); seed(QF, 'finale');
   await db.ref(DB_ROOT).update(updates);
@@ -543,7 +562,7 @@ async function markQuestionsUsed(questions){
   if(!questions.length) return;
   const updates = {};
   const now = Date.now();
-  questions.forEach(q=>{ updates['question:'+q.id+'/lastUsedAt'] = now; });
+  questions.forEach(q=>{ updates['questionBank/'+q.id+'/lastUsedAt'] = now; });
   await db.ref(DB_ROOT).update(updates);
 }
 
@@ -554,27 +573,25 @@ function audioCueForQuestion(q){
   return {url:q.audioUrl, kind:'question', label:q.category, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)};
 }
 
-/* ================== AZIONI ADMIN (scrivono su 'state') ================== */
+/* ================== AZIONI ADMIN (scrivono su 'runtime'/'config'/'questionInstances') ================== */
 async function adminStartGame(){
   const drawn = drawQuestionsForGame('manche', 30);
   await markQuestionsUsed(drawn);
-  const s = defaultState();
-  s.phase='question'; s.round=1; s.qIndex=0; s.questionStartedAt=Date.now();
-  s.gameQuestions = { round1: drawn.slice(0,15), round2: drawn.slice(15,30), final:null, tiebreak:null };
-  s.audioCue = audioCueForQuestion(drawn[0]);
-  await safeSet('state', s, true); await refresh();
+  const runtime = { ...defaultRuntime(), phase:'question', round:1, qIndex:0, questionStartedAt:Date.now(), audioCue:audioCueForQuestion(drawn[0]) };
+  const questionInstances = { round1: drawn.slice(0,15), round2: drawn.slice(15,30), final:null, tiebreak:null };
+  await safeUpdate({ config: defaultConfig(), runtime, questionInstances });
+  await refresh();
 }
 async function adminCloseAnswers(){
-  const s = {...state, phase:'closed'};
-  await safeSet('state', s, true); await refresh();
+  await safeSet('runtime', {...runtimeFields(state), phase:'closed'}, true); await refresh();
 }
 async function adminRevealSolution(){
-  await safeSet('state', {...state, solutionRevealed:true}, true); await refresh();
+  await safeSet('runtime', {...runtimeFields(state), solutionRevealed:true}, true); await refresh();
 }
 async function adminReplayCurrentAudio(){
   const q = getQuestion(state.round, state.qIndex);
   const cue = audioCueForQuestion(q);
-  if(cue) await safeSet('state', {...state, audioCue:cue}, true);
+  if(cue) await safeSet('runtime', {...runtimeFields(state), audioCue:cue}, true);
   await refresh();
 }
 async function adminStopAudio(){
@@ -582,13 +599,13 @@ async function adminStopAudio(){
   if(!cue) return;
   const el = document.getElementById('gameAudioEl');
   const pos = el ? el.currentTime : 0;
-  await safeSet('state', {...state, audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await safeSet('runtime', {...runtimeFields(state), audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
   await refresh();
 }
 async function adminResumeAudio(fromStart){
   const cue = state.audioCue;
   if(!cue) return;
-  await safeSet('state', {...state, audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await safeSet('runtime', {...runtimeFields(state), audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
   await refresh();
 }
 async function adminAdjustPoints(id, round, idx, delta){
@@ -596,7 +613,7 @@ async function adminAdjustPoints(id, round, idx, delta){
   const current = teamPointsForQuestion(id, round, idx);
   const ov = overridesByTeam[id] || {};
   ov[key] = current + delta;
-  const result = await safeSet('overrides:'+id, ov, true);
+  const result = await safeSet('scores/'+id, ov, true);
   await refresh();
   return result;
 }
@@ -608,35 +625,35 @@ async function adminNextQuestion(){
   if(round===1 || round===2){
     const midPoint = Math.ceil(list.length/2);
     if(list.length>=4 && qNumber===midPoint){
-      result = await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
+      result = await safeSet('runtime', {...runtimeFields(state), phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
     } else if(qNumber===list.length){
-      result = await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
+      result = await safeSet('runtime', {...runtimeFields(state), phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      result = await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      result = await safeSet('runtime', {...runtimeFields(state), qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='final'){
     if(qNumber===list.length){
-      result = await safeSet('state', {...state, phase:'final_ready'}, true);
+      result = await safeSet('runtime', {...runtimeFields(state), phase:'final_ready'}, true);
     } else {
-      result = await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      result = await safeSet('runtime', {...runtimeFields(state), qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='tiebreak'){
-    result = await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
+    result = await safeSet('runtime', {...runtimeFields(state), phase:'tiebreak_closed'}, true);
   }
   await refresh();
   return result;
 }
 async function adminSetCheckpointMode(mode){
-  await safeSet('state', {...state, checkpointMode:mode}, true); await refresh();
+  await safeSet('runtime', {...runtimeFields(state), checkpointMode:mode}, true); await refresh();
 }
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
   if(cp.type==='mid'){
     const nextQ = getQuestion(cp.round, state.qIndex+1);
-    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet('runtime', {...runtimeFields(state), qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   } else if(cp.type==='end' && cp.round===1){
     const nextQ = getQuestion(2, 0);
-    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet('runtime', {...runtimeFields(state), round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   }
   await refresh();
 }
@@ -644,7 +661,7 @@ async function adminRevealFinalists(){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score:qualificationScore(id)})).sort((a,b)=>b.score-a.score);
   if(ranked.length<=2){
-    await safeSet('state', {...state, phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]}, true);
+    await safeSet('runtime', {...runtimeFields(state), phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]}, true);
     await refresh(); return;
   }
   const secondScore = ranked[1].score;
@@ -652,15 +669,15 @@ async function adminRevealFinalists(){
   if(tiedForSecond.length>1 && ranked[0].score!==secondScore){
     // primo posto chiaro, spareggio per il secondo posto
     const candidateQuestions = drawQuestionsForGame('finale', 5);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[ranked[0].id], candidates: tiedForSecond.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
+    await safeSet('runtime', {...runtimeFields(state), phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[ranked[0].id], candidates: tiedForSecond.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
   } else if(ranked[0].score===secondScore){
     // pareggio anche per il primo posto: tutti i pari merito in spareggio, si prendono i primi 2
     const topScore = ranked[0].score;
     const tiedTop = ranked.filter(r=>r.score===topScore).map(r=>r.id);
     const candidateQuestions = drawQuestionsForGame('finale', 5);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop, candidateQuestions, question:null, qIndex:null}}, true);
+    await safeSet('runtime', {...runtimeFields(state), phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop, candidateQuestions, question:null, qIndex:null}}, true);
   } else {
-    await safeSet('state', {...state, phase:'reveal_finalists', finalists:[ranked[0].id, ranked[1].id], eliminated: ranked.slice(2).map(r=>r.id)}, true);
+    await safeSet('runtime', {...runtimeFields(state), phase:'reveal_finalists', finalists:[ranked[0].id, ranked[1].id], eliminated: ranked.slice(2).map(r=>r.id)}, true);
   }
   await refresh();
 }
@@ -668,20 +685,24 @@ async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
+  const runtime = {...runtimeFields(state), round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen)};
+  const questionInstances = {...state.gameQuestions, tiebreak: chosen};
+  await safeUpdate({ runtime, questionInstances });
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
   const need = 2 - state.tiebreak.qualifiedSoFar.length;
   const finalists = [...state.tiebreak.qualifiedSoFar, winnerId].slice(0,2);
   const eliminated = Object.keys(teams).filter(id=>!finalists.includes(id));
-  await safeSet('state', {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null}, true);
+  await safeSet('runtime', {...runtimeFields(state), phase:'reveal_finalists', finalists, eliminated, checkpoint:null}, true);
   await refresh();
 }
 async function adminContinueToFinal(){
   const drawn = drawQuestionsForGame('finale', 10);
   await markQuestionsUsed(drawn);
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
+  const runtime = {...runtimeFields(state), round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0])};
+  const questionInstances = {...state.gameQuestions, final:drawn};
+  await safeUpdate({ runtime, questionInstances });
   await refresh();
 }
 async function adminRevealWinner(){
@@ -690,23 +711,23 @@ async function adminRevealWinner(){
   scores.sort((a,b)=>b.score-a.score);
   let winner = scores[0] ? scores[0].id : null;
   if(scores.length===2 && scores[0].score===scores[1].score) winner = 'TIE';
-  await safeSet('state', {...state, phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
+  await safeSet('runtime', {...runtimeFields(state), phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
   await refresh();
 }
 async function adminDeclareWinnerManually(id){
   const finalists = state.finalists || [];
   const scores = finalists.map(fid=>({id:fid, score: roundScore(fid,'final')}));
-  await safeSet('state', {...state, phase:'reveal_winner', winner:id, finalWinnerScoreSnapshot:scores}, true);
+  await safeSet('runtime', {...runtimeFields(state), phase:'reveal_winner', winner:id, finalWinnerScoreSnapshot:scores}, true);
   await refresh();
 }
 async function adminToggleStandings(){
-  await safeSet('state', {...state, standingsVisible: !state.standingsVisible}, true);
+  await safeSet('runtime', {...runtimeFields(state), standingsVisible: !state.standingsVisible}, true);
   await refresh();
 }
 async function adminSetupStandingsReveal(){
   const ids = Object.keys(teams);
   const order = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>a.score-b.score).map(r=>r.id);
-  await safeSet('state', {...state, standingsReveal:{order, revealedCount:0}}, true);
+  await safeSet('runtime', {...runtimeFields(state), standingsReveal:{order, revealedCount:0}}, true);
   await refresh();
 }
 async function adminMoveStandingsRevealOrder(index, direction){
@@ -714,17 +735,17 @@ async function adminMoveStandingsRevealOrder(index, direction){
   const target = index + direction;
   if(target<0 || target>=order.length) return;
   [order[index], order[target]] = [order[target], order[index]];
-  await safeSet('state', {...state, standingsReveal:{...state.standingsReveal, order}}, true);
+  await safeSet('runtime', {...runtimeFields(state), standingsReveal:{...state.standingsReveal, order}}, true);
   await refresh();
 }
 async function adminRevealNextStanding(){
   const sr = state.standingsReveal;
   const revealedCount = Math.min(sr.order.length, sr.revealedCount+1);
-  await safeSet('state', {...state, standingsReveal:{...sr, revealedCount}}, true);
+  await safeSet('runtime', {...runtimeFields(state), standingsReveal:{...sr, revealedCount}}, true);
   await refresh();
 }
 async function adminCloseStandingsReveal(){
-  await safeSet('state', {...state, standingsReveal:null}, true);
+  await safeSet('runtime', {...runtimeFields(state), standingsReveal:null}, true);
   await refresh();
 }
 async function adminSetScoringDefaults(values){
@@ -734,41 +755,31 @@ async function adminSetScoringDefaults(values){
 async function adminSetQuestionScoring(round, idx, values){
   const key = qkey(round, idx);
   const overrides = {...(state.scoringOverrides||{}), [key]: values};
-  await safeSet('state', {...state, scoringOverrides: overrides}, true);
+  await safeSet('config', {...configFields(state), scoringOverrides: overrides}, true);
   await refresh();
 }
 // ATTENZIONE: opera direttamente sul database Firebase di produzione (nessun ambiente di test separato, FT-01).
 // Cancella squadre, risposte e stato della partita in corso: usarla con cautela durante prove o prima di una serata dal vivo.
 // Prima di eseguirla per test, seguire la checklist di backup manuale in docs/BACKUP_MANUALE.md.
 async function adminResetGame(){
-  const listResult = await safeList('teaminfo:', true);
-  if(!listResult.ok){ await refresh(); return listResult; }
-  let firstError = null;
-  for(const k of listResult.value){
-    const r = await safeDelete(k, true);
-    if(!r.ok && !firstError) firstError = r.error;
-  }
-  const ids = Object.keys(teams);
-  for(const id of ids){
-    const r1 = await safeDelete('answers:'+id, true);
-    if(!r1.ok && !firstError) firstError = r1.error;
-    const r2 = await safeDelete('overrides:'+id, true);
-    if(!r2.ok && !firstError) firstError = r2.error;
-  }
-  const setResult = await safeSet('state', defaultState(), true);
-  if(!setResult.ok && !firstError) firstError = setResult.error;
+  const result = await safeUpdate({
+    teams: null,
+    answers: null,
+    scores: null,
+    config: defaultConfig(),
+    runtime: defaultRuntime(),
+    questionInstances: null
+  });
   await refresh();
-  return firstError ? { ok:false, error:firstError } : { ok:true };
+  return result;
 }
 
 /* ================== AZIONI SQUADRA ================== */
 async function findTeamByName(name){
-  const listResult = await safeList('teaminfo:', true);
-  if(!listResult.ok) return { ok:false, error:listResult.error };
-  for(const k of listResult.value){
-    const getResult = await safeGet(k, true);
-    if(!getResult.ok) return { ok:false, error:getResult.error };
-    const t = getResult.value;
+  const getResult = await safeGet('teams', true);
+  if(!getResult.ok) return { ok:false, error:getResult.error };
+  const all = getResult.value || {};
+  for(const t of Object.values(all)){
     if(t && t.name && t.name.trim().toLowerCase() === name.trim().toLowerCase()) return { ok:true, team:t };
   }
   return { ok:true, team:null };
@@ -783,7 +794,7 @@ async function teamJoin(name){
   } else {
     newTeamId = 'team_' + Math.random().toString(36).slice(2,9);
     newTeamName = trimmed;
-    const setResult = await safeSet('teaminfo:'+newTeamId, {id:newTeamId, name:newTeamName, joinedAt:Date.now()}, true);
+    const setResult = await safeSet('teams/'+newTeamId, {id:newTeamId, name:newTeamName, joinedAt:Date.now()}, true);
     if(!setResult.ok) return setResult; // scrittura rifiutata: non entriamo in partita
   }
   teamId = newTeamId; teamName = newTeamName;
@@ -843,7 +854,7 @@ async function restoreFromUrl(){
     return true;
   }
   if(r==='team' && id){
-    const result = await safeGet('teaminfo:'+id, true);
+    const result = await safeGet('teams/'+id, true);
     if(result.ok && result.value){
       const info = result.value;
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
@@ -861,7 +872,7 @@ async function restoreFromUrl(){
   // (es. il browser è stato chiuso del tutto e poi riaperto).
   const saved = loadTeamSession();
   if(saved && saved.id){
-    const result = await safeGet('teaminfo:'+saved.id, true);
+    const result = await safeGet('teams/'+saved.id, true);
     if(result.ok && result.value){
       const info = result.value;
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
@@ -876,12 +887,12 @@ async function restoreFromUrl(){
 }
 async function teamSubmitAnswer(round, idx, optionIndex){
   const key = qkey(round, idx);
-  const readResult = await safeGet('answers:'+teamId, true);
+  const readResult = await safeGet('answers/'+teamId, true);
   if(!readResult.ok) return readResult;
   const current = readResult.value || {};
   if(current[key]) return { ok:true }; // già risposto, niente da inviare
   current[key] = {optionIndex, ts: Date.now()};
-  const writeResult = await safeSet('answers:'+teamId, current, true);
+  const writeResult = await safeSet('answers/'+teamId, current, true);
   if(!writeResult.ok) return writeResult;
   await refresh();
   return { ok:true };
@@ -2071,7 +2082,7 @@ function attachAdminHandlers(){
   document.querySelectorAll('[data-play-effect]').forEach(btn=>{
     btn.onclick = ()=>{
       const fx = soundEffects[btn.getAttribute('data-play-effect')];
-      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+      if(fx) safeSet('runtime', {...runtimeFields(state), audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
     };
   });
   document.querySelectorAll('[data-delete-effect]').forEach(btn=>{
