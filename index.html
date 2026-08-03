@@ -385,11 +385,38 @@ function runtimeFields(s){
     tiebreak, winner, finalWinnerScoreSnapshot, standingsVisible, solutionRevealed, standingsReveal, audioCue };
 }
 
+/* FT-07: identità/presenza della squadra. onDisconnect() è un comando che il
+   client consegna al server Firebase: se la connessione cade (scheda chiusa,
+   rete persa), è il SERVER ad applicarlo da solo, anche se il client non è più
+   raggiungibile. Punteggio e risposte della squadra non vengono mai toccati:
+   qui si scrive solo online/lastSeenAt dentro il nodo squadra già esistente.
+   Va ri-registrato a ogni riconnessione, perché onDisconnect è legato alla
+   singola connessione WebSocket, non sopravvive a una nuova. */
+function registerTeamPresence(){
+  if(role !== 'team' || !teamId) return;
+  const ref = db.ref(DB_ROOT + '/teams/' + teamId);
+  ref.onDisconnect().update({ online:false, lastSeenAt: firebase.database.ServerValue.TIMESTAMP });
+  ref.update({ online:true, lastSeenAt: firebase.database.ServerValue.TIMESTAMP })
+    .catch(e => console.error('presence update fallito', e));
+}
+/* Uscita esplicita ("non sei tu?"): annulla l'onDisconnect pendente (altrimenti
+   scatterebbe più tardi sulla squadra sbagliata, se questa scheda ne raggiunge
+   un'altra) e segna subito offline, senza aspettare la chiusura della scheda. */
+function teardownTeamPresence(id){
+  if(!id) return;
+  const ref = db.ref(DB_ROOT + '/teams/' + id);
+  ref.onDisconnect().cancel();
+  ref.update({ online:false, lastSeenAt: firebase.database.ServerValue.TIMESTAMP })
+    .catch(e => console.error('presence teardown fallito', e));
+}
+
 /* Osserva la connessione Firebase per tutta la vita della pagina (non solo
    mentre è attivo il listener principale), così l'indicatore online/offline
-   e la schermata di avvio riflettono lo stato reale fin da subito. */
+   e la schermata di avvio riflettono lo stato reale fin da subito. Ogni volta
+   che torniamo online ri-arma anche la presenza della squadra (FT-07). */
 db.ref('.info/connected').on('value', snap=>{
   connected = snap.val() === true;
+  if(connected) registerTeamPresence();
   render();
 });
 
@@ -764,6 +791,7 @@ async function adminSetQuestionScoring(round, idx, values){
 async function adminResetGame(){
   const result = await safeUpdate({
     teams: null,
+    teamNames: null,
     answers: null,
     scores: null,
     config: defaultConfig(),
@@ -775,27 +803,74 @@ async function adminResetGame(){
 }
 
 /* ================== AZIONI SQUADRA ================== */
-async function findTeamByName(name){
-  const getResult = await safeGet('teams', true);
-  if(!getResult.ok) return { ok:false, error:getResult.error };
-  const all = getResult.value || {};
-  for(const t of Object.values(all)){
-    if(t && t.name && t.name.trim().toLowerCase() === name.trim().toLowerCase()) return { ok:true, team:t };
-  }
-  return { ok:true, team:null };
+
+/* FT-08: unicità nomi. Normalizziamo maiuscole/minuscole e spazi superflui
+   (spazi ai bordi e doppi spazi interni), poi codifichiamo il risultato in
+   modo sicuro come chiave Firebase (che vieta . # $ [ ] /) per usarlo come
+   indice in teamNames/{chiave} -> teamId. */
+function normalizeTeamName(name){
+  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+function teamNameKey(normalized){
+  return encodeURIComponent(normalized).replace(/\./g, '%2E');
+}
+async function findTeamByNormalizedName(normalized){
+  const idxResult = await safeGet('teamNames/'+teamNameKey(normalized), true);
+  if(!idxResult.ok) return { ok:false, error:idxResult.error };
+  const existingId = idxResult.value;
+  if(!existingId) return { ok:true, team:null };
+  const teamResult = await safeGet('teams/'+existingId, true);
+  if(!teamResult.ok) return { ok:false, error:teamResult.error };
+  return { ok:true, team: teamResult.value || null };
+}
+/* Transazione Firebase: il nome viene "conquistato" atomicamente. Se due
+   dispositivi tentano lo stesso nome nello stesso istante, solo il primo
+   vince la transazione; il secondo scopre il teamId vincitore e vi rientra
+   invece di creare una squadra gemella o ricevere un errore. */
+async function claimTeamName(normalized, candidateTeamId){
+  try{
+    const result = await db.ref(DB_ROOT + '/teamNames/' + teamNameKey(normalized)).transaction(current => {
+      if(current) return; // già occupato: abort, non sovrascrivere
+      return candidateTeamId;
+    });
+    return { ok:true, committed: result.committed, winnerId: result.snapshot.val() };
+  } catch(e){ console.error('claim team name failed', normalized, e); return { ok:false, error:e }; }
 }
 async function teamJoin(name){
   const trimmed = name.trim();
-  const findResult = await findTeamByName(trimmed);
+  const normalized = normalizeTeamName(trimmed);
+  if(!normalized) return { ok:false, error:new Error('Nome squadra vuoto') };
+  const findResult = await findTeamByNormalizedName(normalized);
   if(!findResult.ok) return findResult; // niente da avanzare: non sappiamo nemmeno se la squadra esiste già
   let newTeamId, newTeamName;
   if(findResult.team){
+    // Nome già registrato: rientriamo nella squadra esistente (stesso comportamento di prima).
     newTeamId = findResult.team.id; newTeamName = findResult.team.name;
   } else {
-    newTeamId = 'team_' + Math.random().toString(36).slice(2,9);
-    newTeamName = trimmed;
-    const setResult = await safeSet('teams/'+newTeamId, {id:newTeamId, name:newTeamName, joinedAt:Date.now()}, true);
-    if(!setResult.ok) return setResult; // scrittura rifiutata: non entriamo in partita
+    const candidateId = 'team_' + Math.random().toString(36).slice(2,9);
+    const claim = await claimTeamName(normalized, candidateId);
+    if(!claim.ok) return claim;
+    if(claim.committed && claim.winnerId === candidateId){
+      // Abbiamo vinto la transazione: la squadra è nostra da creare.
+      newTeamId = candidateId; newTeamName = trimmed;
+      const setResult = await safeSet('teams/'+newTeamId, {id:newTeamId, name:newTeamName, joinedAt:Date.now(), online:true, lastSeenAt: firebase.database.ServerValue.TIMESTAMP}, true);
+      if(!setResult.ok) return setResult; // scrittura rifiutata: non entriamo in partita
+    } else {
+      // Un altro dispositivo ha appena conquistato questo nome (race condition
+      // reale su due join simultanei): rientriamo silenziosamente nella sua squadra,
+      // niente squadra gemella e nessun errore per l'utente. Tra "la transazione
+      // sul nome è vinta" e "il nodo teams/{winnerId} è scritto" può passare un
+      // istante: ritentiamo la lettura brevemente invece di fallire subito.
+      const winnerId = claim.winnerId;
+      let infoResult = await safeGet('teams/'+winnerId, true);
+      for(let attempt=0; infoResult.ok && !infoResult.value && attempt<10; attempt++){
+        await new Promise(r=>setTimeout(r, 150));
+        infoResult = await safeGet('teams/'+winnerId, true);
+      }
+      if(!infoResult.ok) return infoResult;
+      if(!infoResult.value) return { ok:false, error:new Error('Squadra non trovata dopo la conquista del nome') };
+      newTeamId = winnerId; newTeamName = infoResult.value.name;
+    }
   }
   teamId = newTeamId; teamName = newTeamName;
   joined = true;
@@ -803,6 +878,8 @@ async function teamJoin(name){
   saveTeamSession(teamId, teamName);
   startListening();
   return { ok:true };
+  // Nota: registerTeamPresence() NON va chiamata qui: 'role' passa a 'team'
+  // solo nel chiamante (doJoin), dopo che questa funzione restituisce ok:true.
 }
 
 /* ================== SESSIONE (URL + localStorage) ==================
@@ -860,6 +937,7 @@ async function restoreFromUrl(){
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       saveTeamSession(teamId, teamName);
       startListening();
+      registerTeamPresence();
       return true;
     } else if(result.ok && !result.value){
       // squadra non trovata davvero (es. dopo un reset): la sessione nell'URL non è più valida
@@ -878,6 +956,7 @@ async function restoreFromUrl(){
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       setUrlSession('team', teamId);
       startListening();
+      registerTeamPresence();
       return true;
     } else if(result.ok && !result.value){
       clearTeamSession();
@@ -902,6 +981,24 @@ async function teamSubmitAnswer(round, idx, optionIndex){
 function letter(i){ return ['A','B','C','D'][i]; }
 function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+/* FT-07: testo sintetico per l'ultimo contatto di una squadra, per l'admin. */
+function formatLastSeen(ts){
+  if(!ts) return 'mai';
+  const diffSec = Math.max(0, Math.round((Date.now()-ts)/1000));
+  if(diffSec < 5) return 'adesso';
+  if(diffSec < 60) return diffSec+'s fa';
+  const diffMin = Math.round(diffSec/60);
+  if(diffMin < 60) return diffMin+'m fa';
+  const diffH = Math.round(diffMin/60);
+  return diffH+'h fa';
+}
+function teamPresenceBadge(t){
+  if(!t) return '';
+  const online = !!t.online;
+  const dotClass = online ? 'dot-ok' : 'dot-late';
+  const label = online ? 'online' : ('offline · ultimo contatto '+formatLastSeen(t.lastSeenAt));
+  return `<span class="status-dot ${dotClass}" title="${escapeHtml(label)}"></span><span class="muted" style="font-size:11px;">${escapeHtml(label)}</span>`;
 }
 function timeRemaining(){
   if(!state || !state.questionStartedAt) return 0;
@@ -1120,6 +1217,7 @@ function renderTeamJoin(){
     const result = await teamJoin(name);
     if(result.ok){
       role = 'team';
+      registerTeamPresence(); // solo ora 'role' è 'team': la guardia di registerTeamPresence() la richiede
       render(); // niente attesa cieca: mostra subito il caricamento finché non arriva il primo snapshot
     } else {
       btn.disabled = false; input.disabled = false;
@@ -1312,7 +1410,7 @@ function renderTeam(){
   `;
   attachTeamOptionHandlers();
   const exitLink = document.getElementById('lnkExit');
-  if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
+  if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ teardownTeamPresence(teamId); clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
 function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
@@ -1513,7 +1611,7 @@ function renderAdmin(){
       <div class="card stack">
         <h3>Lobby</h3>
         <p class="muted">${teamIds.length} squadre collegate</p>
-        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${escapeHtml(teams[id].name)}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
+        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${escapeHtml(teams[id].name)} ${teamPresenceBadge(teams[id])}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
       </div>`;
   }
@@ -1587,8 +1685,9 @@ function renderAdmin(){
           const status = ans ? `<span class="status-dot dot-ok"></span>Risposto` : (closed ? `<span class="status-dot dot-late"></span>Nessuna risposta` : `<span class="status-dot dot-wait"></span>In attesa`);
           const answerTxt = ans ? letter(ans.optionIndex)+') '+escapeHtml(q.options[ans.optionIndex]) : '—';
           const pts = closed ? teamPointsForQuestion(id, round, idx) : '—';
+          const presenceDot = teams[id] ? `<span class="status-dot ${teams[id].online?'dot-ok':'dot-late'}" title="${teams[id].online?'online':'offline · ultimo contatto '+formatLastSeen(teams[id].lastSeenAt)}"></span>` : '';
           return `<tr>
-            <td>${teams[id]?escapeHtml(teams[id].name):'—'}</td>
+            <td>${presenceDot}${teams[id]?escapeHtml(teams[id].name):'—'}</td>
             <td>${status}</td>
             <td>${answerTxt}</td>
             <td>${pts} ${closed?`<button class="btn ghost small" data-adjust="-1" data-team="${id}">−</button><button class="btn ghost small" data-adjust="1" data-team="${id}">+</button>`:''}</td>
