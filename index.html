@@ -848,7 +848,7 @@ function rankRows(idsWithScores){
   return idsWithScores.map((r,i)=>`
     <div class="rank-row ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
       <div class="rank-num">${i+1}</div>
-      <div class="rank-name">${teams[r.id] ? teams[r.id].name : '—'}</div>
+      <div class="rank-name">${teams[r.id] ? escapeHtml(teams[r.id].name) : '—'}</div>
       <div class="rank-score">${r.score} pt</div>
     </div>`).join('');
 }
@@ -1045,7 +1045,7 @@ function renderTeam(){
     body = `
       <div class="card center stack">
         <div class="eyebrow">Sei dentro!</div>
-        <h2>${teamName}</h2>
+        <h2>${escapeHtml(teamName)}</h2>
         <p class="muted">In attesa che l'admin avvii la Manche 1...</p>
       </div>`;
   }
@@ -1073,10 +1073,11 @@ function renderTeam(){
     const cp = s.checkpoint;
     if(cp.type==='mid'){
       const total = getList(cp.round).length;
+      const played = Math.ceil(total/2); // stesso calcolo usato in adminNextQuestion per far scattare il checkpoint
       body = `<div class="card center stack">
         <div class="eyebrow pill gold">Checkpoint · Metà Manche ${cp.round}</div>
         <h2>Prendete fiato ☕</h2>
-        <p class="muted">${cp.round===1?8:8} domande giocate, ${total-8} da giocare</p>
+        <p class="muted">${played} domande giocate, ${total-played} da giocare</p>
         ${s.checkpointMode==='classifica' ? renderProvisionalStandings(cp.round) : ''}
       </div>`;
     } else if(cp.type==='end' && cp.round===1){
@@ -1106,13 +1107,13 @@ function renderTeam(){
         <div class="eyebrow">Verdetto</div>
         <h2>Siete eliminati, godetevi la finale 🍿</h2>
         <div class="divider"></div>
-        <p class="muted">In finale: ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
+        <p class="muted">In finale: ${s.finalists.map(id=>teams[id]?escapeHtml(teams[id].name):'—').join(' 🆚 ')}</p>
       </div>`;
     } else {
       body = `<div class="card center stack final-glow">
         <div class="eyebrow pill gold">Verdetto</div>
         <h2>Siete in finale! 🏆</h2>
-        <p class="muted">Contro: ${s.finalists.filter(id=>id!==teamId).map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+        <p class="muted">Contro: ${s.finalists.filter(id=>id!==teamId).map(id=>teams[id]?escapeHtml(teams[id].name):'—').join(', ')}</p>
       </div>`;
     }
   }
@@ -1129,18 +1130,18 @@ function renderTeam(){
     } else if(s.winner===teamId){
       body = `<div class="winner-card">
         <div class="eyebrow pill gold">Campioni</div>
-        <div class="winner-name">${teamName}</div>
+        <div class="winner-name">${escapeHtml(teamName)}</div>
         <p>Campioni del Quizzettone! 🏆🎉</p>
       </div>`;
     } else if(isFinalist){
       body = `<div class="card center stack">
         <div class="eyebrow">Finale</div>
         <h2>Secondo posto, ma che partita! 🥈</h2>
-        <p class="muted">Vince ${teams[s.winner]?teams[s.winner].name:'—'}</p>
+        <p class="muted">Vince ${teams[s.winner]?escapeHtml(teams[s.winner].name):'—'}</p>
       </div>`;
     } else {
       body = `<div class="card center stack">
-        <h2>🏆 ${teams[s.winner]?teams[s.winner].name:'—'} è campione del Quizzettone!</h2>
+        <h2>🏆 ${teams[s.winner]?escapeHtml(teams[s.winner].name):'—'} è campione del Quizzettone!</h2>
       </div>`;
     }
   }
@@ -1148,7 +1149,7 @@ function renderTeam(){
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
-      <div class="eyebrow">Quizzettone · ${teamName} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
+      <div class="eyebrow">Quizzettone · ${escapeHtml(teamName)} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
       ${connectionBadge()}
     </div>
     ${body}
@@ -1224,7 +1225,7 @@ function renderEndRound1Standings(mode){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score: roundScore(id,1)})).sort((a,b)=>b.score-a.score);
   if(mode==='complete') return `<div class="divider"></div><h3 class="center">Classifica Manche 1</h3>${rankRows(ranked)}`;
-  if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div></div>`).join('')}`;
+  if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teams[r.id]?escapeHtml(teams[r.id].name):'—'}</div></div>`).join('')}`;
   return '';
 }
 
@@ -1269,10 +1270,11 @@ function renderDisplay(){
     const cp = s.checkpoint;
     if(cp.type==='mid'){
       const total = getList(cp.round).length;
+      const played = Math.ceil(total/2); // stesso calcolo usato in adminNextQuestion per far scattare il checkpoint
       body = `<div class="card center stack">
         <div class="eyebrow pill gold">Checkpoint · Metà Manche ${cp.round}</div>
         <h2>Prendete fiato ☕</h2>
-        <p class="muted">${cp.round===1?8:8} domande giocate, ${total-8} da giocare</p>
+        <p class="muted">${played} domande giocate, ${total-played} da giocare</p>
         ${s.checkpointMode==='classifica' ? renderProvisionalStandings(cp.round) : ''}
       </div>`;
     } else if(cp.type==='end' && cp.round===1){
@@ -1346,7 +1348,7 @@ function renderAdmin(){
       <div class="card stack">
         <h3>Lobby</h3>
         <p class="muted">${teamIds.length} squadre collegate</p>
-        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${teams[id].name}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
+        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${escapeHtml(teams[id].name)}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
       </div>`;
   }
@@ -1421,7 +1423,7 @@ function renderAdmin(){
           const answerTxt = ans ? letter(ans.optionIndex)+') '+escapeHtml(q.options[ans.optionIndex]) : '—';
           const pts = closed ? teamPointsForQuestion(id, round, idx) : '—';
           return `<tr>
-            <td>${teams[id]?teams[id].name:'—'}</td>
+            <td>${teams[id]?escapeHtml(teams[id].name):'—'}</td>
             <td>${status}</td>
             <td>${answerTxt}</td>
             <td>${pts} ${closed?`<button class="btn ghost small" data-adjust="-1" data-team="${id}">−</button><button class="btn ghost small" data-adjust="1" data-team="${id}">+</button>`:''}</td>
@@ -1470,7 +1472,7 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Spareggio necessario</h3>
-        <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+        <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teams[id]?escapeHtml(teams[id].name):'—').join(', ')}</p>
         <p class="muted">Scegli una domanda dal pool finale da usare come spareggio:</p>
         <div class="stack">
           ${(s.tiebreak.candidateQuestions||[]).map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. [${escapeHtml(q.category)}] ${escapeHtml(q.question.slice(0,50))}...</button>`).join('') || '<p class="muted">Nessuna domanda disponibile nel pool finale.</p>'}
@@ -1489,7 +1491,7 @@ function renderAdmin(){
             const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', tb.qIndex)];
             const correct = ans && ans.optionIndex===q.correctIndex;
             return `<div class="row" style="align-items:center;">
-              <div>${teams[id]?teams[id].name:'—'} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'}</div>
+              <div>${teams[id]?escapeHtml(teams[id].name):'—'} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'}</div>
               <button class="btn small" data-assign-winner="${id}">Assegna finale a questa squadra</button>
             </div>`;
           }).join('')}
@@ -1500,8 +1502,8 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Finaliste svelate</h3>
-        <p>🏆 ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
-        <p class="muted">Eliminate: ${(s.eliminated||[]).map(id=>teams[id]?teams[id].name:'—').join(', ') || 'nessuna'}</p>
+        <p>🏆 ${s.finalists.map(id=>teams[id]?escapeHtml(teams[id].name):'—').join(' 🆚 ')}</p>
+        <p class="muted">Eliminate: ${(s.eliminated||[]).map(id=>teams[id]?escapeHtml(teams[id].name):'—').join(', ') || 'nessuna'}</p>
         <button class="btn" id="btnGoFinal">Inizia la Finale</button>
       </div>`;
   }
@@ -1510,7 +1512,7 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Finale conclusa</h3>
-        ${scores.map(r=>`<div class="rank-row"><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div><div class="rank-score">${r.score} pt</div></div>`).join('')}
+        ${scores.map(r=>`<div class="rank-row"><div class="rank-name">${teams[r.id]?escapeHtml(teams[r.id].name):'—'}</div><div class="rank-score">${r.score} pt</div></div>`).join('')}
         <button class="btn" id="btnRevealWinner">Svela vincitore</button>
       </div>`;
   }
@@ -1518,9 +1520,9 @@ function renderAdmin(){
     controlPanel = `
       <div class="winner-card">
         <div class="eyebrow pill gold">Campioni del Quizzettone</div>
-        <div class="winner-name">${s.winner==='TIE' ? 'Pareggio!' : (teams[s.winner]?teams[s.winner].name:'—')}</div>
-        ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teams[r.id]?teams[r.id].name:'—'}: ${r.score} pt</p>`).join('')}
-        ${s.winner==='TIE' ? `<div class="row">${(s.finalists||[]).map(id=>`<button class="btn small" data-declare="${id}">Dichiara ${teams[id]?teams[id].name:'—'} vincitrice</button>`).join('')}</div>`:''}
+        <div class="winner-name">${s.winner==='TIE' ? 'Pareggio!' : (teams[s.winner]?escapeHtml(teams[s.winner].name):'—')}</div>
+        ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teams[r.id]?escapeHtml(teams[r.id].name):'—'}: ${r.score} pt</p>`).join('')}
+        ${s.winner==='TIE' ? `<div class="row">${(s.finalists||[]).map(id=>`<button class="btn small" data-declare="${id}">Dichiara ${teams[id]?escapeHtml(teams[id].name):'—'} vincitrice</button>`).join('')}</div>`:''}
       </div>`;
   }
 
@@ -1529,7 +1531,7 @@ function renderAdmin(){
       <h3>Classifica generale (solo admin)</h3>
       <table><thead><tr><th>Squadra</th><th>Manche 1</th><th>Manche 2</th><th>Finale</th><th>Totale</th></tr></thead><tbody>
       ${teamIds.map(id=>`<tr>
-        <td>${teams[id].name}</td>
+        <td>${escapeHtml(teams[id].name)}</td>
         <td>${roundScore(id,1)}</td>
         <td>${roundScore(id,2)}</td>
         <td>${state.finalists && state.finalists.includes(id) ? roundScore(id,'final') : '—'}</td>
@@ -1563,7 +1565,7 @@ function renderAdmin(){
         <div class="stack">
           ${s.standingsReveal.order.map((id,i)=>`
             <div class="row" style="align-items:center;">
-              <div style="flex:2;">${i+1}. ${teams[id]?teams[id].name:'—'} (${totalScore(id)} pt)</div>
+              <div style="flex:2;">${i+1}. ${teams[id]?escapeHtml(teams[id].name):'—'} (${totalScore(id)} pt)</div>
               <button class="btn ghost small" data-move-reveal="${i}" data-dir="-1" ${i===0?'disabled':''}>↑</button>
               <button class="btn ghost small" data-move-reveal="${i}" data-dir="1" ${i===s.standingsReveal.order.length-1?'disabled':''}>↓</button>
             </div>`).join('')}
