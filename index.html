@@ -332,6 +332,7 @@ let scoringDefaults = DEFAULT_SCORING; // punteggio di default, persiste tra le 
 let showScoringSettings = false; // toggle locale (solo per questo admin), non condiviso
 let soundEffects = {};    // id -> effetto sonoro (persiste tra una partita e l'altra)
 let showEffectsManager = false; // toggle locale (solo per questo admin), non condiviso
+let resetConfirmOpen = false; // toggle locale (solo per questo admin), non condiviso: apre il riquadro di conferma del reset
 let lastPlayedAudioNonce = null; // locale, mai su Firebase: evita di ri-suonare lo stesso cue
 let audioUnlocked = false; // locale: se questa scheda ha già sbloccato l'autoplay audio
 
@@ -699,6 +700,9 @@ async function adminSetQuestionScoring(round, idx, values){
   await safeSet('state', {...state, scoringOverrides: overrides}, true);
   await refresh();
 }
+// ATTENZIONE: opera direttamente sul database Firebase di produzione (nessun ambiente di test separato, FT-01).
+// Cancella squadre, risposte e stato della partita in corso: usarla con cautela durante prove o prima di una serata dal vivo.
+// Prima di eseguirla per test, seguire la checklist di backup manuale in docs/BACKUP_MANUALE.md.
 async function adminResetGame(){
   const teamKeys = await safeList('teaminfo:', true);
   for(const k of teamKeys) await safeDelete(k, true);
@@ -1681,7 +1685,16 @@ function renderAdmin(){
     ${effectsToggle}
     ${effectsPanel}
     <div class="row">
-      <button class="btn ghost small" id="btnReset">↺ Reset partita</button>
+      ${resetConfirmOpen ? `
+        <div class="stack" style="gap:6px">
+          <div class="muted small">⚠ Azzera squadre, risposte e stato sul database di produzione. Digita <strong>RESET</strong> per confermare.</div>
+          <input type="text" id="resetConfirmInput" placeholder="Digita RESET" autocomplete="off">
+          <div class="row">
+            <button class="btn danger small" id="btnResetConfirm" disabled>⚠ Conferma RESET</button>
+            <button class="btn ghost small" id="btnResetCancel">Annulla</button>
+          </div>
+        </div>
+      ` : `<button class="btn ghost small" id="btnReset">↺ Reset partita</button>`}
       <button class="btn ghost small" id="btnExitAdmin">Esci da admin</button>
     </div>
   `;
@@ -1798,7 +1811,16 @@ function attachAdminHandlers(){
   if(byId('btnRevealFinalists')) byId('btnRevealFinalists').onclick = adminRevealFinalists;
   if(byId('btnGoFinal')) byId('btnGoFinal').onclick = adminContinueToFinal;
   if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
-  if(byId('btnReset')) byId('btnReset').onclick = ()=>{ if(confirm('Sicuro di voler azzerare tutta la partita?')) adminResetGame(); };
+  if(byId('btnReset')) byId('btnReset').onclick = ()=>{ resetConfirmOpen = true; render(); };
+  if(byId('btnResetCancel')) byId('btnResetCancel').onclick = ()=>{ resetConfirmOpen = false; render(); };
+  if(byId('btnResetConfirm')) byId('btnResetConfirm').onclick = ()=>{
+    const input = byId('resetConfirmInput');
+    if(input && input.value.trim()==='RESET'){ resetConfirmOpen = false; adminResetGame(); }
+  };
+  if(byId('resetConfirmInput')) byId('resetConfirmInput').oninput = (e)=>{
+    const btn = byId('btnResetConfirm');
+    if(btn) btn.disabled = e.target.value.trim() !== 'RESET';
+  };
   if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;
   if(byId('btnSetupStandingsReveal')) byId('btnSetupStandingsReveal').onclick = adminSetupStandingsReveal;
   if(byId('btnRevealNextStanding')) byId('btnRevealNextStanding').onclick = adminRevealNextStanding;
