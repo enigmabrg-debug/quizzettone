@@ -291,26 +291,30 @@ async function uploadAudioFile(file, folder){
   return await ref.getDownloadURL();
 }
 
+/* Esito esplicito per ogni operazione Firebase: {ok:true, value} oppure
+   {ok:false, error}. Così un errore non si confonde più con "valore assente"
+   (null) o con un successo (nessun controllo sul valore di ritorno). */
 async function safeGet(key, shared){
   try{
     const snap = await db.ref(DB_ROOT + '/' + key).once('value');
     const val = snap.val();
-    return (val === null || val === undefined) ? null : val;
-  } catch(e){ console.error('storage get failed', key, e); return null; }
+    return { ok:true, value: (val === null || val === undefined) ? null : val };
+  } catch(e){ console.error('storage get failed', key, e); return { ok:false, value:null, error:e }; }
 }
 async function safeSet(key, value, shared){
-  try{ await db.ref(DB_ROOT + '/' + key).set(value); return true; }
-  catch(e){ console.error('storage set failed', key, e); return false; }
+  try{ await db.ref(DB_ROOT + '/' + key).set(value); return { ok:true }; }
+  catch(e){ console.error('storage set failed', key, e); return { ok:false, error:e }; }
 }
 async function safeDelete(key, shared){
-  try{ await db.ref(DB_ROOT + '/' + key).remove(); }catch(e){}
+  try{ await db.ref(DB_ROOT + '/' + key).remove(); return { ok:true }; }
+  catch(e){ console.error('storage delete failed', key, e); return { ok:false, error:e }; }
 }
 async function safeList(prefix, shared){
   try{
     const snap = await db.ref(DB_ROOT).once('value');
     const all = snap.val() || {};
-    return Object.keys(all).filter(k => k.startsWith(prefix));
-  } catch(e){ console.error('storage list failed', prefix, e); return []; }
+    return { ok:true, value: Object.keys(all).filter(k => k.startsWith(prefix)) };
+  } catch(e){ console.error('storage list failed', prefix, e); return { ok:false, value:[], error:e }; }
 }
 
 /* ================== APP STATE (locale) ================== */
@@ -321,6 +325,9 @@ let joined = false;
 let listening = false;
 let uiTickTimer = null;
 let connected = true;     // stato connessione Firebase (.info/connected)
+const BOOT_TIMEOUT_MS = 8000; // quanto aspettare prima di mostrare l'errore di connessione
+let bootTimedOut = false; // locale: true se abbiamo mostrato la schermata di errore avvio/connessione
+let firstSnapshotTimeoutHandle = null; // timer in attesa del primo snapshot da Firebase
 
 let state = null;         // stato di gioco condiviso
 let teams = {};           // id -> {id, name}
@@ -335,6 +342,9 @@ let showEffectsManager = false; // toggle locale (solo per questo admin), non co
 let resetConfirmOpen = false; // toggle locale (solo per questo admin), non condiviso: apre il riquadro di conferma del reset
 let lastPlayedAudioNonce = null; // locale, mai su Firebase: evita di ri-suonare lo stesso cue
 let audioUnlocked = false; // locale: se questa scheda ha già sbloccato l'autoplay audio
+let answerSendKey = null; // qkey della domanda per cui è in corso/fallito un invio risposta (locale)
+let answerSendStatus = null; // 'sending' | 'error' | null
+let adminOpStatus = null; // {kind:'sending'|'error'|'success', message} — esito operazioni admin essenziali (locale, non condiviso)
 
 function defaultState(){
   return {
@@ -348,13 +358,36 @@ function defaultState(){
   };
 }
 
+/* Osserva la connessione Firebase per tutta la vita della pagina (non solo
+   mentre è attivo il listener principale), così l'indicatore online/offline
+   e la schermata di avvio riflettono lo stato reale fin da subito. */
+db.ref('.info/connected').on('value', snap=>{
+  connected = snap.val() === true;
+  render();
+});
+
+function clearFirstSnapshotTimeout(){
+  if(firstSnapshotTimeoutHandle){ clearTimeout(firstSnapshotTimeoutHandle); firstSnapshotTimeoutHandle = null; }
+}
+/* Se il primo snapshot dal listener principale non arriva entro il timeout,
+   mostriamo un errore comprensibile invece di lasciare la vista bianca (FT-04). */
+function armFirstSnapshotTimeout(){
+  clearFirstSnapshotTimeout();
+  firstSnapshotTimeoutHandle = setTimeout(()=>{
+    if(!state){ bootTimedOut = true; renderBootScreen('timeout'); }
+  }, BOOT_TIMEOUT_MS);
+}
+
 /* Un solo listener realtime su tutto il nodo del gioco, al posto del polling
    ogni 1.1s: Firebase applica gli aggiornamenti in locale in modo pressoché
    istantaneo, anche per le scritture fatte da questo stesso client. */
 function startListening(){
   if(listening) return;
   listening = true;
+  armFirstSnapshotTimeout();
   db.ref(DB_ROOT).on('value', snap=>{
+    clearFirstSnapshotTimeout();
+    bootTimedOut = false;
     const all = snap.val() || {};
     const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {}, newEffects = {};
     Object.keys(all).forEach(k=>{
@@ -373,16 +406,16 @@ function startListening(){
     state = all.state || defaultState();
     if(role==='admin') ensureSeedQuestions();
     render();
-  }, err=>{ console.error('listener fallito', err); });
-  db.ref('.info/connected').on('value', snap=>{
-    connected = snap.val() === true;
-    render();
+  }, err=>{
+    console.error('listener fallito', err);
+    bootTimedOut = true;
+    renderBootScreen('timeout');
   });
   startUiTick();
 }
 function stopListening(){
   db.ref(DB_ROOT).off('value');
-  db.ref('.info/connected').off('value');
+  clearFirstSnapshotTimeout();
   listening = false;
   if(uiTickTimer){ clearInterval(uiTickTimer); uiTickTimer = null; }
 }
@@ -473,7 +506,7 @@ async function ensureSeedQuestions(){
   if(seedAttempted) return;
   seedAttempted = true;
   const existing = await safeList('question:', true);
-  if(existing.length>0) return;
+  if(!existing.ok || existing.value.length>0) return;
   const updates = {};
   const seed = (list, pool)=> list.forEach(q=>{
     const id = newQuestionId();
@@ -563,31 +596,35 @@ async function adminAdjustPoints(id, round, idx, delta){
   const current = teamPointsForQuestion(id, round, idx);
   const ov = overridesByTeam[id] || {};
   ov[key] = current + delta;
-  await safeSet('overrides:'+id, ov, true); await refresh();
+  const result = await safeSet('overrides:'+id, ov, true);
+  await refresh();
+  return result;
 }
 async function adminNextQuestion(){
   const round = state.round, idx = state.qIndex;
   const list = getList(round);
   const qNumber = idx+1;
+  let result = { ok:true };
   if(round===1 || round===2){
     const midPoint = Math.ceil(list.length/2);
     if(list.length>=4 && qNumber===midPoint){
-      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
+      result = await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
     } else if(qNumber===list.length){
-      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
+      result = await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      result = await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='final'){
     if(qNumber===list.length){
-      await safeSet('state', {...state, phase:'final_ready'}, true);
+      result = await safeSet('state', {...state, phase:'final_ready'}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      result = await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='tiebreak'){
-    await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
+    result = await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
   }
   await refresh();
+  return result;
 }
 async function adminSetCheckpointMode(mode){
   await safeSet('state', {...state, checkpointMode:mode}, true); await refresh();
@@ -704,37 +741,57 @@ async function adminSetQuestionScoring(round, idx, values){
 // Cancella squadre, risposte e stato della partita in corso: usarla con cautela durante prove o prima di una serata dal vivo.
 // Prima di eseguirla per test, seguire la checklist di backup manuale in docs/BACKUP_MANUALE.md.
 async function adminResetGame(){
-  const teamKeys = await safeList('teaminfo:', true);
-  for(const k of teamKeys) await safeDelete(k, true);
+  const listResult = await safeList('teaminfo:', true);
+  if(!listResult.ok){ await refresh(); return listResult; }
+  let firstError = null;
+  for(const k of listResult.value){
+    const r = await safeDelete(k, true);
+    if(!r.ok && !firstError) firstError = r.error;
+  }
   const ids = Object.keys(teams);
-  for(const id of ids){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
-  await safeSet('state', defaultState(), true);
+  for(const id of ids){
+    const r1 = await safeDelete('answers:'+id, true);
+    if(!r1.ok && !firstError) firstError = r1.error;
+    const r2 = await safeDelete('overrides:'+id, true);
+    if(!r2.ok && !firstError) firstError = r2.error;
+  }
+  const setResult = await safeSet('state', defaultState(), true);
+  if(!setResult.ok && !firstError) firstError = setResult.error;
   await refresh();
+  return firstError ? { ok:false, error:firstError } : { ok:true };
 }
 
 /* ================== AZIONI SQUADRA ================== */
 async function findTeamByName(name){
-  const teamKeys = await safeList('teaminfo:', true);
-  for(const k of teamKeys){
-    const t = await safeGet(k, true);
-    if(t && t.name && t.name.trim().toLowerCase() === name.trim().toLowerCase()) return t;
+  const listResult = await safeList('teaminfo:', true);
+  if(!listResult.ok) return { ok:false, error:listResult.error };
+  for(const k of listResult.value){
+    const getResult = await safeGet(k, true);
+    if(!getResult.ok) return { ok:false, error:getResult.error };
+    const t = getResult.value;
+    if(t && t.name && t.name.trim().toLowerCase() === name.trim().toLowerCase()) return { ok:true, team:t };
   }
-  return null;
+  return { ok:true, team:null };
 }
 async function teamJoin(name){
   const trimmed = name.trim();
-  const existing = await findTeamByName(trimmed);
-  if(existing){
-    teamId = existing.id; teamName = existing.name;
+  const findResult = await findTeamByName(trimmed);
+  if(!findResult.ok) return findResult; // niente da avanzare: non sappiamo nemmeno se la squadra esiste già
+  let newTeamId, newTeamName;
+  if(findResult.team){
+    newTeamId = findResult.team.id; newTeamName = findResult.team.name;
   } else {
-    teamId = 'team_' + Math.random().toString(36).slice(2,9);
-    teamName = trimmed;
-    await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now()}, true);
+    newTeamId = 'team_' + Math.random().toString(36).slice(2,9);
+    newTeamName = trimmed;
+    const setResult = await safeSet('teaminfo:'+newTeamId, {id:newTeamId, name:newTeamName, joinedAt:Date.now()}, true);
+    if(!setResult.ok) return setResult; // scrittura rifiutata: non entriamo in partita
   }
+  teamId = newTeamId; teamName = newTeamName;
   joined = true;
   setUrlSession('team', teamId);
   saveTeamSession(teamId, teamName);
   startListening();
+  return { ok:true };
 }
 
 /* ================== SESSIONE (URL + localStorage) ==================
@@ -786,27 +843,32 @@ async function restoreFromUrl(){
     return true;
   }
   if(r==='team' && id){
-    const info = await safeGet('teaminfo:'+id, true);
-    if(info){
+    const result = await safeGet('teaminfo:'+id, true);
+    if(result.ok && result.value){
+      const info = result.value;
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       saveTeamSession(teamId, teamName);
       startListening();
       return true;
-    } else {
+    } else if(result.ok && !result.value){
+      // squadra non trovata davvero (es. dopo un reset): la sessione nell'URL non è più valida
       clearUrlSession();
     }
+    // se la lettura è fallita (result.ok===false, es. rete assente) non tocchiamo
+    // la sessione: potrebbe essere un problema temporaneo, non un dato mancante
   }
   // Nessuna sessione nell'URL: prova a recuperarla da localStorage
   // (es. il browser è stato chiuso del tutto e poi riaperto).
   const saved = loadTeamSession();
   if(saved && saved.id){
-    const info = await safeGet('teaminfo:'+saved.id, true);
-    if(info){
+    const result = await safeGet('teaminfo:'+saved.id, true);
+    if(result.ok && result.value){
+      const info = result.value;
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       setUrlSession('team', teamId);
       startListening();
       return true;
-    } else {
+    } else if(result.ok && !result.value){
       clearTeamSession();
     }
   }
@@ -814,11 +876,15 @@ async function restoreFromUrl(){
 }
 async function teamSubmitAnswer(round, idx, optionIndex){
   const key = qkey(round, idx);
-  const current = await safeGet('answers:'+teamId, true) || {};
-  if(current[key]) return; // già risposto
+  const readResult = await safeGet('answers:'+teamId, true);
+  if(!readResult.ok) return readResult;
+  const current = readResult.value || {};
+  if(current[key]) return { ok:true }; // già risposto, niente da inviare
   current[key] = {optionIndex, ts: Date.now()};
-  await safeSet('answers:'+teamId, current, true);
+  const writeResult = await safeSet('answers:'+teamId, current, true);
+  if(!writeResult.ok) return writeResult;
   await refresh();
+  return { ok:true };
 }
 
 /* ================== HELPERS UI ================== */
@@ -860,6 +926,32 @@ function activeTeamsForRound(round){
 function connectionBadge(){
   if(connected) return '';
   return `<div class="pill" style="color:var(--pink);border-color:rgba(255,77,109,.4);background:rgba(255,77,109,.1);margin-top:6px;">⚠ Connessione persa, riconnessione in corso…</div>`;
+}
+
+/* Banner condiviso per le operazioni admin essenziali (cambio fase, correzione
+   punti, reset): mostra invio in corso / esito, e non fa avanzare la regia
+   come se un'operazione fosse riuscita quando Firebase l'ha rifiutata (FT-05). */
+function adminOpBanner(){
+  if(!adminOpStatus) return '';
+  const cls = adminOpStatus.kind==='error' ? 'expired' : adminOpStatus.kind==='success' ? 'sent' : '';
+  return `<div class="status-banner ${cls}">${escapeHtml(adminOpStatus.message)}</div>`;
+}
+async function runAdminOp(pendingMessage, successMessage, fn){
+  adminOpStatus = { kind:'sending', message: pendingMessage };
+  render();
+  let result;
+  try{ result = await fn(); }
+  catch(e){ result = { ok:false, error:e }; }
+  if(!result || result.ok===false){
+    const detail = result && result.error && result.error.message ? ' ('+result.error.message+')' : '';
+    adminOpStatus = { kind:'error', message: '❌ Operazione non riuscita, riprova.'+detail };
+    render();
+    return false;
+  }
+  adminOpStatus = { kind:'success', message: '✓ '+successMessage };
+  render();
+  setTimeout(()=>{ if(adminOpStatus && adminOpStatus.kind==='success'){ adminOpStatus = null; render(); } }, 2500);
+  return true;
 }
 
 /* ================== AUDIO (cue condiviso via Firebase, suonato solo da admin + Display) ================== */
@@ -999,6 +1091,7 @@ function renderTeamJoin(){
     <div class="card stack" style="margin-top:20px;">
       <h3>Nome squadra</h3>
       <input type="text" id="teamNameInput" placeholder="Es. I Fenomeni" maxlength="24">
+      <div id="joinMsg" class="note" style="display:none;"></div>
       <button class="btn" id="btnJoin">Entra in partita</button>
       <button class="btn ghost small" id="btnBack">← Indietro</button>
     </div>
@@ -1007,9 +1100,21 @@ function renderTeamJoin(){
   const input = document.getElementById('teamNameInput');
   input.focus();
   const doJoin = async ()=>{
-    if(!input.value.trim()) return;
-    role='team';
-    await teamJoin(input.value);
+    const name = input.value.trim();
+    if(!name) return;
+    const btn = document.getElementById('btnJoin');
+    const msg = document.getElementById('joinMsg');
+    btn.disabled = true; input.disabled = true;
+    msg.style.display = ''; msg.style.color = ''; msg.textContent = 'Iscrizione in corso…';
+    const result = await teamJoin(name);
+    if(result.ok){
+      role = 'team';
+      render(); // niente attesa cieca: mostra subito il caricamento finché non arriva il primo snapshot
+    } else {
+      btn.disabled = false; input.disabled = false;
+      msg.style.color = 'var(--pink)';
+      msg.textContent = 'Iscrizione non riuscita. Controlla la connessione e riprova.';
+    }
   };
   document.getElementById('btnJoin').onclick = doJoin;
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') doJoin(); });
@@ -1017,10 +1122,50 @@ function renderTeamJoin(){
 
 /* ================== RENDER PRINCIPALE ================== */
 function render(){
-  if(!state) return; // il primo snapshot da Firebase non è ancora arrivato
+  if(!state){
+    // il primo snapshot da Firebase non è ancora arrivato: se abbiamo già
+    // scelto un ruolo (quindi siamo in attesa di dati, non sulla schermata
+    // iniziale) mostriamo caricamento o errore invece di lasciare la vista bianca (FT-04)
+    if(role) renderBootScreen(bootTimedOut ? 'timeout' : 'loading');
+    return;
+  }
   if(role==='team' && joined) return renderTeam();
   if(role==='admin') return renderAdmin();
   if(role==='display') return renderDisplay();
+}
+
+/* Schermata di avvio/connessione: mostrata mentre aspettiamo il primo
+   snapshot da Firebase, o se il timeout scatta senza che sia arrivato nulla. */
+function renderBootScreen(kind){
+  const app = document.getElementById('app');
+  app.className = '';
+  if(kind==='timeout'){
+    app.innerHTML = `
+      <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+        <div class="eyebrow">Party Quiz</div>
+        <h1 class="brand">QUIZZETTONE</h1>
+      </div>
+      <div class="card center stack" style="margin-top:20px;">
+        <div class="status-banner expired">⚠ Impossibile raggiungere il server</div>
+        <p class="muted">Controlla la connessione a internet e riprova. Se il problema persiste, potrebbe essere temporaneo: riprova tra qualche istante.</p>
+        ${connectionBadge()}
+        <button class="btn" id="btnBootRetry">↻ Riprova</button>
+      </div>
+    `;
+    const retryBtn = document.getElementById('btnBootRetry');
+    if(retryBtn) retryBtn.onclick = ()=>{ location.reload(); };
+  } else {
+    app.innerHTML = `
+      <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+        <div class="eyebrow">Party Quiz</div>
+        <h1 class="brand">QUIZZETTONE</h1>
+      </div>
+      <div class="card center stack" style="margin-top:20px;">
+        <p class="muted">Connessione al Quizzettone in corso…</p>
+        ${connectionBadge()}
+      </div>
+    `;
+  }
 }
 
 /* ================== VISTA SQUADRA ================== */
@@ -1167,6 +1312,8 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const remaining = active ? timeRemaining() : 0;
   const expired = active && remaining<=0 && !myAnswer;
   const showCorrectness = round!=='tiebreak' && !active && !!state.solutionRevealed;
+  const sending = answerSendKey===key && answerSendStatus==='sending';
+  const sendFailed = answerSendKey===key && answerSendStatus==='error';
 
   let optionsHtml = q.options.map((opt,i)=>{
     let cls = 'opt';
@@ -1175,14 +1322,16 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
       if(i===q.correctIndex) cls += ' correct';
       else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
     }
-    const disabled = readOnly || !active || !!myAnswer || remaining<=0;
+    const disabled = readOnly || !active || !!myAnswer || remaining<=0 || sending;
     return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
       <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
     </button>`;
   }).join('');
 
   let banner = '';
-  if(myAnswer) banner = `<div class="status-banner sent">✓ Risposta inviata</div>`;
+  if(sending) banner = `<div class="status-banner">⏳ Invio in corso…</div>`;
+  else if(sendFailed) banner = `<div class="status-banner expired">❌ Invio non riuscito. Tocca di nuovo una risposta per riprovare.</div>`;
+  else if(myAnswer) banner = `<div class="status-banner sent">✓ Risposta inviata</div>`;
   else if(expired || (!active && !myAnswer)) banner = `<div class="status-banner expired">⏱ Tempo scaduto</div>`;
 
   const roundLabel = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
@@ -1211,7 +1360,12 @@ function attachTeamOptionHandlers(){
       if(btn.disabled) return;
       const idx = parseInt(btn.getAttribute('data-idx'));
       const round = state.round, qIdx = state.qIndex;
-      await teamSubmitAnswer(round, qIdx, idx);
+      const key = qkey(round, qIdx);
+      answerSendKey = key; answerSendStatus = 'sending'; render();
+      const result = await teamSubmitAnswer(round, qIdx, idx);
+      if(result.ok){ answerSendKey = null; answerSendStatus = null; }
+      else { answerSendStatus = 'error'; }
+      render();
     };
   });
 }
@@ -1666,6 +1820,7 @@ function renderAdmin(){
     <div class="header">
       <div class="eyebrow">Quizzettone · Pannello Admin</div>
       ${connectionBadge()}
+      ${adminOpBanner()}
     </div>
     <div class="admin-grid">
       <div class="stack">
@@ -1803,7 +1958,7 @@ function attachAdminHandlers(){
   if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
   if(byId('btnCloseNow')) byId('btnCloseNow').onclick = adminCloseAnswers;
   if(byId('btnRevealSolution')) byId('btnRevealSolution').onclick = adminRevealSolution;
-  if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;
+  if(byId('btnNext')) byId('btnNext').onclick = ()=> runAdminOp('Salvataggio in corso…', 'Fatto.', adminNextQuestion);
   if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;
   if(byId('btnModePause')) byId('btnModePause').onclick = ()=>adminSetCheckpointMode('pause');
   if(byId('btnModeClassifica')) byId('btnModeClassifica').onclick = ()=>adminSetCheckpointMode('classifica');
@@ -1817,7 +1972,10 @@ function attachAdminHandlers(){
   if(byId('btnResetCancel')) byId('btnResetCancel').onclick = ()=>{ resetConfirmOpen = false; render(); };
   if(byId('btnResetConfirm')) byId('btnResetConfirm').onclick = ()=>{
     const input = byId('resetConfirmInput');
-    if(input && input.value.trim()==='RESET'){ resetConfirmOpen = false; adminResetGame(); }
+    if(input && input.value.trim()==='RESET'){
+      resetConfirmOpen = false;
+      runAdminOp('Reset in corso…', 'Partita azzerata.', adminResetGame);
+    }
   };
   if(byId('resetConfirmInput')) byId('resetConfirmInput').oninput = (e)=>{
     const btn = byId('btnResetConfirm');
@@ -1888,7 +2046,7 @@ function attachAdminHandlers(){
     btn.onclick = ()=>{
       const id = btn.getAttribute('data-team');
       const delta = parseInt(btn.getAttribute('data-adjust'));
-      adminAdjustPoints(id, state.round, state.qIndex, delta);
+      runAdminOp('Correzione in corso…', 'Punteggio corretto.', ()=>adminAdjustPoints(id, state.round, state.qIndex, delta));
     };
   });
   document.querySelectorAll('[data-tb-q]').forEach(btn=>{
@@ -1936,7 +2094,14 @@ function attachAdminHandlers(){
 
 /* ================== AVVIO ================== */
 (async function boot(){
+  renderBootScreen('loading'); // mai schermata bianca, nemmeno per un istante (FT-04)
+  let restoreDone = false;
+  const restoreTimeout = setTimeout(()=>{
+    if(!restoreDone){ bootTimedOut = true; renderBootScreen('timeout'); }
+  }, BOOT_TIMEOUT_MS);
   const restored = await restoreFromUrl();
+  restoreDone = true;
+  clearTimeout(restoreTimeout);
   if(!restored) renderRoleSelect();
 })();
 </script>
