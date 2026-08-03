@@ -190,6 +190,14 @@
   ::selection{background:var(--gold);color:#1B1030;}
   a{color:var(--gold);}
   .note{font-size:12px;color:var(--ink-dim);margin-top:4px;}
+  @keyframes partyFlip{
+    0%{transform:rotateY(90deg) scale(.92);opacity:0;}
+    60%{transform:rotateY(-14deg) scale(1.03);opacity:1;}
+    100%{transform:rotateY(0deg) scale(1);opacity:1;}
+  }
+  .party-card{perspective:900px;border-color:rgba(242,183,5,.4);}
+  .party-card.party-flip-in{animation:partyFlip .7s cubic-bezier(.2,.8,.2,1);}
+  .party-card.malus{border-color:rgba(255,77,109,.4);}
 </style>
 </head>
 <body>
@@ -335,6 +343,11 @@ let showEffectsManager = false; // toggle locale (solo per questo admin), non co
 let lastPlayedAudioNonce = null; // locale, mai su Firebase: evita di ri-suonare lo stesso cue
 let audioUnlocked = false; // locale: se questa scheda ha già sbloccato l'autoplay audio
 
+let partyDecks = {normale:[], extreme:[]}; // mazzi Modalità Party, letti da Firebase (mazzi/normale, mazzi/extreme)
+let partyPopupSlot = null;        // locale, solo per questo admin: quale slot ('bonus'|'malus'|'surprise') ha il popup di pesca privata aperto
+let partyManualListOpen = false;  // locale: se dentro il popup è aperta la lista di scelta manuale (deve sopravvivere ai re-render ogni 250ms)
+let lastPartyCardSeen = {bonus:null, malus:null, surprise:null}; // locale, mai su Firebase: evita di ripetere l'animazione di reveal già vista
+
 function defaultState(){
   return {
     phase:'lobby', round:1, qIndex:0,
@@ -343,7 +356,8 @@ function defaultState(){
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
     standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null,
-    audioCue:null
+    audioCue:null,
+    partyMode:'none', party:{bonus:null, malus:null, surprise:null}
   };
 }
 
@@ -370,7 +384,11 @@ function startListening(){
     soundEffects = newEffects;
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
     state = all.state || defaultState();
-    if(role==='admin') ensureSeedQuestions();
+    partyDecks = {
+      normale: (all.mazzi && all.mazzi.normale) || [],
+      extreme: (all.mazzi && all.mazzi.extreme) || []
+    };
+    if(role==='admin'){ ensureSeedQuestions(); ensureSeedPartyDecks(); }
     render();
   }, err=>{ console.error('listener fallito', err); });
   db.ref('.info/connected').on('value', snap=>{
@@ -480,6 +498,47 @@ async function ensureSeedQuestions(){
   });
   seed(Q1, 'manche'); seed(Q2, 'manche'); seed(QF, 'finale');
   await db.ref(DB_ROOT).update(updates);
+}
+
+/* ================== MODALITÀ PARTY (Firebase: quizzettone/mazzi/normale, quizzettone/mazzi/extreme) ==================
+   Due mazzi di carte indipendenti dal gioco delle domande. Ogni carta ha un
+   testo e un tipo informativo (bonus/malus/generica); il tipo non filtra la
+   pesca, serve solo come indicazione per chi la legge ad alta voce. */
+function newCardId(){ return 'card_' + Math.random().toString(36).slice(2,10); }
+const PARTY_DECK_NORMALE_SEED = [
+  {testo:"Bevi un sorso (bonus: scegli chi beve)", tipo:"bonus"},
+  {testo:"Alzati e balla 10 secondi", tipo:"generica"},
+  {testo:"Canta il ritornello di una canzone a scelta", tipo:"generica"}
+];
+const PARTY_DECK_EXTREME_SEED = [
+  {testo:"Verità o obbligo: rispondi a una domanda scomoda o fai un giro di shot", tipo:"malus"},
+  {testo:"Passa il turno: scegli un altro giocatore che deve fare una prova al posto tuo", tipo:"generica"}
+];
+let partySeedAttempted = false;
+async function ensureSeedPartyDecks(){
+  if(partySeedAttempted) return;
+  partySeedAttempted = true;
+  const snap = await db.ref(DB_ROOT + '/mazzi').once('value');
+  const existing = snap.val();
+  if(existing && ((existing.normale && existing.normale.length) || (existing.extreme && existing.extreme.length))) return;
+  const withIds = list => list.map(c=>({id:newCardId(), testo:c.testo, tipo:c.tipo}));
+  await db.ref(DB_ROOT + '/mazzi').set({
+    normale: withIds(PARTY_DECK_NORMALE_SEED),
+    extreme: withIds(PARTY_DECK_EXTREME_SEED)
+  });
+}
+function getPartyMode(){ return (state && state.partyMode) || 'none'; }
+function activePartyDeck(){
+  const mode = getPartyMode();
+  if(mode==='normale') return partyDecks.normale || [];
+  if(mode==='extreme') return partyDecks.extreme || [];
+  return [];
+}
+function drawRandomPartyCard(excludeId){
+  const deck = activePartyDeck();
+  const pool = excludeId ? deck.filter(c=>c.id!==excludeId) : deck;
+  if(!pool.length) return null;
+  return pool[Math.floor(Math.random()*pool.length)];
 }
 
 /* Pesca "count" domande da un pool, ruotando tra le categorie presenti e
@@ -708,6 +767,72 @@ async function adminResetGame(){
   await refresh();
 }
 
+/* ================== AZIONI ADMIN · MODALITÀ PARTY ================== */
+async function adminSetPartyMode(mode){
+  await safeSet('state', {...state, partyMode: mode}, true);
+  await refresh();
+}
+async function adminMarkPartySlot(slot){
+  const card = drawRandomPartyCard();
+  if(!card){ alert('Il mazzo attivo non ha carte disponibili.'); return; }
+  const forQuestion = (state.phase==='question' || state.phase==='closed') ? qkey(state.round, state.qIndex) : null;
+  const party = {...(state.party||{}), [slot]: {card, confirmed:false, revealed:false, revealNonce:null, revealedAt:null, forQuestion}};
+  await safeSet('state', {...state, party}, true);
+  partyPopupSlot = slot;
+  partyManualListOpen = false;
+  await refresh();
+}
+async function adminStartSurprise(){
+  const card = drawRandomPartyCard();
+  if(!card){ alert('Il mazzo attivo non ha carte disponibili.'); return; }
+  const party = {...(state.party||{}), surprise: {card, confirmed:false, revealed:false, revealNonce:null, revealedAt:null, forQuestion:null}};
+  await safeSet('state', {...state, party}, true);
+  partyPopupSlot = 'surprise';
+  partyManualListOpen = false;
+  await refresh();
+}
+async function adminRedrawPartyCard(slot){
+  const current = state.party && state.party[slot];
+  if(!current) return;
+  const card = drawRandomPartyCard(current.card && current.card.id);
+  if(!card){ alert("Non c'è un'altra carta disponibile nel mazzo."); return; }
+  const party = {...state.party, [slot]: {...current, card, confirmed:false}};
+  await safeSet('state', {...state, party}, true);
+  partyManualListOpen = false;
+  await refresh();
+}
+async function adminPickPartyCardManually(slot, cardId){
+  const current = state.party && state.party[slot];
+  const card = activePartyDeck().find(c=>c.id===cardId);
+  if(!card) return;
+  const party = {...(state.party||{}), [slot]: {...current, card, confirmed:true}};
+  await safeSet('state', {...state, party}, true);
+  partyPopupSlot = null;
+  partyManualListOpen = false;
+  await refresh();
+}
+async function adminConfirmPartyCard(slot){
+  const current = state.party && state.party[slot];
+  if(!current) return;
+  const party = {...state.party, [slot]: {...current, confirmed:true}};
+  await safeSet('state', {...state, party}, true);
+  partyPopupSlot = null;
+  partyManualListOpen = false;
+  await refresh();
+}
+async function adminRevealPartyCard(slot){
+  const current = state.party && state.party[slot];
+  if(!current || !current.confirmed) return;
+  const party = {...state.party, [slot]: {...current, revealed:true, revealNonce:Math.random().toString(36).slice(2), revealedAt:Date.now()}};
+  await safeSet('state', {...state, party}, true);
+  await refresh();
+}
+async function adminClearPartySlot(slot){
+  const party = {...(state.party||{}), [slot]: null};
+  await safeSet('state', {...state, party}, true);
+  await refresh();
+}
+
 /* ================== AZIONI SQUADRA ================== */
 async function findTeamByName(name){
   const teamKeys = await safeList('teaminfo:', true);
@@ -856,6 +981,28 @@ function activeTeamsForRound(round){
 function connectionBadge(){
   if(connected) return '';
   return `<div class="pill" style="color:var(--pink);border-color:rgba(255,77,109,.4);background:rgba(255,77,109,.1);margin-top:6px;">⚠ Connessione persa, riconnessione in corso…</div>`;
+}
+
+/* ================== MODALITÀ PARTY: reveal pubblico (Display) ================== */
+function partyCardAnimClass(slot, data){
+  // consuma il nonce localmente così l'animazione di reveal parte una volta sola per questo schermo,
+  // anche se render() viene richiamato più volte di seguito (es. il tick del timer ogni 250ms)
+  if(!data || !data.revealed) return '';
+  if(!data.revealNonce || data.revealNonce===lastPartyCardSeen[slot]) return '';
+  lastPartyCardSeen[slot] = data.revealNonce;
+  return 'party-flip-in';
+}
+function renderPartyRevealCards(){
+  const party = (state && state.party) || {};
+  const slots = [['bonus','Bonus'],['malus','Malus'],['surprise','Prova a sorpresa']];
+  return slots.filter(([key])=> party[key] && party[key].revealed).map(([key,label])=>{
+    const data = party[key];
+    const animClass = partyCardAnimClass(key, data);
+    return `<div class="card center stack party-card ${key==='malus'?'malus':''} ${animClass}">
+      <div class="eyebrow pill gold">${label}</div>
+      <h2>${escapeHtml(data.card.testo)}</h2>
+    </div>`;
+  }).join('');
 }
 
 /* ================== AUDIO (cue condiviso via Firebase, suonato solo da admin + Display) ================== */
@@ -1321,6 +1468,7 @@ function renderDisplay(){
       ${connectionBadge()}
     </div>
     ${body}
+    ${renderPartyRevealCards()}
     ${audioUnlockOverlayHtml()}
   `;
   wireAudioUnlockOverlay();
@@ -1338,12 +1486,22 @@ function renderAdmin(){
   let liveTable = '';
 
   if(s.phase==='lobby'){
+    const pm = s.partyMode || 'none';
     controlPanel = `
       <div class="card stack">
         <h3>Lobby</h3>
         <p class="muted">${teamIds.length} squadre collegate</p>
         <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${teams[id].name}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
+      </div>
+      <div class="card stack">
+        <h3>Modalità Party</h3>
+        <p class="muted">Prove a sorpresa con carte bonus/malus da mostrare sul Display durante la serata.</p>
+        <div class="row">
+          <button class="btn ${pm==='none'?'':'secondary'}" id="btnPartyNone">Nessuna</button>
+          <button class="btn ${pm==='normale'?'':'secondary'}" id="btnPartyNormale">Normale</button>
+          <button class="btn ${pm==='extreme'?'':'secondary'}" id="btnPartyExtreme">Extreme</button>
+        </div>
       </div>`;
   }
   else if((s.phase==='question' || s.phase==='closed') && !getQuestion(s.round, s.qIndex)){
@@ -1395,6 +1553,22 @@ function renderAdmin(){
           ${closed?`<button class="btn" id="btnNext">${round==='tiebreak'?'Verifica risultato spareggio':'Domanda successiva'}</button>`:''}
         </div>
       </div>`;
+
+    if((s.partyMode||'none') !== 'none'){
+      const curKey = qkey(round, idx);
+      const bonusSlot = s.party && s.party.bonus;
+      const malusSlot = s.party && s.party.malus;
+      const bonusForThis = bonusSlot && bonusSlot.forQuestion===curKey;
+      const malusForThis = malusSlot && malusSlot.forQuestion===curKey;
+      controlPanel += `
+        <div class="card stack">
+          <div class="eyebrow">Modalità Party · mazzo ${s.partyMode}</div>
+          <div class="row">
+            <button class="btn ${bonusForThis?'secondary':''}" id="btnMarkBonus">${bonusForThis?'✓ Bonus marcato':'Marca Bonus'}</button>
+            <button class="btn ${malusForThis?'secondary':''}" id="btnMarkMalus">${malusForThis?'✓ Malus marcato':'Marca Malus'}</button>
+          </div>
+        </div>`;
+    }
 
     const nextQ = round==='tiebreak' ? null : getQuestion(round, idx+1);
     if(nextQ){
@@ -1669,6 +1843,7 @@ function renderAdmin(){
       <div class="stack">
         ${openDisplayCard}
         ${audioControlCard}
+        ${renderPartyPanel()}
         ${standingsToggle}
         ${standingsRevealPanel}
         ${globalStandings}
@@ -1684,11 +1859,75 @@ function renderAdmin(){
       <button class="btn ghost small" id="btnReset">↺ Reset partita</button>
       <button class="btn ghost small" id="btnExitAdmin">Esci da admin</button>
     </div>
+    ${renderPartyPopup()}
   `;
   attachAdminHandlers();
   const exitAdmin = document.getElementById('btnExitAdmin');
   if(exitAdmin) exitAdmin.onclick = ()=>{ clearUrlSession(); stopListening(); role=null; renderRoleSelect(); };
   playPendingAudioCueIfAny();
+}
+
+/* ================== ADMIN: PANNELLO E POPUP MODALITÀ PARTY ================== */
+function renderPartyPanel(){
+  const mode = (state && state.partyMode) || 'none';
+  if(mode==='none') return '';
+  const party = state.party || {};
+  const slotRow = (slot, label)=>{
+    const data = party[slot];
+    if(!data){
+      return `<div class="row" style="align-items:center;">
+        <div style="flex:2;">${label}</div>
+        <span class="pill">Non pescata</span>
+      </div>`;
+    }
+    if(!data.confirmed){
+      return `<div class="row" style="align-items:center;">
+        <div style="flex:2;">${label} <span class="pill">in scelta...</span></div>
+        <button class="btn secondary small" data-party-review="${slot}">Rivedi scelta</button>
+      </div>`;
+    }
+    if(!data.revealed){
+      return `<div class="stack">
+        <div style="flex:2;">${label} pronta: <b>${escapeHtml(data.card.testo)}</b></div>
+        <button class="btn" data-party-reveal="${slot}">Rivela ${escapeHtml(label)} ora</button>
+      </div>`;
+    }
+    return `<div class="row" style="align-items:center;">
+      <div style="flex:2;">${label} rivelata: ${escapeHtml(data.card.testo)}</div>
+      <button class="btn ghost small" data-party-clear="${slot}">Nuova pesca</button>
+    </div>`;
+  };
+  return `<div class="card stack">
+    <h3>Party Mode <span class="pill gold">${mode}</span></h3>
+    ${slotRow('bonus','Bonus')}
+    <div class="divider"></div>
+    ${slotRow('malus','Malus')}
+    <div class="divider"></div>
+    ${slotRow('surprise','Prova a sorpresa')}
+    ${!party.surprise ? `<button class="btn secondary" id="btnPartySurprise">🎲 Pesca prova a sorpresa</button>` : ''}
+  </div>`;
+}
+function renderPartyPopup(){
+  if(!partyPopupSlot) return '';
+  const slot = partyPopupSlot;
+  const data = state.party && state.party[slot];
+  if(!data){ return ''; }
+  const label = slot==='bonus' ? 'Bonus' : slot==='malus' ? 'Malus' : 'Prova a sorpresa';
+  const deck = activePartyDeck();
+  return `<div class="card center stack" style="position:fixed;inset:0;z-index:999;justify-content:center;background:rgba(21,12,43,.97);border-radius:0;overflow:auto;padding:24px 18px;">
+    <div class="eyebrow pill gold">Pesca privata · ${label}</div>
+    <h2 style="max-width:480px;">${escapeHtml(data.card.testo)}</h2>
+    ${data.card.tipo?`<p class="muted">Tipo: ${escapeHtml(data.card.tipo)}</p>`:''}
+    <div class="row" style="max-width:420px;width:100%;">
+      <button class="btn" data-party-confirm="${slot}">Conferma</button>
+      <button class="btn secondary" data-party-redraw="${slot}">Ripesca</button>
+    </div>
+    <button class="btn ghost small" id="btnPartyManualToggle" style="max-width:420px;width:100%;">${partyManualListOpen?'Nascondi lista':'Scegli manualmente dalla lista'}</button>
+    <div id="partyManualList" style="display:${partyManualListOpen?'block':'none'};max-width:420px;width:100%;max-height:240px;overflow:auto;" class="stack">
+      ${deck.map(c=>`<button class="btn ghost small" data-party-manual="${slot}" data-card-id="${c.id}" style="text-align:left;">${escapeHtml(c.testo)}</button>`).join('') || '<p class="muted">Mazzo vuoto.</p>'}
+    </div>
+    <button class="btn ghost small" id="btnPartyPopupClose" style="max-width:420px;width:100%;">Chiudi (decidi più tardi)</button>
+  </div>`;
 }
 
 function renderQuestionManager(){
@@ -1908,6 +2147,46 @@ function attachAdminHandlers(){
       byId('fxName').value=''; byId('fxFile').value='';
     }catch(e){ msg.textContent = 'Upload fallito: ' + e.message; msg.style.color = 'var(--pink)'; }
   };
+
+  if(byId('btnPartyNone')) byId('btnPartyNone').onclick = ()=>adminSetPartyMode('none');
+  if(byId('btnPartyNormale')) byId('btnPartyNormale').onclick = ()=>adminSetPartyMode('normale');
+  if(byId('btnPartyExtreme')) byId('btnPartyExtreme').onclick = ()=>adminSetPartyMode('extreme');
+  if(byId('btnMarkBonus')) byId('btnMarkBonus').onclick = ()=>{
+    const cur = state.party && state.party.bonus;
+    const key = qkey(state.round, state.qIndex);
+    if(cur && cur.forQuestion===key){ partyPopupSlot = 'bonus'; partyManualListOpen = false; render(); }
+    else adminMarkPartySlot('bonus');
+  };
+  if(byId('btnMarkMalus')) byId('btnMarkMalus').onclick = ()=>{
+    const cur = state.party && state.party.malus;
+    const key = qkey(state.round, state.qIndex);
+    if(cur && cur.forQuestion===key){ partyPopupSlot = 'malus'; partyManualListOpen = false; render(); }
+    else adminMarkPartySlot('malus');
+  };
+  if(byId('btnPartySurprise')) byId('btnPartySurprise').onclick = adminStartSurprise;
+  document.querySelectorAll('[data-party-review]').forEach(btn=>{
+    btn.onclick = ()=>{ partyPopupSlot = btn.getAttribute('data-party-review'); partyManualListOpen = false; render(); };
+  });
+  document.querySelectorAll('[data-party-reveal]').forEach(btn=>{
+    btn.onclick = ()=> adminRevealPartyCard(btn.getAttribute('data-party-reveal'));
+  });
+  document.querySelectorAll('[data-party-clear]').forEach(btn=>{
+    btn.onclick = ()=> adminClearPartySlot(btn.getAttribute('data-party-clear'));
+  });
+  document.querySelectorAll('[data-party-confirm]').forEach(btn=>{
+    btn.onclick = ()=> adminConfirmPartyCard(btn.getAttribute('data-party-confirm'));
+  });
+  document.querySelectorAll('[data-party-redraw]').forEach(btn=>{
+    btn.onclick = ()=> adminRedrawPartyCard(btn.getAttribute('data-party-redraw'));
+  });
+  document.querySelectorAll('[data-party-manual]').forEach(btn=>{
+    btn.onclick = ()=> adminPickPartyCardManually(btn.getAttribute('data-party-manual'), btn.getAttribute('data-card-id'));
+  });
+  if(byId('btnPartyManualToggle')) byId('btnPartyManualToggle').onclick = ()=>{
+    partyManualListOpen = !partyManualListOpen;
+    render();
+  };
+  if(byId('btnPartyPopupClose')) byId('btnPartyPopupClose').onclick = ()=>{ partyPopupSlot = null; partyManualListOpen = false; render(); };
 }
 
 /* ================== AVVIO ================== */
