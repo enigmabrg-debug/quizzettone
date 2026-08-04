@@ -586,10 +586,17 @@ async function adminStartGame(){
   await markQuestionsUsed(drawn);
   const s = defaultState();
   s.partyMode = state.partyMode || 'none'; // defaultState() azzererebbe la scelta fatta in Lobby
-  s.phase='question'; s.round=1; s.qIndex=0; s.questionStartedAt=Date.now();
+  s.phase='question_pending'; s.round=1; s.qIndex=0;
   s.gameQuestions = { round1: drawn.slice(0,15), round2: drawn.slice(15,30), final:null, tiebreak:null };
-  s.audioCue = audioCueForQuestion(drawn[0]);
   await safeSet('state', s, true); await refresh();
+}
+async function adminSendQuestion(){
+  // porta la domanda preparata (question_pending) davanti a squadre/Display: domanda,
+  // opzioni, timer e audio partono tutti nello stesso istante.
+  if(state.phase!=='question_pending') return;
+  const q = getQuestion(state.round, state.qIndex);
+  await safeSet('state', {...state, phase:'question', questionStartedAt:Date.now(), audioCue:audioCueForQuestion(q)}, true);
+  await refresh();
 }
 async function adminCloseAnswers(expected){
   // 'expected' è l'identità della domanda catturata al momento in cui è stata schedulata
@@ -642,13 +649,13 @@ async function adminNextQuestion(){
     } else if(qNumber===list.length){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question_pending', questionStartedAt:null, solutionRevealed:false, audioCue:null}, true);
     }
   } else if(round==='final'){
     if(qNumber===list.length){
       await safeSet('state', {...state, phase:'final_ready'}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question_pending', questionStartedAt:null, solutionRevealed:false, audioCue:null}, true);
     }
   } else if(round==='tiebreak'){
     await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
@@ -1200,6 +1207,13 @@ function renderTeam(){
         <p class="muted">In attesa che l'admin avvii la Manche 1...</p>
       </div>`;
   }
+  else if(s.phase==='question_pending'){
+    body = `
+      <div class="card center stack">
+        <div class="eyebrow">Preparati!</div>
+        <h2>La prossima domanda sta per arrivare...</h2>
+      </div>`;
+  }
   else if(s.phase==='question' && !inTiebreak){
     body = renderTeamQuestion(s.round, s.qIndex, true);
   }
@@ -1401,6 +1415,13 @@ function renderDisplay(){
         <h2>In attesa che l'admin avvii la Manche 1...</h2>
       </div>`;
   }
+  else if(s.phase==='question_pending'){
+    body = `
+      <div class="card center stack">
+        <div class="eyebrow">Preparati!</div>
+        <h2>La prossima domanda sta per arrivare...</h2>
+      </div>`;
+  }
   else if(s.phase==='question' && !inTiebreak){
     body = renderTeamQuestion(s.round, s.qIndex, true, false, true);
   }
@@ -1512,12 +1533,34 @@ function renderAdmin(){
         </div>
       </div>`;
   }
-  else if((s.phase==='question' || s.phase==='closed') && !getQuestion(s.round, s.qIndex)){
+  else if((s.phase==='question' || s.phase==='closed' || s.phase==='question_pending') && !getQuestion(s.round, s.qIndex)){
     // stato anomalo (es. partita vecchia senza domande pescate dal mazzo): niente da mostrare, meglio resettare
     controlPanel = `<div class="card stack">
       <h3>Stato di gioco non valido</h3>
       <p class="muted">Non ci sono domande disponibili per questo punto della partita. Usa "Reset partita" qui sotto per ripartire da zero.</p>
     </div>`;
+  }
+  else if(s.phase==='question_pending'){
+    const round = s.round, idx = s.qIndex;
+    const q = getQuestion(round, idx);
+    const roundLabel = round==='final'?'FINALE': round==='tiebreak'?'SPAREGGIO':`MANCHE ${round}`;
+    controlPanel = `
+      <div class="card stack">
+        <div class="qmeta">
+          <span class="pill gold">${roundLabel}</span>
+          <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
+          <span class="pill">${escapeHtml(q.category)}</span>
+        </div>
+        <p class="muted">Anteprima · solo tu la vedi. Squadre e Display sono in attesa.</p>
+        <div class="qtext">${escapeHtml(q.question)}</div>
+        <div class="options">
+          ${q.options.map((opt,i)=>`<div class="opt ${i===q.correctIndex?'correct':''}" style="cursor:default;">
+            <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>${i===q.correctIndex?' ✓':''}
+          </div>`).join('')}
+        </div>
+        ${q.adminNote?`<p class="note">Nota: ${escapeHtml(q.adminNote)}</p>`:''}
+        <button class="btn" id="btnSendQuestion">▶ Manda domanda</button>
+      </div>`;
   }
   else if(s.phase==='question' || s.phase==='closed'){
     const round = s.round, idx = s.qIndex;
@@ -2036,6 +2079,7 @@ function renderAdminStandings(round, qualification){
 function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
   if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
+  if(byId('btnSendQuestion')) byId('btnSendQuestion').onclick = adminSendQuestion;
   if(byId('btnCloseNow')) byId('btnCloseNow').onclick = ()=>adminCloseAnswers();
   if(byId('btnRevealSolution')) byId('btnRevealSolution').onclick = adminRevealSolution;
   if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;
