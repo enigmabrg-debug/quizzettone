@@ -668,11 +668,9 @@ async function adminSetCheckpointMode(mode){
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
   if(cp.type==='mid'){
-    const nextQ = getQuestion(cp.round, state.qIndex+1);
-    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question_pending', questionStartedAt:null, solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:null}, true);
   } else if(cp.type==='end' && cp.round===1){
-    const nextQ = getQuestion(2, 0);
-    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet('state', {...state, round:2, qIndex:0, phase:'question_pending', questionStartedAt:null, solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:null}, true);
   }
   await refresh();
 }
@@ -704,7 +702,7 @@ async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
+  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question_pending', questionStartedAt:null, solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:null}, true);
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
@@ -717,7 +715,7 @@ async function adminAssignTiebreakWinner(winnerId){
 async function adminContinueToFinal(){
   const drawn = drawQuestionsForGame('finale', 10);
   await markQuestionsUsed(drawn);
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
+  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question_pending', questionStartedAt:null, solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:null}, true);
   await refresh();
 }
 async function adminRevealWinner(){
