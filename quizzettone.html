@@ -585,6 +585,7 @@ async function adminStartGame(){
   const drawn = drawQuestionsForGame('manche', 30);
   await markQuestionsUsed(drawn);
   const s = defaultState();
+  s.partyMode = state.partyMode || 'none'; // defaultState() azzererebbe la scelta fatta in Lobby
   s.phase='question'; s.round=1; s.qIndex=0; s.questionStartedAt=Date.now();
   s.gameQuestions = { round1: drawn.slice(0,15), round2: drawn.slice(15,30), final:null, tiebreak:null };
   s.audioCue = audioCueForQuestion(drawn[0]);
