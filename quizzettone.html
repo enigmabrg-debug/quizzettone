@@ -347,6 +347,7 @@ let partyDecks = {normale:[], extreme:[]}; // mazzi Modalità Party, letti da Fi
 let partyPopupSlot = null;        // locale, solo per questo admin: quale slot ('bonus'|'malus'|'surprise') ha il popup di pesca privata aperto
 let partyManualListOpen = false;  // locale: se dentro il popup è aperta la lista di scelta manuale (deve sopravvivere ai re-render ogni 250ms)
 let lastPartyCardSeen = {bonus:null, malus:null, surprise:null}; // locale, mai su Firebase: evita di ripetere l'animazione di reveal già vista
+let autoCloseScheduledFor = null; // locale: questionStartedAt per cui è già stata schedulata l'auto-chiusura, evita timer duplicati
 
 function defaultState(){
   return {
@@ -589,7 +590,13 @@ async function adminStartGame(){
   s.audioCue = audioCueForQuestion(drawn[0]);
   await safeSet('state', s, true); await refresh();
 }
-async function adminCloseAnswers(){
+async function adminCloseAnswers(expected){
+  // 'expected' è l'identità della domanda catturata al momento in cui è stata schedulata
+  // un'auto-chiusura (vedi renderAdmin): se lo stato live è cambiato nel frattempo
+  // (nuova domanda, reset, o stato di test rimasto in memoria), non scriviamo nulla.
+  if(expected && (state.phase!=='question' || state.round!==expected.round || state.qIndex!==expected.qIndex || state.questionStartedAt!==expected.questionStartedAt)){
+    return;
+  }
   const s = {...state, phase:'closed'};
   await safeSet('state', s, true); await refresh();
 }
@@ -1516,9 +1523,12 @@ function renderAdmin(){
     const q = getQuestion(round, idx);
     const remaining = s.phase==='question' ? timeRemaining() : 0;
     const closed = s.phase==='closed' || remaining<=0;
-    if(s.phase==='question' && remaining<=0){
-      // auto-chiudi quando scade il tempo
-      setTimeout(()=>{ if(state.phase==='question' && timeRemaining()<=0) adminCloseAnswers(); }, 50);
+    if(s.phase==='question' && remaining<=0 && autoCloseScheduledFor!==s.questionStartedAt){
+      // auto-chiudi quando scade il tempo (schedulata una sola volta per domanda,
+      // con l'identità della domanda catturata ora invece di rileggere lo stato globale al momento del fire)
+      autoCloseScheduledFor = s.questionStartedAt;
+      const expected = {round:s.round, qIndex:s.qIndex, questionStartedAt:s.questionStartedAt};
+      setTimeout(()=>adminCloseAnswers(expected), 50);
     }
     const roundLabel = round==='final'?'FINALE': round==='tiebreak'?'SPAREGGIO':`MANCHE ${round}`;
     const activeTeams = activeTeamsForRound(round);
@@ -2025,7 +2035,7 @@ function renderAdminStandings(round, qualification){
 function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
   if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
-  if(byId('btnCloseNow')) byId('btnCloseNow').onclick = adminCloseAnswers;
+  if(byId('btnCloseNow')) byId('btnCloseNow').onclick = ()=>adminCloseAnswers();
   if(byId('btnRevealSolution')) byId('btnRevealSolution').onclick = adminRevealSolution;
   if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;
   if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;
