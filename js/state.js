@@ -86,6 +86,7 @@ let showScoringSettings = false; // toggle locale (solo per questo admin), non c
 let soundEffects = {};    // id -> effetto sonoro (persiste tra una partita e l'altra)
 let showEffectsManager = false; // toggle locale (solo per questo admin), non condiviso
 let showHistoryLog = false; // toggle locale: pannello "storico azioni" nel pannello di regia
+let showPartyDeckManager = false; // toggle locale: gestione mazzi Party (aggiungi/elimina carte)
 let lastPlayedAudioNonce = null; // locale, mai su Firebase: evita di ri-suonare lo stesso cue
 let audioUnlocked = false; // locale: se questa scheda ha già sbloccato l'autoplay audio
 

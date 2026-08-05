@@ -526,6 +526,21 @@ async function adminClearPartySlot(slot){
   await safeSet('state', {...state, party}, true);
   await refresh();
 }
+/* Gestione mazzi Party: aggiunge/rimuove carte da 'normale' o 'extreme'.
+   I mazzi vivono come array sotto mazzi/<nome> (vedi ensureSeedPartyDecks). */
+async function adminAddPartyCard(deck, testo, tipo){
+  const text = (testo||'').trim();
+  if(!text) return;
+  const card = {id:newCardId(), testo:text, tipo: tipo||'generica'};
+  const current = partyDecks[deck] || [];
+  await safeSet('mazzi/'+deck, [...current, card], true);
+  await refresh();
+}
+async function adminDeletePartyCard(deck, cardId){
+  const current = partyDecks[deck] || [];
+  await safeSet('mazzi/'+deck, current.filter(c=>c.id!==cardId), true);
+  await refresh();
+}
 
 async function adminRemoveTeam(id){
   const before = teams[id];

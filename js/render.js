@@ -440,6 +440,7 @@ function renderTeam(){
       ${connectionBadge()}
     </div>
     ${body}
+    ${renderPartyRevealCards()}
   `;
   attachTeamOptionHandlers();
   const readyBtn = document.getElementById('btnTeamReady');
@@ -748,6 +749,10 @@ function renderSalaPrePartita(s, cfg){
       </div>
       <label class="stack">Regola pareggio (qualificazione)${tieSelect('setupTiebreakQualification', cfg.tiebreakRule.qualification)}</label>
       <label class="stack">Ingresso tardivo<select id="setupLateJoinPolicy" ${s.setupLocked?'disabled':''}>${lateJoinOptions.map(([v,label])=>`<option value="${v}" ${v===cfg.lateJoin.policy?'selected':''}>${label}</option>`).join('')}</select></label>
+      <label class="stack">Avvio timer<select id="setupTimerStartMode" ${s.setupLocked?'disabled':''}>
+        <option value="auto" ${cfg.timerStartMode==='auto'?'selected':''}>Automatico all'apertura della domanda</option>
+        <option value="manual" ${cfg.timerStartMode==='manual'?'selected':''}>Manuale (parte solo quando clicchi "Avvia timer")</option>
+      </select></label>
 
       <button class="btn ghost small" id="btnToggleAdvancedSetup">${showAdvancedSetup?'▲ Nascondi impostazioni avanzate':'▼ Impostazioni avanzate'}</button>
       <div id="salaAdvancedSection" style="display:${showAdvancedSetup?'flex':'none'};flex-direction:column;gap:10px;">
@@ -762,10 +767,6 @@ function renderSalaPrePartita(s, cfg){
         <label class="stack">Regola pareggio (finale)${tieSelect('setupTiebreakFinal', cfg.tiebreakRule.final)}</label>
         <label class="stack">Visibilità risposte agli eliminati<select id="setupAnswerVisibility" ${s.setupLocked?'disabled':''}>${visibilityOptions.map(([v,label])=>`<option value="${v}" ${v===cfg.answerVisibilityForEliminated?'selected':''}>${label}</option>`).join('')}</select></label>
         <label class="row" style="align-items:center;"><input type="checkbox" id="setupBlockDuplicates" ${cfg.blockDuplicateQuestions?'checked':''} ${s.setupLocked?'disabled':''}> Blocca domande duplicate</label>
-        <label class="stack">Avvio timer<select id="setupTimerStartMode" ${s.setupLocked?'disabled':''}>
-          <option value="auto" ${cfg.timerStartMode==='auto'?'selected':''}>Automatico all'apertura della domanda</option>
-          <option value="manual" ${cfg.timerStartMode==='manual'?'selected':''}>Manuale (comando dell'host)</option>
-        </select></label>
         <label class="row" style="align-items:center;"><input type="checkbox" id="setupSpeedBonusEnabled" ${cfg.speedBonus.enabled?'checked':''} ${s.setupLocked?'disabled':''}> Bonus velocità (annunciato alle squadre)</label>
         <div class="row">
           <label class="stack">Bonus massimo (punti)<input type="text" inputmode="numeric" id="setupSpeedBonusMax" value="${cfg.speedBonus.maxBonus}" ${s.setupLocked?'disabled':''}></label>
@@ -1139,6 +1140,15 @@ function renderAdmin(){
       <button class="btn secondary" id="btnToggleQuestionManager" style="flex:1;">${showQuestionManager?'Nascondi gestione':'Gestisci domande'}</button>
     </div>`;
 
+  const partyDeckManagerToggle = `
+    <div class="card row" style="align-items:center;">
+      <div style="flex:2;">
+        <div class="eyebrow">Mazzi Party</div>
+        <p class="muted" style="margin:2px 0 0;">${(partyDecks.normale||[]).length} carte normale · ${(partyDecks.extreme||[]).length} carte extreme</p>
+      </div>
+      <button class="btn secondary" id="btnTogglePartyDeckManager" style="flex:1;">${showPartyDeckManager?'Nascondi gestione':'Gestisci mazzi Party'}</button>
+    </div>`;
+
   const scoringSettingsToggle = `
     <div class="card row" style="align-items:center;">
       <div style="flex:2;">
@@ -1227,6 +1237,8 @@ function renderAdmin(){
     </div>
     ${questionManagerToggle}
     ${showQuestionManager ? renderQuestionManager() : ''}
+    ${partyDeckManagerToggle}
+    ${showPartyDeckManager ? renderPartyDeckManager() : ''}
     ${scoringSettingsToggle}
     ${scoringSettingsPanel}
     ${effectsToggle}
@@ -1392,14 +1404,87 @@ function renderQuestionManager(){
   `;
 }
 
+/* Gestione mazzi Party: aggiungi/elimina carte in 'normale' o 'extreme'
+   (i mazzi seed hanno solo 3+2 carte, pensate come esempio da estendere). */
+function renderPartyDeckManager(){
+  const deckSection = (deckName, label)=>{
+    const cards = partyDecks[deckName] || [];
+    const rows = cards.map(c=>`
+      <div class="row" style="align-items:center;">
+        <div style="flex:3;">
+          <span class="pill ${c.tipo==='malus'?'':(c.tipo==='bonus'?'gold':'')}">${escapeHtml(c.tipo)}</span>
+          ${escapeHtml(c.testo)}
+        </div>
+        <button class="btn danger small" data-delete-party-card="${deckName}:${c.id}">Elimina</button>
+      </div>`).join('') || '<p class="muted">Mazzo vuoto.</p>';
+    return `<div class="stack"><h3>Mazzo ${label} (${cards.length})</h3>${rows}</div>`;
+  };
+  return `
+    <div class="card stack">
+      ${deckSection('normale','normale')}
+      <div class="divider"></div>
+      ${deckSection('extreme','extreme')}
+    </div>
+    <div class="card stack">
+      <h3>Aggiungi una carta</h3>
+      <select id="pdmDeck">
+        <option value="normale">Mazzo normale</option>
+        <option value="extreme">Mazzo extreme</option>
+      </select>
+      <select id="pdmTipo">
+        <option value="bonus">Bonus</option>
+        <option value="malus">Malus</option>
+        <option value="generica">Generica</option>
+      </select>
+      <input type="text" id="pdmTesto" placeholder="Testo della carta (es. Bevi un sorso)">
+      <button class="btn" id="btnAddPartyCard">Aggiungi al mazzo</button>
+    </div>
+  `;
+}
+
 function renderAdminStandings(round, qualification){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score: qualification? qualificationScore(id) : roundScore(id, round)})).sort((a,b)=>b.score-a.score);
   return `<h3 class="center">${qualification?'Classifica qualificazione':'Classifica Manche '+round}</h3>${rankRows(ranked)}`;
 }
 
+/* Pulsanti di regia (timer + chiusura/avanzamento domanda): durante la fase
+   'question' il tick condiviso (startUiTick, ogni 250ms) richiama render(),
+   che ricostruisce l'intero pannello admin via innerHTML e riassegna gli
+   onclick da zero. Se un click capita mentre un re-render è in corso, il
+   nodo su cui il click era stato registrato può già essere stato sostituito,
+   perdendo il click o richiedendone un secondo. La delegazione qui sotto è
+   legata UNA SOLA VOLTA a 'document' (mai ricreato), quindi al momento del
+   click controlla sempre il DOM live, indipendentemente da quante volte
+   render() ha ricostruito i bottoni nel frattempo. */
+const DELEGATED_REGIA_BUTTON_IDS = ['btnCloseNow','btnReopenAnswers','btnCancelQuestion','btnStartTimer','btnPauseTimer','btnResumeTimer','btnTimerMinus5','btnTimerPlus5','btnRevealSolution','btnNext'];
+let delegatedRegiaHandlersBound = false;
+function onDelegatedRegiaClick(e){
+  if(role!=='admin') return;
+  const btn = e.target.closest(DELEGATED_REGIA_BUTTON_IDS.map(id=>'#'+id).join(','));
+  if(!btn) return;
+  switch(btn.id){
+    case 'btnCloseNow': adminCloseAnswers(); break;
+    case 'btnReopenAnswers': adminReopenAnswers(); break;
+    case 'btnCancelQuestion': if(confirm('Annullare questa domanda? Non assegnerà punti a nessuno.')) adminCancelQuestion(); break;
+    case 'btnStartTimer': adminStartTimerManually(); break;
+    case 'btnPauseTimer': adminPauseTimer(); break;
+    case 'btnResumeTimer': adminResumeTimer(); break;
+    case 'btnTimerMinus5': adminAdjustTimer(-5000); break;
+    case 'btnTimerPlus5': adminAdjustTimer(5000); break;
+    case 'btnRevealSolution': adminRevealSolution(); break;
+    case 'btnNext': adminNextQuestion(); break;
+  }
+}
+function bindDelegatedRegiaHandlersOnce(){
+  if(delegatedRegiaHandlersBound) return;
+  delegatedRegiaHandlersBound = true;
+  document.addEventListener('click', onDelegatedRegiaClick);
+}
+
 function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
+  bindDelegatedRegiaHandlersOnce();
   if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
   if(byId('btnToggleTestMode')) byId('btnToggleTestMode').onclick = adminToggleTestMode;
   if(byId('btnAddTestTeams')) byId('btnAddTestTeams').onclick = ()=>adminAddTestTeams(4);
@@ -1433,7 +1518,8 @@ function attachAdminHandlers(){
         noAnswer: intVal('setupScoringNoAnswer') || 0
       },
       tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
-      lateJoin: { policy: byId('setupLateJoinPolicy').value }
+      lateJoin: { policy: byId('setupLateJoinPolicy').value },
+      timerStartMode: byId('setupTimerStartMode').value
     };
     // I campi avanzati esistono sempre nel DOM (sono solo nascosti via CSS),
     // ma li applichiamo al patch solo se la sezione è stata aperta: altrimenti
@@ -1449,7 +1535,6 @@ function attachAdminHandlers(){
       patch.tiebreakRule.final = byId('setupTiebreakFinal').value;
       patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
       patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
-      patch.timerStartMode = byId('setupTimerStartMode').value;
       patch.speedBonus = {
         enabled: byId('setupSpeedBonusEnabled').checked,
         maxBonus: intVal('setupSpeedBonusMax') || 0,
@@ -1458,16 +1543,6 @@ function attachAdminHandlers(){
     }
     await adminSaveSetup(gameName, patch);
   };
-  if(byId('btnCloseNow')) byId('btnCloseNow').onclick = adminCloseAnswers;
-  if(byId('btnReopenAnswers')) byId('btnReopenAnswers').onclick = adminReopenAnswers;
-  if(byId('btnCancelQuestion')) byId('btnCancelQuestion').onclick = ()=>{ if(confirm('Annullare questa domanda? Non assegnerà punti a nessuno.')) adminCancelQuestion(); };
-  if(byId('btnStartTimer')) byId('btnStartTimer').onclick = adminStartTimerManually;
-  if(byId('btnPauseTimer')) byId('btnPauseTimer').onclick = adminPauseTimer;
-  if(byId('btnResumeTimer')) byId('btnResumeTimer').onclick = adminResumeTimer;
-  if(byId('btnTimerMinus5')) byId('btnTimerMinus5').onclick = ()=>adminAdjustTimer(-5000);
-  if(byId('btnTimerPlus5')) byId('btnTimerPlus5').onclick = ()=>adminAdjustTimer(5000);
-  if(byId('btnRevealSolution')) byId('btnRevealSolution').onclick = adminRevealSolution;
-  if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;
   if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;
   if(byId('btnModePause')) byId('btnModePause').onclick = ()=>adminSetCheckpointMode('pause');
   if(byId('btnModeClassifica')) byId('btnModeClassifica').onclick = ()=>adminSetCheckpointMode('classifica');
@@ -1498,6 +1573,21 @@ function attachAdminHandlers(){
   if(byId('btnRevealSpeedSuspense')) byId('btnRevealSpeedSuspense').onclick = ()=>adminSetStandingsRevealSpeed('suspense');
   if(byId('btnCloseStandingsReveal')) byId('btnCloseStandingsReveal').onclick = adminCloseStandingsReveal;
   if(byId('btnToggleQuestionManager')) byId('btnToggleQuestionManager').onclick = ()=>{ showQuestionManager = !showQuestionManager; render(); };
+  if(byId('btnTogglePartyDeckManager')) byId('btnTogglePartyDeckManager').onclick = ()=>{ showPartyDeckManager = !showPartyDeckManager; render(); };
+  if(byId('btnAddPartyCard')) byId('btnAddPartyCard').onclick = async ()=>{
+    const deck = byId('pdmDeck').value;
+    const tipo = byId('pdmTipo').value;
+    const testo = byId('pdmTesto').value.trim();
+    if(!testo) return;
+    await adminAddPartyCard(deck, testo, tipo);
+    byId('pdmTesto').value = '';
+  };
+  document.querySelectorAll('[data-delete-party-card]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const [deck, cardId] = btn.getAttribute('data-delete-party-card').split(':');
+      if(confirm('Eliminare questa carta dal mazzo?')) adminDeletePartyCard(deck, cardId);
+    };
+  });
   if(byId('btnToggleHistoryLog')) byId('btnToggleHistoryLog').onclick = ()=>{ showHistoryLog = !showHistoryLog; render(); };
   if(byId('btnToggleScoringSettings')) byId('btnToggleScoringSettings').onclick = ()=>{ showScoringSettings = !showScoringSettings; render(); };
   if(byId('btnSaveScoringDefaults')) byId('btnSaveScoringDefaults').onclick = ()=>{
