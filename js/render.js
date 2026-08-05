@@ -42,6 +42,29 @@ function connectionBadge(){
   return `<div class="pill" style="color:var(--pink);border-color:rgba(255,77,109,.4);background:rgba(255,77,109,.1);margin-top:6px;">⚠ Connessione persa, riconnessione in corso…</div>`;
 }
 
+/* Modale di conferma generica per le azioni ad alto impatto (rimozione
+   squadra, reset partita): appesa a document.body invece che dentro #app,
+   così sopravvive a un render() nel frattempo e non serve gestirla nel
+   normale ciclo di re-render. */
+function showConfirmModal(message, confirmLabel, onConfirm){
+  const existing = document.getElementById('confirmModalOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'confirmModalOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:360px;margin:20px;">
+      <p>${escapeHtml(message)}</p>
+      <div class="row">
+        <button class="btn danger" id="confirmModalYes">${escapeHtml(confirmLabel)}</button>
+        <button class="btn ghost" id="confirmModalNo">Annulla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('confirmModalYes').onclick = ()=>{ overlay.remove(); onConfirm(); };
+  document.getElementById('confirmModalNo').onclick = ()=>{ overlay.remove(); };
+}
+
 /* Codice breve + QR per entrare in partita: il QR punta a ?role=team, che
    restoreFromUrl() apre direttamente sulla schermata "inserisci nome
    squadra" (vedi js/actions.js), saltando la selezione del ruolo. */
@@ -679,6 +702,7 @@ function renderAdmin(){
             ${devices>1?` <span class="pill">${devices} dispositivi</span>`:''}
             ${teams[id].ready?' <span class="pill gold">Pronta</span>':''}
             ${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}
+            <button class="btn ghost small" data-remove-team="${id}" style="margin-left:auto;">✕</button>
           </div>`;
         }).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
@@ -1033,6 +1057,7 @@ function renderAdmin(){
     <div class="header">
       <div class="eyebrow">Quizzettone · Pannello Admin</div>
       ${connectionBadge()}
+      ${s.history && s.history.last ? `<button class="btn ghost small" id="btnUndoLast" style="width:fit-content;">↩ Annulla: ${escapeHtml(s.history.last.label)}</button>` : ''}
     </div>
     <div class="admin-grid">
       <div class="stack">
@@ -1291,7 +1316,17 @@ function attachAdminHandlers(){
   if(byId('btnRevealFinalists')) byId('btnRevealFinalists').onclick = adminRevealFinalists;
   if(byId('btnGoFinal')) byId('btnGoFinal').onclick = adminContinueToFinal;
   if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
-  if(byId('btnReset')) byId('btnReset').onclick = ()=>{ if(confirm('Sicuro di voler azzerare tutta la partita?')) adminResetGame(); };
+  if(byId('btnReset')) byId('btnReset').onclick = ()=>{
+    showConfirmModal('Azzerare tutta la partita? Squadre, risposte e punteggi andranno persi. Questa azione non è annullabile con "Annulla ultima azione".', 'Azzera partita', adminResetGame);
+  };
+  if(byId('btnUndoLast')) byId('btnUndoLast').onclick = adminUndoLast;
+  document.querySelectorAll('[data-remove-team]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-remove-team');
+      const name = teams[id] ? teams[id].name : 'questa squadra';
+      showConfirmModal('Rimuovere '+name+' dalla partita?', 'Rimuovi squadra', ()=>adminRemoveTeam(id));
+    };
+  });
   if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;
   if(byId('btnSetupStandingsReveal')) byId('btnSetupStandingsReveal').onclick = adminSetupStandingsReveal;
   if(byId('btnRevealNextStanding')) byId('btnRevealNextStanding').onclick = adminRevealNextStanding;

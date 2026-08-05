@@ -103,6 +103,10 @@ function defaultState(){
     // automatica delle risposte, uguale per admin/display/squadre.
     timer: {status:'idle', startedAt:null, durationMs:20000, pausedRemainingMs:null, closeReason:null, closedBy:null},
     cancelledQuestions:[], // qkey delle domande annullate: non assegnano punti a nessuno
+    // Storico minimo: 'last' è l'unico livello di "annulla ultima azione"
+    // (snapshot del path prima della modifica); 'log' è solo per la
+    // visualizzazione, non usato per il ripristino.
+    history: {last:null, log:[]},
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
@@ -149,6 +153,7 @@ function withDefaults(raw){
   merged.config.lateJoin = {...base.config.lateJoin, ...((raw.config||{}).lateJoin||{})};
   merged.party = {...base.party, ...(raw.party||{})};
   merged.timer = {...base.timer, ...(raw.timer||{})};
+  merged.history = {...base.history, ...(raw.history||{})};
   // Migrazione della vecchia forma {round1, round2} verso {rounds:{1,2,...}}
   if(raw.gameQuestions && (raw.gameQuestions.round1 || raw.gameQuestions.round2) && !raw.gameQuestions.rounds){
     merged.gameQuestions = {

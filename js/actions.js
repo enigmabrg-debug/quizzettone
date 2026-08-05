@@ -8,6 +8,44 @@ function openQuestionTimer(durationMs, cfg){
     ? {status:'idle', startedAt:null, durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
     : {status:'running', startedAt:Date.now(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
 }
+/* Storico minimo + "annulla ultima azione": salva uno snapshot del path
+   PRIMA della modifica, poi scrive la modifica stessa. 'path' === 'state'
+   viene scritto in un'unica operazione insieme al nuovo 'history' (altrimenti
+   due safeSet('state', ...) sequenziali basati sullo stesso 'state' locale si
+   sovrascriverebbero a vicenda, come nel bug di adminSaveSetup); per path
+   diversi da 'state' (es. 'overrides:'+id, 'teaminfo:'+id) le due scritture
+   sono su nodi indipendenti e non hanno questo rischio.
+
+   'before' viaggia come stringa JSON (beforeJson) invece che come oggetto
+   annidato: Firebase "pota" silenziosamente le proprietà annidate il cui
+   valore è {} (es. una squadra senza ancora nessun punteggio manuale), quindi
+   uno snapshot vuoto sparirebbe dalla scrittura di 'state' senza errori,
+   rendendo l'undo successivo un no-op. Una stringa non va mai incontro a
+   questa potatura, qualunque sia la forma del valore che rappresenta. */
+async function withUndo(label, path, before, next){
+  const log = [...((state.history && state.history.log)||[]).slice(-29), {type:'action', label, at:Date.now()}];
+  const history = {last:{label, path, beforeJson: JSON.stringify(before===undefined?null:before), at:Date.now()}, log};
+  if(path==='state'){
+    await safeSet('state', {...next, history}, true);
+  } else {
+    await safeSet('state', {...state, history}, true);
+    await safeSet(path, next===undefined?null:next, true);
+  }
+  await refresh();
+}
+async function adminUndoLast(){
+  const last = state.history && state.history.last;
+  if(!last) return;
+  const before = JSON.parse(last.beforeJson);
+  await safeSet(last.path, before, true); // ripristina il valore precedente
+  const restored = await safeGet('state', true); // se last.path==='state', il ripristino ha già cambiato anche history
+  const priorLog = (restored && restored.history && restored.history.log) || [];
+  const log = [...priorLog.slice(-29), {type:'undo', label:'Annullato: '+last.label, at:Date.now()}];
+  // 'last' va pulito DOPO il ripristino, con una scrittura separata: garantisce
+  // un solo livello di undo invece di annullamenti a catena.
+  await safeSet('state/history', {last:null, log}, true);
+  await refresh();
+}
 async function adminStartGame(){
   const cfg = (state && state.config) || defaultState().config;
   const totalNeeded = cfg.questionsPerRound.reduce((a,b)=>a+b, 0);
@@ -88,8 +126,8 @@ async function adminCancelQuestion(){
   if(state.phase!=='question' && state.phase!=='closed') return;
   const key = qkey(state.round, state.qIndex);
   const cancelledQuestions = [...(state.cancelledQuestions||[]), key];
-  await safeSet('state', {...state, phase:'closed', cancelledQuestions, timer:{...state.timer, status:'closed', closeReason:'cancelled', closedBy:'admin'}}, true);
-  await refresh();
+  const next = {...state, phase:'closed', cancelledQuestions, timer:{...state.timer, status:'closed', closeReason:'cancelled', closedBy:'admin'}};
+  await withUndo('Domanda annullata', 'state', state, next);
 }
 async function adminStartTimerManually(){
   if(state.phase!=='question' || state.timer.status!=='idle') return;
@@ -146,9 +184,10 @@ async function adminResumeAudio(fromStart){
 async function adminAdjustPoints(id, round, idx, delta){
   const key = qkey(round, idx);
   const current = teamPointsForQuestion(id, round, idx);
-  const ov = overridesByTeam[id] || {};
-  ov[key] = current + delta;
-  await safeSet('overrides:'+id, ov, true); await refresh();
+  const before = {...(overridesByTeam[id]||{})};
+  const next = {...before, [key]: current+delta};
+  const label = 'Punti '+(teams[id]?teams[id].name:id)+' '+(delta>0?'+':'')+delta;
+  await withUndo(label, 'overrides:'+id, before, next);
 }
 async function adminNextQuestion(){
   const round = state.round, idx = state.qIndex;
@@ -176,7 +215,7 @@ async function adminNextQuestion(){
   await refresh();
 }
 async function adminSetCheckpointMode(mode){
-  await safeSet('state', {...state, checkpointMode:mode}, true); await refresh();
+  await withUndo('Modalità checkpoint: '+mode, 'state', state, {...state, checkpointMode:mode});
 }
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
@@ -264,14 +303,14 @@ async function adminMoveStandingsRevealOrder(index, direction){
   const target = index + direction;
   if(target<0 || target>=order.length) return;
   [order[index], order[target]] = [order[target], order[index]];
-  await safeSet('state', {...state, standingsReveal:{...state.standingsReveal, order}}, true);
-  await refresh();
+  const next = {...state, standingsReveal:{...state.standingsReveal, order}};
+  await withUndo('Ordine classifica modificato', 'state', state, next);
 }
 async function adminRevealNextStanding(){
   const sr = state.standingsReveal;
   const revealedCount = Math.min(sr.order.length, sr.revealedCount+1);
-  await safeSet('state', {...state, standingsReveal:{...sr, revealedCount}}, true);
-  await refresh();
+  const next = {...state, standingsReveal:{...sr, revealedCount}};
+  await withUndo('Rivelata posizione classifica', 'state', state, next);
 }
 async function adminCloseStandingsReveal(){
   await safeSet('state', {...state, standingsReveal:null}, true);
@@ -361,6 +400,12 @@ async function adminClearPartySlot(slot){
   const party = {...(state.party||{}), [slot]: null};
   await safeSet('state', {...state, party}, true);
   await refresh();
+}
+
+async function adminRemoveTeam(id){
+  const before = teams[id];
+  if(!before) return;
+  await withUndo('Squadra rimossa: '+before.name, 'teaminfo:'+id, before, null);
 }
 
 /* ================== AZIONI SQUADRA ================== */
