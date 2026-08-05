@@ -85,6 +85,7 @@ let scoringDefaults = DEFAULT_SCORING; // punteggio di default, persiste tra le 
 let showScoringSettings = false; // toggle locale (solo per questo admin), non condiviso
 let soundEffects = {};    // id -> effetto sonoro (persiste tra una partita e l'altra)
 let showEffectsManager = false; // toggle locale (solo per questo admin), non condiviso
+let showHistoryLog = false; // toggle locale: pannello "storico azioni" nel pannello di regia
 let lastPlayedAudioNonce = null; // locale, mai su Firebase: evita di ri-suonare lo stesso cue
 let audioUnlocked = false; // locale: se questa scheda ha già sbloccato l'autoplay audio
 
@@ -113,6 +114,8 @@ function defaultState(){
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
     standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null,
     audioCue:null,
+    gameId:null, // generato ad ogni avvio partita, usato come chiave in statsHistory/<gameId>
+    testMode:false, // rehearsal pre-partita con squadre fittizie (isTest:true), mai attivo a config bloccata
     partyMode:'none', party:{bonus:null, malus:null, surprise:null},
     // Regole di gioco: vivono nello stato Firebase della partita invece di essere
     // valori hardcoded nel codice. L'admin le imposta nella Sala pre-partita
@@ -267,6 +270,11 @@ function startUiTick(){
     if(state.timer && state.timer.status==='running' && timeRemaining()<=0){
       closeAnswersTransactional('expired');
     }
+    // Modalità prova: solo il client admin pilota le risposte delle squadre
+    // fittizie (le squadre vere rispondono da sole dalla propria scheda).
+    if(role==='admin' && state.testMode && state.timer && state.timer.status==='running'){
+      simulateTestTeamAnswers();
+    }
     render();
   }, 250);
 }
@@ -345,6 +353,132 @@ function computeTiebreakAutoWinner(){
     .filter(c=>c.ans && c.ans.optionIndex===correctIndex)
     .sort((a,b)=>a.ans.ts-b.ans.ts);
   return answeredCorrectly.length ? answeredCorrectly[0].id : null;
+}
+
+/* Checklist pre-partita: scansione di sola lettura del mazzo di domande,
+   confrontato con le regole scelte nella Sala pre-partita, per far notare
+   all'admin i problemi PRIMA di avviare (non blocca lo start, è solo un
+   avviso: l'admin resta libero di procedere comunque). */
+function computePreGameChecklist(){
+  const issues = [];
+  const questions = Object.values(questionBank);
+  const invalid = questions.filter(q=>!q.options || q.options.length<4 || q.options.some(o=>!o || !String(o).trim()) || typeof q.correctIndex!=='number' || q.correctIndex<0 || q.correctIndex>3);
+  if(invalid.length) issues.push({type:'invalid', detail:`${invalid.length} domande senza risposta corretta valida o con opzioni vuote`});
+
+  // Confronta testo+opzioni, non il solo testo: alcune domande riusano
+  // volutamente lo stesso prompt (es. round "che canzone è?" con opzioni
+  // diverse ogni volta), quindi non sono duplicati veri.
+  const seen = {};
+  questions.forEach(q=>{
+    const norm = (q.question||'').trim().toLowerCase() + '|' + (q.options||[]).map(o=>(o||'').trim().toLowerCase()).join('|');
+    if((q.question||'').trim()) seen[norm] = (seen[norm]||0) + 1;
+  });
+  const duplicateGroups = Object.values(seen).filter(c=>c>1).length;
+  if(duplicateGroups) issues.push({type:'duplicates', detail:`${duplicateGroups} testi di domanda duplicati nel mazzo`});
+
+  const emptyCategories = CATEGORIES.filter(cat=>!questions.some(q=>q.category===cat && q.pool==='manche'));
+  if(emptyCategories.length) issues.push({type:'empty_categories', detail:`Categorie senza domande manche: ${emptyCategories.join(', ')}`});
+
+  const cfg = (state && state.config) || defaultState().config;
+  const mancheNeeded = cfg.questionsPerRound.reduce((a,b)=>a+b, 0);
+  const mancheAvailable = questions.filter(q=>q.pool==='manche').length;
+  if(mancheAvailable < mancheNeeded) issues.push({type:'insufficient_manche', detail:`Servono ${mancheNeeded} domande manche, disponibili ${mancheAvailable}`});
+
+  const finaleNeeded = cfg.finalQuestionCount + cfg.tiebreakCandidateCount;
+  const finaleAvailable = questions.filter(q=>q.pool==='finale').length;
+  if(finaleAvailable < finaleNeeded) issues.push({type:'insufficient_finale', detail:`Servono almeno ${finaleNeeded} domande finale (comprese quelle di riserva per lo spareggio), disponibili ${finaleAvailable}`});
+
+  return issues;
+}
+
+/* Squadre fittizie (Modalità prova) sempre escluse dalle statistiche reali. */
+function realTeamIds(){
+  return Object.keys(teams).filter(id=>!(teams[id] && teams[id].isTest));
+}
+
+/* Statistiche finali: snapshot di sola lettura calcolato a fine partita
+   (podio, % corrette, domanda più facile/difficile, squadra più veloce,
+   miglior rimonta), persistito in statsHistory/<gameId> così sopravvive a un
+   reset o a una rivincita. "Squadra più veloce" confronta i timestamp di
+   risposta tra squadre sulla STESSA domanda (mai un tempo assoluto dall'apertura,
+   che per domande passate non è più ricostruibile in modo affidabile - vedi
+   nota su computeSpeedBonusAtSubmission). */
+function computeFinalStats(){
+  const ids = realTeamIds();
+  if(!ids.length) return null;
+  const rounds = [];
+  for(let r=1; r<=((state.config && state.config.rounds)||0); r++) rounds.push(r);
+  if(state.finalists && state.finalists.length) rounds.push('final');
+
+  let totalAnswered = 0, totalCorrect = 0;
+  const perQuestion = [];
+  const teamDelaySum = {}, teamDelayCount = {};
+  ids.forEach(id=>{ teamDelaySum[id]=0; teamDelayCount[id]=0; });
+
+  rounds.forEach(round=>{
+    const list = getList(round);
+    const roundTeams = round==='final' ? (state.finalists||[]).filter(id=>ids.includes(id)) : ids;
+    list.forEach((q, idx)=>{
+      const key = qkey(round, idx);
+      if(state.cancelledQuestions && state.cancelledQuestions.includes(key)) return;
+      let correctCount=0, answeredCount=0, minTs=null;
+      const correctTsById = {};
+      roundTeams.forEach(id=>{
+        const ans = answersByTeam[id] && answersByTeam[id][key];
+        if(!ans) return;
+        answeredCount++;
+        if(ans.optionIndex===q.correctIndex){
+          correctCount++;
+          correctTsById[id] = ans.ts;
+          if(minTs===null || ans.ts<minTs) minTs = ans.ts;
+        }
+      });
+      totalAnswered += answeredCount;
+      totalCorrect += correctCount;
+      if(answeredCount>0) perQuestion.push({round, idx, category:q.category, question:q.question, correctCount, answeredCount, rate: correctCount/answeredCount});
+      if(minTs!==null){
+        Object.keys(correctTsById).forEach(id=>{
+          teamDelaySum[id] += (correctTsById[id]-minTs);
+          teamDelayCount[id] += 1;
+        });
+      }
+    });
+  });
+
+  const podium = ids.map(id=>({id, name:teams[id].name, score:totalScore(id)}))
+    .sort((a,b)=>b.score-a.score).slice(0,3);
+
+  const accuracy = totalAnswered>0 ? Math.round((totalCorrect/totalAnswered)*100) : null;
+
+  let hardestQuestion=null, easiestQuestion=null;
+  perQuestion.forEach(pq=>{
+    if(!hardestQuestion || pq.rate<hardestQuestion.rate) hardestQuestion=pq;
+    if(!easiestQuestion || pq.rate>easiestQuestion.rate) easiestQuestion=pq;
+  });
+
+  let fastestTeam=null;
+  ids.forEach(id=>{
+    if(teamDelayCount[id]>0){
+      const avgDelayMs = Math.round(teamDelaySum[id]/teamDelayCount[id]);
+      if(!fastestTeam || avgDelayMs<fastestTeam.avgDelayMs) fastestTeam = {id, name:teams[id].name, avgDelayMs};
+    }
+  });
+
+  let bestComeback=null;
+  if(state.finalists && state.finalists.length){
+    const qualRanked = ids.map(id=>({id, score:qualificationScore(id)})).sort((a,b)=>b.score-a.score);
+    const finalRanked = ids.map(id=>({id, score:totalScore(id)})).sort((a,b)=>b.score-a.score);
+    const qualRank = {}; qualRanked.forEach((r,i)=>{ qualRank[r.id]=i+1; });
+    const finalRank = {}; finalRanked.forEach((r,i)=>{ finalRank[r.id]=i+1; });
+    state.finalists.filter(id=>ids.includes(id)).forEach(id=>{
+      const improvement = qualRank[id]-finalRank[id]; // positivo = salito in classifica rispetto alla qualificazione
+      if(improvement>0 && (!bestComeback || improvement>bestComeback.improvement)){
+        bestComeback = {id, name:teams[id].name, improvement, fromRank:qualRank[id], toRank:finalRank[id]};
+      }
+    });
+  }
+
+  return {generatedAt:Date.now(), podium, accuracy, totalAnswered, totalCorrect, hardestQuestion, easiestQuestion, fastestTeam, bestComeback};
 }
 
 /* ================== BANCA DOMANDE (Firebase, persiste tra le partite) ================== */

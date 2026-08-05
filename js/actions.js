@@ -66,6 +66,9 @@ async function adminStartGame(){
     config: cfg,
     gameName: (state && state.gameName) || defaultState().gameName,
     setupLocked: true,
+    joinCode: (state && state.joinCode) || null,
+    gameId: 'game_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+    testMode: !!(state && state.testMode),
     partyMode: (state && state.partyMode) || 'none',
     party: (state && state.party) || defaultState().party,
     phase:'question', round:1, qIndex:0,
@@ -259,10 +262,18 @@ async function adminStartTiebreakQuestion(qIdx){
   await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
   await refresh();
 }
+/* Snapshot di sola lettura persistito a fine partita, sopravvive a un reset o
+   a una rivincita (rimane raggiungibile via statsHistory/<gameId>). */
+async function persistFinalStatsSnapshot(){
+  if(!state.gameId) return;
+  const stats = computeFinalStats();
+  if(stats) await safeSet('statsHistory/'+state.gameId, stats, true);
+}
 async function adminAssignTiebreakWinner(winnerId){
   if(state.tiebreak.forFinal){
     await safeSet('state', {...state, phase:'reveal_winner', winner:winnerId, finalWinnerScoreSnapshot: state.tiebreak.finalScoresSnapshot||[], tiebreak:null}, true);
     await refresh();
+    await persistFinalStatsSnapshot();
     return;
   }
   const finalistCount = (state.config && state.config.finalistCount) || 2;
@@ -295,6 +306,7 @@ async function adminRevealWinner(){
   const winner = scores[0] ? scores[0].id : null;
   await safeSet('state', {...state, phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
   await refresh();
+  await persistFinalStatsSnapshot();
 }
 async function adminToggleStandings(){
   await safeSet('state', {...state, standingsVisible: !state.standingsVisible}, true);
@@ -360,6 +372,92 @@ async function adminResetGame(){
   for(const id of ids){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
   await safeDelete('presence', true);
   await safeSet('state', defaultState(), true);
+  await refresh();
+}
+
+/* ================== AZIONI ADMIN · MODALITÀ PROVA ==================
+   Squadre fittizie taggate isTest:true, sempre escluse dalle statistiche
+   reali (vedi realTeamIds() in state.js) e dal podio finale. L'admin le
+   aggiunge in Sala pre-partita e poi avvia una partita di prova esattamente
+   come farebbe con quella vera, per collaudare timer/audio/display; "Reset
+   partita" le rimuove insieme a tutto il resto prima della serata vera. */
+async function adminToggleTestMode(){
+  await safeSet('state', {...state, testMode: !state.testMode}, true);
+  await refresh();
+}
+function newTestTeamId(){ return 'test_' + Math.random().toString(36).slice(2,10); }
+async function adminAddTestTeams(count){
+  const existingCount = Object.values(teams).filter(t=>t.isTest).length;
+  const writes = [];
+  for(let i=1; i<=count; i++){
+    const id = newTestTeamId();
+    writes.push(safeSet('teaminfo:'+id, {id, name:'Squadra prova '+(existingCount+i), joinedAt:Date.now(), isTest:true, ready:true}, true));
+  }
+  await Promise.all(writes);
+  await refresh();
+}
+async function adminRemoveTestTeams(){
+  const ids = Object.keys(teams).filter(id=>teams[id].isTest);
+  for(const id of ids){
+    await safeDelete('teaminfo:'+id, true);
+    await safeDelete('answers:'+id, true);
+    await safeDelete('overrides:'+id, true);
+  }
+  await refresh();
+}
+/* Simula la risposta di una squadra fittizia: stessa forma di teamSubmitAnswer,
+   ma parametrizzata sull'id (il client admin non ha una propria identità
+   squadra) e senza il controllo "eliminata in finale", perché le squadre
+   prova non arrivano mai in finale nell'uso previsto di questa modalità. */
+async function adminSubmitTestAnswer(id, round, idx, optionIndex){
+  const key = qkey(round, idx);
+  const current = await safeGet('answers:'+id, true) || {};
+  if(current[key]) return;
+  const ts = Date.now();
+  current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  await safeSet('answers:'+id, current, true);
+  await refresh();
+}
+// qkey => Set di id già "tentati" in questo giro di domanda, per non ritentare
+// la stessa squadra a ogni tick da 250ms una volta che ha già risposto o è
+// stata scartata dal lancio dei dadi.
+let testAnswerAttempted = {};
+async function simulateTestTeamAnswers(){
+  if(!state || state.phase!=='question' || !state.testMode) return;
+  const key = qkey(state.round, state.qIndex);
+  const q = getQuestion(state.round, state.qIndex);
+  if(!q) return;
+  const tried = testAnswerAttempted[key] || (testAnswerAttempted[key] = new Set());
+  const testTeamIds = Object.keys(teams).filter(id=>teams[id].isTest);
+  for(const id of testTeamIds){
+    if(tried.has(id)) continue;
+    if(answersByTeam[id] && answersByTeam[id][key]) { tried.add(id); continue; }
+    if(Math.random() > 0.08) continue; // ~8% di probabilità per tick: risposte scaglionate nel tempo, non tutte insieme
+    tried.add(id);
+    const optionIndex = Math.random() < 0.7 ? q.correctIndex : Math.floor(Math.random()*q.options.length);
+    await adminSubmitTestAnswer(id, state.round, state.qIndex, optionIndex);
+  }
+}
+
+/* ================== AZIONI ADMIN · RIVINCITA ==================
+   Stesse squadre reali e stessa configurazione, punteggi/risposte azzerati:
+   diversa dal Reset partita, che invece cancella anche le squadre. Il codice
+   di ingresso resta lo stesso, così le squadre restano collegate senza dover
+   rientrare a mano. */
+async function adminStartRematch(){
+  const cfg = state.config;
+  const realIds = Object.keys(teams).filter(id=>!teams[id].isTest);
+  for(const id of realIds){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
+  const s = {
+    ...defaultState(),
+    config: cfg,
+    gameName: state.gameName,
+    setupLocked: false,
+    joinCode: state.joinCode,
+    partyMode: state.partyMode || 'none',
+    party: state.party || defaultState().party,
+  };
+  await safeSet('state', s, true);
   await refresh();
 }
 

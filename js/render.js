@@ -153,6 +153,26 @@ function wireAudioUnlockOverlay(){
     setTimeout(finish, 1500); // rete di sicurezza se .play() resta in sospeso
   };
 }
+/* Statistiche finali: calcolate al volo da computeFinalStats() (state.js),
+   non lette da statsHistory (quel nodo esiste solo come archivio che
+   sopravvive a un reset/rivincita, non serve per mostrare QUESTA schermata,
+   che è live mentre la partita appena conclusa è ancora quella corrente). */
+function renderFinalStatsBlock(){
+  const stats = computeFinalStats();
+  if(!stats) return '';
+  return `
+    <div class="card stack">
+      <div class="eyebrow">📊 Statistiche della serata</div>
+      ${stats.podium.length ? `<div class="stack">
+        ${stats.podium.map((p,i)=>`<div class="rank-row"><div class="rank-name">${['🥇','🥈','🥉'][i]||''} ${escapeHtml(p.name)}</div><div class="rank-score">${p.score} pt</div></div>`).join('')}
+      </div>` : ''}
+      ${stats.accuracy!==null ? `<p class="muted">✓ ${stats.accuracy}% di risposte corrette su tutta la serata (${stats.totalCorrect}/${stats.totalAnswered})</p>` : ''}
+      ${stats.easiestQuestion ? `<p class="muted">🟢 Domanda più facile: "${escapeHtml(stats.easiestQuestion.question)}" (${Math.round(stats.easiestQuestion.rate*100)}% corrette)</p>` : ''}
+      ${stats.hardestQuestion ? `<p class="muted">🔴 Domanda più difficile: "${escapeHtml(stats.hardestQuestion.question)}" (${Math.round(stats.hardestQuestion.rate*100)}% corrette)</p>` : ''}
+      ${stats.fastestTeam ? `<p class="muted">⚡ Squadra più veloce: ${escapeHtml(stats.fastestTeam.name)}</p>` : ''}
+      ${stats.bestComeback ? `<p class="muted">📈 Miglior rimonta: ${escapeHtml(stats.bestComeback.name)} (dal ${stats.bestComeback.fromRank}° al ${stats.bestComeback.toRank}° posto)</p>` : ''}
+    </div>`;
+}
 function renderLiveStandingsCard(){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>b.score-a.score);
@@ -653,7 +673,8 @@ function renderDisplay(){
     body = `<div class="winner-card">
       <div class="eyebrow pill gold">Campioni del Quizzettone</div>
       <div class="winner-name">${escapeHtml(teams[s.winner]?teams[s.winner].name:'—')}</div>
-    </div>`;
+    </div>
+    ${renderFinalStatsBlock()}`;
   }
 
   app.innerHTML = `
@@ -667,6 +688,21 @@ function renderDisplay(){
   `;
   wireAudioUnlockOverlay();
   playPendingAudioCueIfAny();
+}
+
+/* Checklist pre-partita: puramente informativa, non blocca mai l'avvio. */
+function renderPreGameChecklist(){
+  const issues = computePreGameChecklist();
+  if(!issues.length){
+    return `<div class="pill" style="background:rgba(80,200,120,.15);color:#6fdb96;">✓ Nessun problema rilevato nel mazzo di domande</div>`;
+  }
+  return `
+    <div class="card stack" style="background:rgba(230,160,60,.1);border-color:rgba(230,160,60,.35);">
+      <div class="eyebrow">⚠ Checklist mazzo domande</div>
+      <ul style="margin:0;padding-left:20px;">
+        ${issues.map(issue=>`<li>${escapeHtml(issue.detail)}</li>`).join('')}
+      </ul>
+    </div>`;
 }
 
 /* ================== SALA PRE-PARTITA (configurazione essenziale + avanzata) ================== */
@@ -693,6 +729,7 @@ function renderSalaPrePartita(s, cfg){
       <h3>Sala pre-partita</h3>
       ${s.setupLocked?'<p class="muted">Le regole sono bloccate: la partita è già iniziata.</p>':'<p class="muted">Imposta le regole essenziali prima di avviare. Le squadre possono già entrare in lobby.</p>'}
       ${renderJoinCodeBlock(s.joinCode)}
+      ${renderPreGameChecklist()}
       <div class="divider"></div>
       <label class="stack">Nome partita<input type="text" id="setupGameName" value="${escapeHtml(s.gameName)}" ${s.setupLocked?'disabled':''}></label>
       <div class="row">
@@ -773,6 +810,16 @@ function renderAdmin(){
     const cfg = s.config;
     controlPanel = `
       ${renderSalaPrePartita(s, cfg)}
+      ${!s.setupLocked ? `
+      <div class="card stack">
+        <h3>Modalità prova</h3>
+        <p class="muted">Prova la regia (timer, audio, display) con squadre fittizie che rispondono da sole: aggiungile, poi avvia una partita di prova come faresti con quella vera. Quando hai finito, "Reset partita" pulisce tutto (comprese le squadre fittizie) prima della serata vera.</p>
+        <button class="btn ${s.testMode?'danger':'secondary'}" id="btnToggleTestMode">${s.testMode?'Disattiva simulazione risposte':'Attiva simulazione risposte'}</button>
+        <div class="row">
+          <button class="btn ghost small" id="btnAddTestTeams">+ Aggiungi 4 squadre prova</button>
+          <button class="btn ghost small" id="btnRemoveTestTeams">Rimuovi squadre prova</button>
+        </div>
+      </div>` : ''}
       <div class="card stack">
         <h3>Lobby</h3>
         <p class="muted">${teamIds.length} squadre collegate</p>
@@ -784,6 +831,7 @@ function renderAdmin(){
             ${devices>1?` <span class="pill">${devices} dispositivi</span>`:''}
             ${teams[id].ready?' <span class="pill gold">Pronta</span>':''}
             ${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}
+            ${teams[id].isTest?' <span class="pill">PROVA</span>':''}
             <button class="btn ghost small" data-remove-team="${id}" style="margin-left:auto;">✕</button>
           </div>`;
         }).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
@@ -818,6 +866,10 @@ function renderAdmin(){
     // qualunque scheda aperta, non solo da questa vista admin.
     const roundLabel = round==='final'?'FINALE': round==='tiebreak'?'SPAREGGIO':`MANCHE ${round}`;
     const activeTeams = activeTeamsForRound(round);
+    const questionKey = qkey(round, idx);
+    const answeredIdsForCount = activeTeams.filter(id=>answersByTeam[id] && answersByTeam[id][questionKey]);
+    const missingIdsForCount = activeTeams.filter(id=>!answeredIdsForCount.includes(id));
+    const offlineMissingCount = missingIdsForCount.filter(id=>!isTeamOnline(id)).length;
 
     controlPanel = `
       <div class="card stack">
@@ -825,6 +877,9 @@ function renderAdmin(){
           <span class="pill gold">${roundLabel}</span>
           <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
           <span class="pill">${escapeHtml(q.category)}</span>
+          <span class="pill">✓ ${answeredIdsForCount.length} ricevute</span>
+          <span class="pill">${missingIdsForCount.length} mancanti</span>
+          ${offlineMissingCount>0?`<span class="pill" style="color:var(--pink);">${offlineMissingCount} offline</span>`:''}
         </div>
         ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?'<div class="pill">In attesa di avvio</div>':''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
         ${!closed?`<div class="row">
@@ -999,6 +1054,12 @@ function renderAdmin(){
         <div class="eyebrow pill gold">Campioni del Quizzettone</div>
         <div class="winner-name">${teams[s.winner]?teams[s.winner].name:'—'}</div>
         ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teams[r.id]?teams[r.id].name:'—'}: ${r.score} pt</p>`).join('')}
+      </div>
+      ${renderFinalStatsBlock()}
+      <div class="card stack">
+        <h3>Rivincita</h3>
+        <p class="muted">Stesse squadre e regole di questa partita, punteggi azzerati: si riparte dalla Sala pre-partita senza dover reinserire nulla.</p>
+        <button class="btn" id="btnStartRematch">🔁 Rivincita</button>
       </div>`;
   }
 
@@ -1014,6 +1075,20 @@ function renderAdmin(){
         <td><b>${totalScore(id)}</b></td>
       </tr>`).join('')}
       </tbody></table>
+    </div>`;
+
+  const historyLog = (s.history && s.history.log) || [];
+  const historyLogCard = `
+    <div class="card stack">
+      <button class="btn ghost small" id="btnToggleHistoryLog">${showHistoryLog?'▲ Nascondi storico azioni':'▼ Storico azioni ('+historyLog.length+')'}</button>
+      ${showHistoryLog ? `
+        <div class="stack" style="max-height:220px;overflow-y:auto;">
+          ${[...historyLog].reverse().map(entry=>`<div class="row" style="justify-content:space-between;font-size:13px;">
+            <span>${entry.type==='undo'?'↩ ':''}${escapeHtml(entry.label)}</span>
+            <span class="muted">${new Date(entry.at).toLocaleTimeString()}</span>
+          </div>`).join('') || '<p class="muted">Nessuna azione registrata ancora.</p>'}
+        </div>
+      ` : ''}
     </div>`;
 
   const standingsToggle = `
@@ -1147,6 +1222,7 @@ function renderAdmin(){
         ${standingsToggle}
         ${standingsRevealPanel}
         ${globalStandings}
+        ${historyLogCard}
       </div>
     </div>
     ${questionManagerToggle}
@@ -1325,6 +1401,10 @@ function renderAdminStandings(round, qualification){
 function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
   if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
+  if(byId('btnToggleTestMode')) byId('btnToggleTestMode').onclick = adminToggleTestMode;
+  if(byId('btnAddTestTeams')) byId('btnAddTestTeams').onclick = ()=>adminAddTestTeams(4);
+  if(byId('btnRemoveTestTeams')) byId('btnRemoveTestTeams').onclick = adminRemoveTestTeams;
+  if(byId('btnStartRematch')) byId('btnStartRematch').onclick = adminStartRematch;
   if(byId('btnToggleAdvancedSetup')) byId('btnToggleAdvancedSetup').onclick = ()=>{
     // Cambia solo la visibilità della sezione (niente render()): un re-render
     // completo qui ricostruirebbe il form da 'state' e cancellerebbe eventuali
@@ -1418,6 +1498,7 @@ function attachAdminHandlers(){
   if(byId('btnRevealSpeedSuspense')) byId('btnRevealSpeedSuspense').onclick = ()=>adminSetStandingsRevealSpeed('suspense');
   if(byId('btnCloseStandingsReveal')) byId('btnCloseStandingsReveal').onclick = adminCloseStandingsReveal;
   if(byId('btnToggleQuestionManager')) byId('btnToggleQuestionManager').onclick = ()=>{ showQuestionManager = !showQuestionManager; render(); };
+  if(byId('btnToggleHistoryLog')) byId('btnToggleHistoryLog').onclick = ()=>{ showHistoryLog = !showHistoryLog; render(); };
   if(byId('btnToggleScoringSettings')) byId('btnToggleScoringSettings').onclick = ()=>{ showScoringSettings = !showScoringSettings; render(); };
   if(byId('btnSaveScoringDefaults')) byId('btnSaveScoringDefaults').onclick = ()=>{
     const correct = parseInt(byId('scDefCorrect').value, 10) || 0;
