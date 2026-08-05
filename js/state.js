@@ -69,6 +69,7 @@ let teamName = null;
 let joined = false;
 let listening = false;
 let uiTickTimer = null;
+let standingsAutoPlayTimer = null; // locale: guida "rivelazione automatica" solo dal lato admin che l'ha avviata
 let connected = true;     // stato connessione Firebase (.info/connected)
 
 let state = null;         // stato di gioco condiviso
@@ -133,7 +134,12 @@ function defaultState(){
       lateJoin: {policy:'until_round1_end'}, // 'always' | 'until_round1_end' | 'blocked_after_start'
       checkpointMinQuestions: 4,
       blockDuplicateQuestions: true,
-      answerVisibilityForEliminated: 'after_reveal' // 'secret' | 'after_reveal' | 'live'
+      answerVisibilityForEliminated: 'after_reveal', // 'secret' | 'after_reveal' | 'live'
+      // Bonus velocità: esplicito e annunciato alle squadre (mai una
+      // correzione silenziosa), scala linearmente da maxBonus a 0 entro
+      // windowMs dall'apertura della domanda; si applica solo se la risposta
+      // è corretta ed è calcolato una sola volta al momento dell'invio.
+      speedBonus: {enabled:false, maxBonus:0, windowMs:0}
     }
   };
 }
@@ -275,11 +281,26 @@ function scoringFor(round, idx){
   if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
   return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;
 }
-function pointsForAnswer(round, idx, optionIndex){
+function pointsForAnswer(round, idx, optionIndex, speedBonus){
   const q = getQuestion(round, idx);
   if(!q) return 0;
   const sc = scoringFor(round, idx);
-  return optionIndex === q.correctIndex ? sc.correct : sc.wrong;
+  return optionIndex === q.correctIndex ? sc.correct + (speedBonus||0) : sc.wrong;
+}
+/* Il bonus velocità va calcolato una sola volta, al momento dell'invio della
+   risposta (vedi teamSubmitAnswer), e poi persistito dentro la risposta
+   stessa: calcolarlo più tardi confrontando ts con state.timer.startedAt
+   darebbe un risultato sbagliato per qualunque domanda diversa da quella
+   corrente, perché state.timer.startedAt nel frattempo è già cambiato. */
+function computeSpeedBonusAtSubmission(ts){
+  const sb = state && state.config && state.config.speedBonus;
+  if(!sb || !sb.enabled) return 0;
+  const startedAt = state.timer && state.timer.startedAt;
+  if(!startedAt) return 0;
+  const elapsed = ts - startedAt;
+  const windowMs = sb.windowMs || 0;
+  if(windowMs<=0 || elapsed<0 || elapsed>=windowMs) return 0;
+  return Math.round(sb.maxBonus * (1 - elapsed/windowMs));
 }
 function teamPointsForQuestion(id, round, idx){
   const key = qkey(round, idx);
@@ -288,7 +309,7 @@ function teamPointsForQuestion(id, round, idx){
   if(ov !== undefined && ov !== null) return ov;
   const ans = answersByTeam[id] && answersByTeam[id][key];
   if(!ans) return scoringFor(round, idx).noAnswer;
-  return pointsForAnswer(round, idx, ans.optionIndex);
+  return pointsForAnswer(round, idx, ans.optionIndex, ans.speedBonus);
 }
 function roundScore(id, round){
   const list = getList(round);
@@ -303,6 +324,28 @@ function qualificationScore(id){
   return sum;
 }
 function totalScore(id){ return qualificationScore(id) + roundScore(id,'final'); }
+
+/* Spareggio: 'prima_corretta' e 'corretta_veloce' collassano nello stesso
+   calcolo con una sola domanda di spareggio (chi risponde correttamente per
+   primo È anche il più veloce tra i corretti). Per 'a_oltranza'/'numerica', o
+   se nessuno risponde correttamente, non c'è un vincitore automatico: resta
+   un caso ambiguo su cui interviene l'admin (il pulsante di assegnazione
+   manuale è sempre disponibile per ogni candidato). */
+function computeTiebreakAutoWinner(){
+  const tb = state && state.tiebreak;
+  if(!tb || !tb.question || !tb.candidates) return null;
+  const rule = tb.forFinal
+    ? (state.config && state.config.tiebreakRule && state.config.tiebreakRule.final)
+    : (state.config && state.config.tiebreakRule && state.config.tiebreakRule.qualification);
+  if(rule!=='prima_corretta' && rule!=='corretta_veloce') return null;
+  const key = qkey('tiebreak', tb.qIndex);
+  const correctIndex = tb.question.correctIndex;
+  const answeredCorrectly = tb.candidates
+    .map(id=>({id, ans: answersByTeam[id] && answersByTeam[id][key]}))
+    .filter(c=>c.ans && c.ans.optionIndex===correctIndex)
+    .sort((a,b)=>a.ans.ts-b.ans.ts);
+  return answeredCorrectly.length ? answeredCorrectly[0].id : null;
+}
 
 /* ================== BANCA DOMANDE (Firebase, persiste tra le partite) ================== */
 function newQuestionId(){ return 'q_' + Math.random().toString(36).slice(2,10); }

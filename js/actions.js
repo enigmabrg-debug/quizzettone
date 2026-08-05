@@ -260,10 +260,15 @@ async function adminStartTiebreakQuestion(qIdx){
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
+  if(state.tiebreak.forFinal){
+    await safeSet('state', {...state, phase:'reveal_winner', winner:winnerId, finalWinnerScoreSnapshot: state.tiebreak.finalScoresSnapshot||[], tiebreak:null}, true);
+    await refresh();
+    return;
+  }
   const finalistCount = (state.config && state.config.finalistCount) || 2;
   const finalists = [...state.tiebreak.qualifiedSoFar, winnerId].slice(0,finalistCount);
   const eliminated = Object.keys(teams).filter(id=>!finalists.includes(id));
-  await safeSet('state', {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null}, true);
+  await safeSet('state', {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null, tiebreak:null}, true);
   await refresh();
 }
 async function adminContinueToFinal(){
@@ -275,42 +280,64 @@ async function adminContinueToFinal(){
 }
 async function adminRevealWinner(){
   const finalists = state.finalists || [];
-  const scores = finalists.map(id=>({id, score: roundScore(id,'final')}));
-  scores.sort((a,b)=>b.score-a.score);
-  let winner = scores[0] ? scores[0].id : null;
-  if(scores.length===2 && scores[0].score===scores[1].score) winner = 'TIE';
+  const scores = finalists.map(id=>({id, score: roundScore(id,'final')})).sort((a,b)=>b.score-a.score);
+  const topScore = scores.length ? scores[0].score : 0;
+  const tiedTop = scores.filter(s=>s.score===topScore);
+  if(tiedTop.length>1){
+    // Pareggio per il primo posto in finale: stesso meccanismo di spareggio
+    // usato per l'accesso in finale, non solo un flag 'TIE' con scelta libera.
+    const tiebreakCandidateCount = (state.config && state.config.tiebreakCandidateCount) || 5;
+    const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
+    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop.map(s=>s.id), candidateQuestions, question:null, qIndex:null, forFinal:true, finalScoresSnapshot:scores}}, true);
+    await refresh();
+    return;
+  }
+  const winner = scores[0] ? scores[0].id : null;
   await safeSet('state', {...state, phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
-  await refresh();
-}
-async function adminDeclareWinnerManually(id){
-  const finalists = state.finalists || [];
-  const scores = finalists.map(fid=>({id:fid, score: roundScore(fid,'final')}));
-  await safeSet('state', {...state, phase:'reveal_winner', winner:id, finalWinnerScoreSnapshot:scores}, true);
   await refresh();
 }
 async function adminToggleStandings(){
   await safeSet('state', {...state, standingsVisible: !state.standingsVisible}, true);
   await refresh();
 }
-async function adminSetupStandingsReveal(){
+// Ordine di rivelazione calcolato dal sistema (mai scelto a mano dall'admin):
+// dall'ultima posizione verso la prima, con i pari merito raggruppati in
+// un'unica fascia rivelata insieme in un solo passo.
+function computeStandingsRevealOrder(){
   const ids = Object.keys(teams);
-  const order = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>a.score-b.score).map(r=>r.id);
-  await safeSet('state', {...state, standingsReveal:{order, revealedCount:0}}, true);
-  await refresh();
+  const ranked = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>a.score-b.score);
+  const groups = [];
+  for(const r of ranked){
+    const last = groups[groups.length-1];
+    if(last && last.score===r.score) last.ids.push(r.id);
+    else groups.push({score:r.score, ids:[r.id]});
+  }
+  return groups.map(g=>g.ids);
 }
-async function adminMoveStandingsRevealOrder(index, direction){
-  const order = [...state.standingsReveal.order];
-  const target = index + direction;
-  if(target<0 || target>=order.length) return;
-  [order[index], order[target]] = [order[target], order[index]];
-  const next = {...state, standingsReveal:{...state.standingsReveal, order}};
-  await withUndo('Ordine classifica modificato', 'state', state, next);
+async function adminSetupStandingsReveal(){
+  const order = computeStandingsRevealOrder();
+  await safeSet('state', {...state, standingsReveal:{order, revealedCount:0, speed:'normal', autoPlaying:false}}, true);
+  await refresh();
 }
 async function adminRevealNextStanding(){
   const sr = state.standingsReveal;
   const revealedCount = Math.min(sr.order.length, sr.revealedCount+1);
   const next = {...state, standingsReveal:{...sr, revealedCount}};
   await withUndo('Rivelata posizione classifica', 'state', state, next);
+}
+async function adminSkipToFullStandingsReveal(){
+  const sr = state.standingsReveal;
+  const next = {...state, standingsReveal:{...sr, revealedCount:sr.order.length, autoPlaying:false}};
+  await withUndo('Classifica rivelata per intero', 'state', state, next);
+}
+async function adminSetStandingsRevealSpeed(speed){
+  await safeSet('state', {...state, standingsReveal:{...state.standingsReveal, speed}}, true);
+  await refresh();
+}
+async function adminToggleAutoPlayReveal(){
+  const sr = state.standingsReveal;
+  await safeSet('state', {...state, standingsReveal:{...sr, autoPlaying:!sr.autoPlaying}}, true);
+  await refresh();
 }
 async function adminCloseStandingsReveal(){
   await safeSet('state', {...state, standingsReveal:null}, true);
@@ -535,10 +562,15 @@ async function restoreFromUrl(){
   return false;
 }
 async function teamSubmitAnswer(round, idx, optionIndex){
+  // Le squadre eliminate sono spettatrici in finale: l'interfaccia non mostra
+  // già i pulsanti di risposta (renderSpectatorFinal), ma il controllo va
+  // ripetuto qui perché è la scrittura che conta davvero.
+  if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return;
   const key = qkey(round, idx);
   const current = await safeGet('answers:'+teamId, true) || {};
   if(current[key]) return; // già risposto
-  current[key] = {optionIndex, ts: Date.now()};
+  const ts = Date.now();
+  current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   await safeSet('answers:'+teamId, current, true);
   await refresh();
 }

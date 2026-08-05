@@ -179,6 +179,14 @@
   .reveal-pos{font-family:'Archivo Black';font-size:30px;color:var(--gold);width:56px;opacity:0;animation:revealIn .5s ease forwards;}
   .reveal-name{flex:1;font-weight:700;font-family:'Space Grotesk';font-size:21px;opacity:0;animation:revealIn .5s ease forwards;animation-delay:.4s;}
   .reveal-score{font-family:'Space Grotesk';font-weight:700;color:var(--gold);font-size:19px;opacity:0;animation:revealIn .5s ease forwards;animation-delay:.8s;}
+  /* Velocità del reveal classifica (rapida/normale/suspense): il markup di
+     base sopra resta la variante "normale". */
+  .reveal-fast .reveal-pos{animation-duration:.25s;}
+  .reveal-fast .reveal-name{animation-duration:.25s;animation-delay:.15s;}
+  .reveal-fast .reveal-score{animation-duration:.25s;animation-delay:.3s;}
+  .reveal-suspense .reveal-pos{animation-duration:.9s;}
+  .reveal-suspense .reveal-name{animation-duration:.9s;animation-delay:.7s;}
+  .reveal-suspense .reveal-score{animation-duration:.9s;animation-delay:1.4s;}
   .stage-title{font-family:'Archivo Black';font-size:26px;line-height:1.15;}
   .final-glow{
     background:radial-gradient(circle at 50% 0%, rgba(242,183,5,.25), transparent 60%);

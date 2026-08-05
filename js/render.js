@@ -163,17 +163,24 @@ function renderLiveStandingsCard(){
   </div>`;
 }
 function renderStandingsRevealScreen(sr){
-  const total = sr.order.length;
-  const revealed = sr.order.slice(0, sr.revealedCount);
-  const rows = revealed.map((id,i)=>{
-    const pos = total - i;
+  // sr.order è una lista di FASCE (gruppi di squadre a pari merito rivelate
+  // insieme in un solo passo), non una lista piatta di singole squadre.
+  const totalTeams = sr.order.reduce((sum,group)=>sum+group.length, 0);
+  const revealedGroups = sr.order.slice(0, sr.revealedCount);
+  let teamsSoFar = 0;
+  const rows = revealedGroups.map(group=>{
+    teamsSoFar += group.length;
+    const pos = totalTeams - teamsSoFar + 1;
+    const names = group.map(id=>teams[id]?teams[id].name:'—').join(' 🤝 ');
+    const score = group.length ? totalScore(group[0]) : 0;
     return `<div class="reveal-row">
       <div class="reveal-pos">${pos}°</div>
-      <div class="reveal-name">${escapeHtml(teams[id] ? teams[id].name : '—')}</div>
-      <div class="reveal-score">${totalScore(id)} pt</div>
+      <div class="reveal-name">${escapeHtml(names)}</div>
+      <div class="reveal-score">${score} pt</div>
     </div>`;
   }).join('');
-  return `<div class="card center stack final-glow">
+  const speedClass = sr.speed==='fast' ? 'reveal-fast' : sr.speed==='suspense' ? 'reveal-suspense' : 'reveal-normal';
+  return `<div class="card center stack final-glow ${speedClass}">
     <div class="eyebrow pill gold">Il momento della verità</div>
     <h2>Classifica</h2>
     <div class="stack">${rows || '<p class="muted">Rullo di tamburi...</p>'}</div>
@@ -310,7 +317,7 @@ function renderTeam(){
       </div>`;
   }
   else if(s.phase==='question' && !inTiebreak){
-    body = renderTeamQuestion(s.round, s.qIndex, true);
+    body = (s.round==='final' && isEliminated) ? renderSpectatorFinal(s) : renderTeamQuestion(s.round, s.qIndex, true);
   }
   else if(s.phase==='question' && inTiebreak){
     if(isTiebreakCandidate){
@@ -324,7 +331,7 @@ function renderTeam(){
     }
   }
   else if(s.phase==='closed'){
-    body = renderTeamQuestion(s.round, s.qIndex, false);
+    body = (s.round==='final' && isEliminated) ? renderSpectatorFinal(s) : renderTeamQuestion(s.round, s.qIndex, false);
   }
   else if(s.phase==='tiebreak_closed'){
     body = `<div class="card center stack"><div class="eyebrow pill gold">Spareggio</div><p class="muted">L'admin sta verificando le risposte...</p></div>`;
@@ -356,9 +363,10 @@ function renderTeam(){
     }
   }
   else if(s.phase==='tiebreak_setup'){
+    const forFinal = s.tiebreak && s.tiebreak.forFinal;
     body = `<div class="card center stack">
       <div class="eyebrow pill gold">Spareggio</div>
-      <h2>C'è un pareggio per l'accesso in finale!</h2>
+      <h2>${forFinal ? "C'è un pareggio per la vittoria finale!" : "C'è un pareggio per l'accesso in finale!"}</h2>
       <p class="muted">L'admin sta preparando la domanda decisiva...</p>
     </div>`;
   }
@@ -386,9 +394,7 @@ function renderTeam(){
     </div>`;
   }
   else if(s.phase==='reveal_winner'){
-    if(s.winner==='TIE'){
-      body = `<div class="winner-card"><div class="eyebrow pill gold">Pareggio!</div><h2>Serve un supplementare 😅</h2></div>`;
-    } else if(s.winner===teamId){
+    if(s.winner===teamId){
       body = `<div class="winner-card">
         <div class="eyebrow pill gold">Campioni</div>
         <div class="winner-name">${teamName}</div>
@@ -422,6 +428,42 @@ function renderTeam(){
   if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ disarmPresence(teamId); clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
+/* Modalità spettatore per le squadre eliminate durante la finale: mostra lo
+   stato di ogni finalista (sta pensando / risposta bloccata / tempo scaduto)
+   senza far vedere il testo della risposta finché la config
+   answerVisibilityForEliminated non lo consente, per non facilitare
+   suggerimenti dal pubblico. L'esito corretto/sbagliato resta comunque
+   nascosto finché l'admin non svela la soluzione, indipendentemente dalla
+   visibilità della sola risposta. */
+function renderSpectatorFinal(s){
+  const finalists = s.finalists || [];
+  const key = qkey(s.round, s.qIndex);
+  const visibility = (s.config && s.config.answerVisibilityForEliminated) || 'after_reveal';
+  const q = getQuestion(s.round, s.qIndex);
+  const showAnswers = visibility==='live' ? true : visibility==='after_reveal' ? s.phase==='closed' : !!s.solutionRevealed;
+  const rows = finalists.map(id=>{
+    const ans = answersByTeam[id] && answersByTeam[id][key];
+    const statusLabel = ans ? 'Risposta bloccata' : (s.phase==='closed' ? 'Tempo scaduto' : 'Sta pensando...');
+    let answerHtml = '';
+    if(showAnswers && ans && q){
+      const color = s.solutionRevealed ? (ans.optionIndex===q.correctIndex ? 'var(--green)' : 'var(--pink)') : 'var(--ink)';
+      answerHtml = `<div style="font-size:14px;margin-top:4px;color:${color};">${letter(ans.optionIndex)}) ${escapeHtml(q.options[ans.optionIndex])}</div>`;
+    }
+    return `<div class="card stack" style="padding:12px;">
+      <div class="row" style="align-items:center;justify-content:space-between;">
+        <b>${teams[id]?teams[id].name:'—'}</b>
+        <span class="pill ${ans?'gold':''}">${statusLabel}</span>
+      </div>
+      ${answerHtml}
+    </div>`;
+  }).join('');
+  return `<div class="card center stack">
+    <div class="eyebrow pill gold">Modalità spettatore</div>
+    <h2>Siete eliminati, seguite la finale 🍿</h2>
+    <div class="stack">${rows}</div>
+  </div>`;
+}
+
 function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const q = getQuestion(round, idx);
   if(!q) return '<div class="card center">Un attimo...</div>';
@@ -450,7 +492,10 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   }).join('');
 
   let banner = '';
-  if(myAnswer) banner = `<div class="status-banner sent">✓ Risposta inviata</div>`;
+  if(myAnswer){
+    const bonusNote = myAnswer.speedBonus>0 ? ` (⚡ bonus velocità: +${myAnswer.speedBonus} se corretta)` : '';
+    banner = `<div class="status-banner sent">✓ Risposta inviata${bonusNote}</div>`;
+  }
   else if(timerIdle) banner = `<div class="status-banner">In attesa che l'host avvii il timer...</div>`;
   else if(active && state.timer && state.timer.status==='paused') banner = `<div class="status-banner">⏸ Timer in pausa</div>`;
   else if(expired || (!active && !myAnswer)) banner = `<div class="status-banner expired">⏱ Tempo scaduto</div>`;
@@ -459,6 +504,21 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const activeIds = active ? activeTeamsForRound(round) : [];
   const answeredCount = active ? activeIds.filter(id=>answersByTeam[id] && answersByTeam[id][key]).length : 0;
 
+  // Regole visibili: mai una correzione nascosta. Se questa domanda ha punti
+  // diversi dal default (es. una "domanda a punti doppi" impostata dall'admin
+  // via override), o se il bonus velocità è attivo per la partita, le
+  // squadre lo vedono PRIMA di rispondere, non lo scoprono dopo.
+  let scoringPill = '';
+  if(round!=='tiebreak'){
+    const sc = scoringFor(round, idx);
+    const baseSc = (state.config && state.config.scoring) || DEFAULT_SCORING;
+    if(sc.correct!==baseSc.correct || sc.wrong!==baseSc.wrong || sc.noAnswer!==baseSc.noAnswer){
+      scoringPill = `<span class="pill gold">⭐ Punti speciali: ${sc.correct>baseSc.correct?'+'+sc.correct:sc.correct}/${sc.wrong}/${sc.noAnswer}</span>`;
+    }
+  }
+  const speedBonusPill = (active && state.config && state.config.speedBonus && state.config.speedBonus.enabled)
+    ? `<span class="pill">⚡ Bonus velocità attivo</span>` : '';
+
   return `
     <div class="card stack">
       <div class="qmeta">
@@ -466,6 +526,8 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
         <span class="pill">${escapeHtml(q.category)}</span>
         ${active ? `<span class="pill">✓ ${answeredCount}/${activeIds.length} risposto</span>` : ''}
+        ${scoringPill}
+        ${speedBonusPill}
       </div>
       ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timer.durationMs)}</div>` : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
@@ -568,9 +630,10 @@ function renderDisplay(){
     }
   }
   else if(s.phase==='tiebreak_setup'){
+    const forFinal = s.tiebreak && s.tiebreak.forFinal;
     body = `<div class="card center stack">
       <div class="eyebrow pill gold">Spareggio</div>
-      <h2>C'è un pareggio per l'accesso in finale!</h2>
+      <h2>${forFinal ? "C'è un pareggio per la vittoria finale!" : "C'è un pareggio per l'accesso in finale!"}</h2>
       <p class="muted">L'admin sta preparando la domanda decisiva...</p>
     </div>`;
   }
@@ -587,14 +650,10 @@ function renderDisplay(){
     </div>`;
   }
   else if(s.phase==='reveal_winner'){
-    if(s.winner==='TIE'){
-      body = `<div class="winner-card"><div class="eyebrow pill gold">Pareggio!</div><h2>Serve un supplementare 😅</h2></div>`;
-    } else {
-      body = `<div class="winner-card">
-        <div class="eyebrow pill gold">Campioni del Quizzettone</div>
-        <div class="winner-name">${escapeHtml(teams[s.winner]?teams[s.winner].name:'—')}</div>
-      </div>`;
-    }
+    body = `<div class="winner-card">
+      <div class="eyebrow pill gold">Campioni del Quizzettone</div>
+      <div class="winner-name">${escapeHtml(teams[s.winner]?teams[s.winner].name:'—')}</div>
+    </div>`;
   }
 
   app.innerHTML = `
@@ -626,7 +685,7 @@ function renderSalaPrePartita(s, cfg){
     ['blocked_after_start','Bloccato dopo lo start']
   ];
   const carryoverOptions = [['reset','Azzera i punti'],['keep','Mantiene i punti'],['convert','Converte i punti']];
-  const visibilityOptions = [['secret','Segreta (solo dopo chiusura)'],['after_reveal','Diretta protetta (consigliata)'],['live','Diretta totale']];
+  const visibilityOptions = [['secret','Segreta (solo dopo la soluzione)'],['after_reveal','Diretta protetta (consigliata)'],['live','Diretta totale']];
   const finalScoringEnabled = !!cfg.finalScoring;
   const fs = cfg.finalScoring || cfg.scoring;
   return `
@@ -670,6 +729,11 @@ function renderSalaPrePartita(s, cfg){
           <option value="auto" ${cfg.timerStartMode==='auto'?'selected':''}>Automatico all'apertura della domanda</option>
           <option value="manual" ${cfg.timerStartMode==='manual'?'selected':''}>Manuale (comando dell'host)</option>
         </select></label>
+        <label class="row" style="align-items:center;"><input type="checkbox" id="setupSpeedBonusEnabled" ${cfg.speedBonus.enabled?'checked':''} ${s.setupLocked?'disabled':''}> Bonus velocità (annunciato alle squadre)</label>
+        <div class="row">
+          <label class="stack">Bonus massimo (punti)<input type="text" inputmode="numeric" id="setupSpeedBonusMax" value="${cfg.speedBonus.maxBonus}" ${s.setupLocked?'disabled':''}></label>
+          <label class="stack">Finestra bonus (secondi)<input type="text" inputmode="numeric" id="setupSpeedBonusWindow" value="${Math.round(cfg.speedBonus.windowMs/1000)}" ${s.setupLocked?'disabled':''}></label>
+        </div>
       </div>
 
       ${s.setupLocked?'':'<button class="btn" id="btnSaveSetup">Salva impostazioni</button>'}
@@ -677,11 +741,29 @@ function renderSalaPrePartita(s, cfg){
 }
 
 /* ================== VISTA ADMIN ================== */
+function syncStandingsAutoPlay(s){
+  const sr = s.standingsReveal;
+  const shouldRun = sr && sr.autoPlaying && sr.revealedCount < sr.order.length;
+  if(shouldRun && !standingsAutoPlayTimer){
+    const delay = sr.speed==='fast' ? 1200 : sr.speed==='suspense' ? 3500 : 2200;
+    standingsAutoPlayTimer = setInterval(()=>{
+      const cur = state.standingsReveal;
+      if(!cur || !cur.autoPlaying || cur.revealedCount>=cur.order.length){
+        clearInterval(standingsAutoPlayTimer); standingsAutoPlayTimer = null; return;
+      }
+      adminRevealNextStanding();
+    }, delay);
+  } else if(!shouldRun && standingsAutoPlayTimer){
+    clearInterval(standingsAutoPlayTimer); standingsAutoPlayTimer = null;
+  }
+}
+
 function renderAdmin(){
   const app = document.getElementById('app');
   app.className = 'admin-wide';
   const s = state;
   const teamIds = Object.keys(teams);
+  syncStandingsAutoPlay(s);
 
   let controlPanel = '';
   let liveTable = '';
@@ -872,18 +954,22 @@ function renderAdmin(){
   }
   else if(s.phase==='tiebreak_closed'){
     const tb = s.tiebreak; const q = tb.question;
+    const autoWinnerId = computeTiebreakAutoWinner();
+    const assignLabel = tb.forFinal ? 'Dichiara vincitrice' : 'Assegna posto finale';
     controlPanel = `
       <div class="card stack">
         <h3>Risultato spareggio</h3>
         <p class="qtext">${escapeHtml(q.question)}</p>
         <p class="muted">Corretta: ${letter(q.correctIndex)}) ${escapeHtml(q.options[q.correctIndex])}</p>
+        ${autoWinnerId ? `<p class="muted">Il sistema suggerisce <b>${teams[autoWinnerId]?teams[autoWinnerId].name:'—'}</b> in base alla regola di spareggio scelta: conferma o scegli un'altra squadra.</p>` : ''}
         <div class="stack">
           ${tb.candidates.map(id=>{
             const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', tb.qIndex)];
             const correct = ans && ans.optionIndex===q.correctIndex;
+            const suggested = autoWinnerId===id;
             return `<div class="row" style="align-items:center;">
-              <div>${teams[id]?teams[id].name:'—'} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'}</div>
-              <button class="btn small" data-assign-winner="${id}">Assegna finale a questa squadra</button>
+              <div>${teams[id]?teams[id].name:'—'} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
+              <button class="btn small ${suggested?'':'secondary'}" data-assign-winner="${id}">${assignLabel}</button>
             </div>`;
           }).join('')}
         </div>
@@ -911,9 +997,8 @@ function renderAdmin(){
     controlPanel = `
       <div class="winner-card">
         <div class="eyebrow pill gold">Campioni del Quizzettone</div>
-        <div class="winner-name">${s.winner==='TIE' ? 'Pareggio!' : (teams[s.winner]?teams[s.winner].name:'—')}</div>
+        <div class="winner-name">${teams[s.winner]?teams[s.winner].name:'—'}</div>
         ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teams[r.id]?teams[r.id].name:'—'}: ${r.score} pt</p>`).join('')}
-        ${s.winner==='TIE' ? `<div class="row">${(s.finalists||[]).map(id=>`<button class="btn small" data-declare="${id}">Dichiara ${teams[id]?teams[id].name:'—'} vincitrice</button>`).join('')}</div>`:''}
       </div>`;
   }
 
@@ -945,35 +1030,26 @@ function renderAdmin(){
     standingsRevealPanel = `
       <div class="card stack">
         <h3>Classifica animata</h3>
-        <p class="muted">Per i momenti clou: rivela le squadre una alla volta con animazione, nell'ordine che scegli tu.</p>
+        <p class="muted">Per i momenti clou: l'ordine lo calcola il sistema (dall'ultima posizione, pari merito raggruppati in un'unica fascia), tu controlli solo il ritmo della rivelazione.</p>
         <button class="btn secondary" id="btnSetupStandingsReveal" ${teamIds.length<1?'disabled':''}>Prepara rivelazione classifica</button>
       </div>`;
-  } else if(s.standingsReveal.revealedCount===0){
-    standingsRevealPanel = `
-      <div class="card stack">
-        <h3>Classifica animata · ordina la rivelazione</h3>
-        <p class="muted">Verrà rivelata dall'alto verso il basso di questa lista (di norma dall'ultima alla prima posizione).</p>
-        <div class="stack">
-          ${s.standingsReveal.order.map((id,i)=>`
-            <div class="row" style="align-items:center;">
-              <div style="flex:2;">${i+1}. ${teams[id]?teams[id].name:'—'} (${totalScore(id)} pt)</div>
-              <button class="btn ghost small" data-move-reveal="${i}" data-dir="-1" ${i===0?'disabled':''}>↑</button>
-              <button class="btn ghost small" data-move-reveal="${i}" data-dir="1" ${i===s.standingsReveal.order.length-1?'disabled':''}>↓</button>
-            </div>`).join('')}
-        </div>
-        <div class="row">
-          <button class="btn" id="btnRevealNextStanding">Inizia rivelazione</button>
-          <button class="btn ghost" id="btnCloseStandingsReveal">Annulla</button>
-        </div>
-      </div>`;
   } else {
-    const done = s.standingsReveal.revealedCount >= s.standingsReveal.order.length;
+    const sr = s.standingsReveal;
+    const done = sr.revealedCount >= sr.order.length;
+    const speed = sr.speed || 'normal';
     standingsRevealPanel = `
       <div class="card stack">
         <h3>Classifica animata in corso</h3>
-        <p class="muted">Rivelate ${s.standingsReveal.revealedCount}/${s.standingsReveal.order.length}</p>
+        <p class="muted">Rivelate ${sr.revealedCount}/${sr.order.length} fasce</p>
+        <div class="row">
+          <button class="btn ghost small ${speed==='fast'?'':'secondary'}" id="btnRevealSpeedFast">Rapida</button>
+          <button class="btn ghost small ${speed==='normal'?'':'secondary'}" id="btnRevealSpeedNormal">Normale</button>
+          <button class="btn ghost small ${speed==='suspense'?'':'secondary'}" id="btnRevealSpeedSuspense">Suspense</button>
+        </div>
         <div class="row">
           ${!done?`<button class="btn" id="btnRevealNextStanding">Rivela prossima</button>`:''}
+          ${!done?`<button class="btn secondary" id="btnToggleAutoPlayReveal">${sr.autoPlaying?'⏸ Pausa':'▶ Avvia automatica'}</button>`:''}
+          ${!done?`<button class="btn ghost" id="btnSkipToFullStandingsReveal">Salta a classifica completa</button>`:''}
           <button class="btn ghost" id="btnCloseStandingsReveal">Chiudi</button>
         </div>
       </div>`;
@@ -1294,6 +1370,11 @@ function attachAdminHandlers(){
       patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
       patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
       patch.timerStartMode = byId('setupTimerStartMode').value;
+      patch.speedBonus = {
+        enabled: byId('setupSpeedBonusEnabled').checked,
+        maxBonus: intVal('setupSpeedBonusMax') || 0,
+        windowMs: (intVal('setupSpeedBonusWindow') || 0) * 1000
+      };
     }
     await adminSaveSetup(gameName, patch);
   };
@@ -1330,10 +1411,12 @@ function attachAdminHandlers(){
   if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;
   if(byId('btnSetupStandingsReveal')) byId('btnSetupStandingsReveal').onclick = adminSetupStandingsReveal;
   if(byId('btnRevealNextStanding')) byId('btnRevealNextStanding').onclick = adminRevealNextStanding;
+  if(byId('btnSkipToFullStandingsReveal')) byId('btnSkipToFullStandingsReveal').onclick = adminSkipToFullStandingsReveal;
+  if(byId('btnToggleAutoPlayReveal')) byId('btnToggleAutoPlayReveal').onclick = adminToggleAutoPlayReveal;
+  if(byId('btnRevealSpeedFast')) byId('btnRevealSpeedFast').onclick = ()=>adminSetStandingsRevealSpeed('fast');
+  if(byId('btnRevealSpeedNormal')) byId('btnRevealSpeedNormal').onclick = ()=>adminSetStandingsRevealSpeed('normal');
+  if(byId('btnRevealSpeedSuspense')) byId('btnRevealSpeedSuspense').onclick = ()=>adminSetStandingsRevealSpeed('suspense');
   if(byId('btnCloseStandingsReveal')) byId('btnCloseStandingsReveal').onclick = adminCloseStandingsReveal;
-  document.querySelectorAll('[data-move-reveal]').forEach(btn=>{
-    btn.onclick = ()=> adminMoveStandingsRevealOrder(parseInt(btn.getAttribute('data-move-reveal')), parseInt(btn.getAttribute('data-dir')));
-  });
   if(byId('btnToggleQuestionManager')) byId('btnToggleQuestionManager').onclick = ()=>{ showQuestionManager = !showQuestionManager; render(); };
   if(byId('btnToggleScoringSettings')) byId('btnToggleScoringSettings').onclick = ()=>{ showScoringSettings = !showScoringSettings; render(); };
   if(byId('btnSaveScoringDefaults')) byId('btnSaveScoringDefaults').onclick = ()=>{
@@ -1400,9 +1483,6 @@ function attachAdminHandlers(){
   });
   document.querySelectorAll('[data-assign-winner]').forEach(btn=>{
     btn.onclick = ()=> adminAssignTiebreakWinner(btn.getAttribute('data-assign-winner'));
-  });
-  document.querySelectorAll('[data-declare]').forEach(btn=>{
-    btn.onclick = ()=> adminDeclareWinnerManually(btn.getAttribute('data-declare'));
   });
   if(byId('btnOpenDisplay')) byId('btnOpenDisplay').onclick = ()=>{
     const url = new URL(window.location.href);
