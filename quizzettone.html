@@ -7,10 +7,19 @@
 <title>Quizzettone</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<!-- Firebase: libreria che ci permette di salvare/leggere dati condivisi tra tutti i dispositivi -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<!-- Firebase: libreria che ci permette di salvare/leggere dati condivisi tra tutti i dispositivi.
+     Con ?emulator=1 (solo per i test Playwright locali) caricamo le stesse librerie da una
+     copia locale invece che dal CDN, cosi' i test funzionano anche offline/in sandbox; in
+     produzione (nessun parametro) il comportamento resta identico a prima, dal CDN. -->
+<script>
+(function(){
+  var useLocal = new URLSearchParams(location.search).get('emulator') === '1';
+  var base = useLocal ? 'tests/vendor/' : 'https://www.gstatic.com/firebasejs/10.12.2/';
+  ['firebase-app-compat.js','firebase-database-compat.js','firebase-storage-compat.js'].forEach(function(f){
+    document.write('<script src="' + base + f + '"><\/script>');
+  });
+})();
+</script>
 <style>
   :root{
     --stage: #150C2B;
@@ -289,6 +298,9 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const storage = firebase.storage();
+if(new URLSearchParams(location.search).get('emulator') === '1'){
+  db.useEmulator('127.0.0.1', 9000);
+}
 const DB_ROOT = 'quizzettone'; // tutti i dati del gioco vivono sotto questo "nodo" del database
 
 async function uploadAudioFile(file, folder){
