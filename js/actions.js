@@ -325,6 +325,11 @@ async function teamJoin(name){
   saveTeamSession(teamId, teamName);
   startListening();
 }
+async function teamSetReady(ready){
+  const info = teams[teamId] || {id:teamId, name:teamName};
+  await safeSet('teaminfo:'+teamId, {...info, ready}, true);
+  await refresh();
+}
 
 /* ================== SESSIONE (URL + localStorage) ==================
    L'URL mantiene la sessione se ricarichi la pagina; localStorage la
@@ -398,6 +403,13 @@ async function restoreFromUrl(){
     } else {
       clearTeamSession();
     }
+  }
+  // Scorciatoia per il QR/codice breve: ?role=team senza una sessione valida
+  // da recuperare porta dritti alla schermata "inserisci nome squadra",
+  // saltando la selezione del ruolo.
+  if(r==='team'){
+    renderTeamJoin();
+    return true;
   }
   return false;
 }

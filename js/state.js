@@ -76,6 +76,8 @@ let teams = {};           // id -> {id, name}
 let answersByTeam = {};   // id -> {qkey: {optionIndex, ts}}
 let overridesByTeam = {}; // id -> {qkey: points}
 let questionBank = {};    // id -> domanda (persiste tra una partita e l'altra)
+let presenceByTeam = {};  // id -> {connId: {connectedAt}} (dispositivi collegati in questo momento)
+let presenceConnId = null; // id di connessione locale per questa scheda, stabile finché resta aperta
 let showQuestionManager = false; // toggle locale (solo per questo admin), non condiviso
 let showAdvancedSetup = false; // toggle locale: sezione "impostazioni avanzate" della Sala pre-partita
 let scoringDefaults = DEFAULT_SCORING; // punteggio di default, persiste tra le partite
@@ -94,6 +96,7 @@ function defaultState(){
   return {
     gameName: 'Quizzettone',
     setupLocked: false,
+    joinCode: null, // generato da ensureJoinCode() al primo caricamento admin, non qui: va lo stesso per tutti
     phase:'lobby', round:1, qIndex:0,
     questionStartedAt:null, timerDuration:20000,
     checkpoint:null, checkpointMode:null,
@@ -172,17 +175,23 @@ function startListening(){
     overridesByTeam = newOverrides;
     questionBank = newQuestionBank;
     soundEffects = newEffects;
+    presenceByTeam = all.presence || {};
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
     state = withDefaults(all.state);
     partyDecks = {
       normale: (all.mazzi && all.mazzi.normale) || [],
       extreme: (all.mazzi && all.mazzi.extreme) || []
     };
-    if(role==='admin'){ ensureSeedQuestions(); ensureSeedPartyDecks(); }
+    if(role==='admin'){ ensureSeedQuestions(); ensureSeedPartyDecks(); ensureJoinCode(); }
     render();
   }, err=>{ console.error('listener fallito', err); });
   db.ref('.info/connected').on('value', snap=>{
     connected = snap.val() === true;
+    // Va riarmata a ogni riconnessione (non una sola volta al boot): onDisconnect()
+    // è valido solo per la connessione WebSocket corrente, quindi dopo ogni caduta
+    // e ripresa della rete va registrato di nuovo, altrimenti l'uscita non verrebbe
+    // più rilevata la volta successiva.
+    if(connected && role==='team' && teamId) armPresence(teamId);
     render();
   });
   startUiTick();
@@ -192,6 +201,39 @@ function stopListening(){
   db.ref('.info/connected').off('value');
   listening = false;
   if(uiTickTimer){ clearInterval(uiTickTimer); uiTickTimer = null; }
+}
+/* Presenza online/offline per squadra: ogni scheda registra una propria
+   connessione sotto presence/<teamId>/<connId>, con onDisconnect().remove()
+   affinché sparisca automaticamente se la scheda si chiude o perde la rete.
+   "Online" = almeno una connessione presente; "dispositivi collegati" = quante. */
+function armPresence(teamId){
+  presenceConnId = presenceConnId || ('conn_' + Math.random().toString(36).slice(2,10));
+  const connRef = db.ref(DB_ROOT + '/presence/' + teamId + '/' + presenceConnId);
+  connRef.onDisconnect().remove();
+  connRef.set({connectedAt: firebase.database.ServerValue.TIMESTAMP});
+}
+function disarmPresence(teamId){
+  if(!presenceConnId) return;
+  db.ref(DB_ROOT + '/presence/' + teamId + '/' + presenceConnId).remove();
+}
+function isTeamOnline(id){ return !!(presenceByTeam[id] && Object.keys(presenceByTeam[id]).length>0); }
+function teamDeviceCount(id){ return presenceByTeam[id] ? Object.keys(presenceByTeam[id]).length : 0; }
+
+/* Codice breve per entrare in partita: generato una sola volta (dal primo
+   admin che carica la pagina) e poi condiviso da tutti tramite lo stato
+   Firebase, così resta stabile invece di cambiare a ogni ricarica. */
+function generateJoinCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // niente 0/O/1/I, si confondono facilmente
+  let code = '';
+  for(let i=0;i<5;i++) code += chars[Math.floor(Math.random()*chars.length)];
+  return code;
+}
+let joinCodeEnsureAttempted = false;
+async function ensureJoinCode(){
+  if(joinCodeEnsureAttempted) return;
+  joinCodeEnsureAttempted = true;
+  if(state && state.joinCode) return;
+  await safeSet('state', {...state, joinCode: generateJoinCode()}, true);
 }
 function startUiTick(){
   if(uiTickTimer) return;

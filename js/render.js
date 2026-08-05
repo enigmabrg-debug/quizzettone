@@ -40,6 +40,29 @@ function connectionBadge(){
   return `<div class="pill" style="color:var(--pink);border-color:rgba(255,77,109,.4);background:rgba(255,77,109,.1);margin-top:6px;">⚠ Connessione persa, riconnessione in corso…</div>`;
 }
 
+/* Codice breve + QR per entrare in partita: il QR punta a ?role=team, che
+   restoreFromUrl() apre direttamente sulla schermata "inserisci nome
+   squadra" (vedi js/actions.js), saltando la selezione del ruolo. */
+function renderJoinCodeBlock(joinCode){
+  if(!joinCode) return '<p class="muted">Codice in generazione...</p>';
+  let qrSvg = '';
+  if(typeof qrcode !== 'undefined'){
+    try{
+      const joinUrl = location.origin + location.pathname + '?role=team';
+      const qr = qrcode(0, 'M');
+      qr.addData(joinUrl);
+      qr.make();
+      qrSvg = qr.createSvgTag({scalable:true});
+    } catch(e){ qrSvg = ''; }
+  }
+  return `
+    <div class="stack center">
+      <div class="pill gold" style="font-size:22px;letter-spacing:.14em;padding:10px 20px;width:fit-content;">${escapeHtml(joinCode)}</div>
+      ${qrSvg ? `<div style="width:150px;">${qrSvg}</div>` : ''}
+      <p class="muted" style="font-size:12px;">Scansiona il QR per entrare al volo, oppure vai su ${escapeHtml(location.origin + location.pathname)} · codice serata: ${escapeHtml(joinCode)}</p>
+    </div>`;
+}
+
 /* ================== MODALITÀ PARTY: reveal pubblico (Display) ================== */
 function partyCardAnimClass(slot, data){
   // consuma il nonce localmente così l'animazione di reveal parte una volta sola per questo schermo,
@@ -252,11 +275,13 @@ function renderTeam(){
     body = renderLiveStandingsCard();
   }
   else if(s.phase==='lobby'){
+    const ready = !!(teams[teamId] && teams[teamId].ready);
     body = `
       <div class="card center stack">
         <div class="eyebrow">Sei dentro!</div>
         <h2>${teamName}</h2>
         <p class="muted">In attesa che l'admin avvii la Manche 1...</p>
+        <button class="btn ${ready?'':'secondary'}" id="btnTeamReady">${ready?'✓ Siamo pronti':'Siamo pronti'}</button>
       </div>`;
   }
   else if(s.phase==='question' && !inTiebreak){
@@ -366,8 +391,10 @@ function renderTeam(){
     ${body}
   `;
   attachTeamOptionHandlers();
+  const readyBtn = document.getElementById('btnTeamReady');
+  if(readyBtn) readyBtn.onclick = ()=> teamSetReady(!(teams[teamId] && teams[teamId].ready));
   const exitLink = document.getElementById('lnkExit');
-  if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
+  if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ disarmPresence(teamId); clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
 function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
@@ -456,10 +483,15 @@ function renderDisplay(){
     body = renderLiveStandingsCard();
   }
   else if(s.phase==='lobby'){
+    const teamIds = Object.keys(teams);
     body = `
       <div class="card center stack">
-        <div class="eyebrow">Quizzettone</div>
+        <div class="eyebrow">${escapeHtml(s.gameName)}</div>
         <h2>In attesa che l'admin avvii la Manche 1...</h2>
+        ${renderJoinCodeBlock(s.joinCode)}
+        <div class="divider"></div>
+        <p class="muted">${teamIds.length} squadre collegate</p>
+        <div class="row" style="flex-wrap:wrap;justify-content:center;">${teamIds.map(id=>`<div class="team-tag">🎮 ${escapeHtml(teams[id].name)}${teams[id].ready?' ✓':''}</div>`).join('')}</div>
       </div>`;
   }
   else if(s.phase==='question' && !inTiebreak){
@@ -569,6 +601,8 @@ function renderSalaPrePartita(s, cfg){
     <div class="card stack">
       <h3>Sala pre-partita</h3>
       ${s.setupLocked?'<p class="muted">Le regole sono bloccate: la partita è già iniziata.</p>':'<p class="muted">Imposta le regole essenziali prima di avviare. Le squadre possono già entrare in lobby.</p>'}
+      ${renderJoinCodeBlock(s.joinCode)}
+      <div class="divider"></div>
       <label class="stack">Nome partita<input type="text" id="setupGameName" value="${escapeHtml(s.gameName)}" ${s.setupLocked?'disabled':''}></label>
       <div class="row">
         <label class="stack">Manche di qualificazione<input type="text" inputmode="numeric" id="setupRounds" value="${cfg.rounds}" ${s.setupLocked?'disabled':''}></label>
@@ -624,7 +658,16 @@ function renderAdmin(){
       <div class="card stack">
         <h3>Lobby</h3>
         <p class="muted">${teamIds.length} squadre collegate</p>
-        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${teams[id].name}${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
+        <div class="stack">${teamIds.map(id=>{
+          const online = isTeamOnline(id);
+          const devices = teamDeviceCount(id);
+          return `<div class="team-tag">
+            <span style="color:${online?'var(--green)':'var(--pink)'};">●</span> ${teams[id].name}
+            ${devices>1?` <span class="pill">${devices} dispositivi</span>`:''}
+            ${teams[id].ready?' <span class="pill gold">Pronta</span>':''}
+            ${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}
+          </div>`;
+        }).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
       </div>
       <div class="card stack">
