@@ -1,4 +1,5 @@
 /* ================== HELPERS UI ================== */
+function totalRoundsCount(){ return (state && state.config && state.config.rounds) || 2; }
 function letter(i){ return ['A','B','C','D'][i]; }
 function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -270,24 +271,26 @@ function renderTeam(){
   }
   else if(s.phase==='checkpoint'){
     const cp = s.checkpoint;
+    const totalRounds = totalRoundsCount();
     if(cp.type==='mid'){
       const total = getList(cp.round).length;
+      const played = Math.ceil(total/2);
       body = `<div class="card center stack">
         <div class="eyebrow pill gold">Checkpoint · Metà Manche ${cp.round}</div>
         <h2>Prendete fiato ☕</h2>
-        <p class="muted">${cp.round===1?8:8} domande giocate, ${total-8} da giocare</p>
+        <p class="muted">${played} domande giocate, ${total-played} da giocare</p>
         ${s.checkpointMode==='classifica' ? renderProvisionalStandings(cp.round) : ''}
       </div>`;
-    } else if(cp.type==='end' && cp.round===1){
+    } else if(cp.type==='end' && cp.round<totalRounds){
       body = `<div class="card center stack">
-        <div class="eyebrow pill gold">Fine Manche 1</div>
-        <h2>Prendete fiato: la qualificazione continua con la Manche 2</h2>
-        ${renderEndRound1Standings(s.checkpointMode)}
+        <div class="eyebrow pill gold">Fine Manche ${cp.round}</div>
+        <h2>Prendete fiato: la qualificazione continua con la Manche ${cp.round+1}</h2>
+        ${renderEndRoundStandings(cp.round, s.checkpointMode)}
       </div>`;
-    } else if(cp.type==='end' && cp.round===2){
+    } else if(cp.type==='end' && cp.round===totalRounds){
       body = `<div class="card center stack">
         <div class="eyebrow pill gold">Fine qualificazione</div>
-        <h2>Le due manche sono finite!</h2>
+        <h2>Le manche sono finite!</h2>
         <p class="muted">L'admin sta per svelare le finaliste...</p>
       </div>`;
     }
@@ -419,10 +422,10 @@ function renderProvisionalStandings(round){
   const ranked = ids.map(id=>({id, score: roundScore(id, round)})).sort((a,b)=>b.score-a.score);
   return `<div class="divider"></div><h3 class="center">Classifica provvisoria</h3>${rankRows(ranked)}`;
 }
-function renderEndRound1Standings(mode){
+function renderEndRoundStandings(round, mode){
   const ids = Object.keys(teams);
-  const ranked = ids.map(id=>({id, score: roundScore(id,1)})).sort((a,b)=>b.score-a.score);
-  if(mode==='complete') return `<div class="divider"></div><h3 class="center">Classifica Manche 1</h3>${rankRows(ranked)}`;
+  const ranked = ids.map(id=>({id, score: roundScore(id,round)})).sort((a,b)=>b.score-a.score);
+  if(mode==='complete') return `<div class="divider"></div><h3 class="center">Classifica Manche ${round}</h3>${rankRows(ranked)}`;
   if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div></div>`).join('')}`;
   return '';
 }
@@ -466,24 +469,26 @@ function renderDisplay(){
   }
   else if(s.phase==='checkpoint'){
     const cp = s.checkpoint;
+    const totalRounds = totalRoundsCount();
     if(cp.type==='mid'){
       const total = getList(cp.round).length;
+      const played = Math.ceil(total/2);
       body = `<div class="card center stack">
         <div class="eyebrow pill gold">Checkpoint · Metà Manche ${cp.round}</div>
         <h2>Prendete fiato ☕</h2>
-        <p class="muted">${cp.round===1?8:8} domande giocate, ${total-8} da giocare</p>
+        <p class="muted">${played} domande giocate, ${total-played} da giocare</p>
         ${s.checkpointMode==='classifica' ? renderProvisionalStandings(cp.round) : ''}
       </div>`;
-    } else if(cp.type==='end' && cp.round===1){
+    } else if(cp.type==='end' && cp.round<totalRounds){
       body = `<div class="card center stack">
-        <div class="eyebrow pill gold">Fine Manche 1</div>
-        <h2>Prendete fiato: la qualificazione continua con la Manche 2</h2>
-        ${renderEndRound1Standings(s.checkpointMode)}
+        <div class="eyebrow pill gold">Fine Manche ${cp.round}</div>
+        <h2>Prendete fiato: la qualificazione continua con la Manche ${cp.round+1}</h2>
+        ${renderEndRoundStandings(cp.round, s.checkpointMode)}
       </div>`;
-    } else if(cp.type==='end' && cp.round===2){
+    } else if(cp.type==='end' && cp.round===totalRounds){
       body = `<div class="card center stack">
         <div class="eyebrow pill gold">Fine qualificazione</div>
-        <h2>Le due manche sono finite!</h2>
+        <h2>Le manche sono finite!</h2>
         <p class="muted">L'admin sta per svelare le finaliste...</p>
       </div>`;
     }
@@ -658,6 +663,7 @@ function renderAdmin(){
   }
   else if(s.phase==='checkpoint'){
     const cp = s.checkpoint;
+    const totalRounds = totalRoundsCount();
     if(cp.type==='mid'){
       controlPanel = `
         <div class="card stack">
@@ -670,24 +676,24 @@ function renderAdmin(){
           ${renderAdminStandings(cp.round)}
           <button class="btn" id="btnContinue">Continua</button>
         </div>`;
-    } else if(cp.type==='end' && cp.round===1){
+    } else if(cp.type==='end' && cp.round<totalRounds){
       controlPanel = `
         <div class="card stack">
-          <h3>Fine Manche 1</h3>
+          <h3>Fine Manche ${cp.round}</h3>
           <div class="stack">
             <button class="btn ${s.checkpointMode==='complete'?'':'secondary'}" id="btnModeComplete">Mostra classifica completa</button>
             <button class="btn ${s.checkpointMode==='message'?'':'secondary'}" id="btnModeMessage">Solo messaggio, niente punteggi</button>
             <button class="btn ${s.checkpointMode==='partial'?'':'secondary'}" id="btnModePartial">Solo posizioni, punti nascosti</button>
           </div>
           <div class="divider"></div>
-          ${renderAdminStandings(1)}
-          <button class="btn" id="btnContinue">Continua con Manche 2</button>
+          ${renderAdminStandings(cp.round)}
+          <button class="btn" id="btnContinue">Continua con Manche ${cp.round+1}</button>
         </div>`;
-    } else if(cp.type==='end' && cp.round===2){
+    } else if(cp.type==='end' && cp.round===totalRounds){
       controlPanel = `
         <div class="card stack">
           <h3>Fine qualificazione</h3>
-          ${renderAdminStandings(2, true)}
+          ${renderAdminStandings(cp.round, true)}
           <button class="btn" id="btnRevealFinalists">Svela finaliste</button>
         </div>`;
     }
@@ -750,14 +756,14 @@ function renderAdmin(){
       </div>`;
   }
 
+  const standingsRoundNums = Array.from({length: totalRoundsCount()}, (_,i)=>i+1);
   const globalStandings = `
     <div class="card">
       <h3>Classifica generale (solo admin)</h3>
-      <table><thead><tr><th>Squadra</th><th>Manche 1</th><th>Manche 2</th><th>Finale</th><th>Totale</th></tr></thead><tbody>
+      <table><thead><tr><th>Squadra</th>${standingsRoundNums.map(r=>`<th>Manche ${r}</th>`).join('')}<th>Finale</th><th>Totale</th></tr></thead><tbody>
       ${teamIds.map(id=>`<tr>
         <td>${teams[id].name}</td>
-        <td>${roundScore(id,1)}</td>
-        <td>${roundScore(id,2)}</td>
+        ${standingsRoundNums.map(r=>`<td>${roundScore(id,r)}</td>`).join('')}
         <td>${state.finalists && state.finalists.includes(id) ? roundScore(id,'final') : '—'}</td>
         <td><b>${totalScore(id)}</b></td>
       </tr>`).join('')}

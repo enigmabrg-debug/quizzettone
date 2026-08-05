@@ -1,11 +1,27 @@
 /* ================== AZIONI ADMIN (scrivono su 'state') ================== */
 async function adminStartGame(){
-  const drawn = drawQuestionsForGame('manche', 30);
+  const cfg = (state && state.config) || defaultState().config;
+  const totalNeeded = cfg.questionsPerRound.reduce((a,b)=>a+b, 0);
+  const drawn = drawQuestionsForGame('manche', totalNeeded);
   await markQuestionsUsed(drawn);
-  const s = defaultState();
-  s.phase='question'; s.round=1; s.qIndex=0; s.questionStartedAt=Date.now();
-  s.gameQuestions = { round1: drawn.slice(0,15), round2: drawn.slice(15,30), final:null, tiebreak:null };
-  s.audioCue = audioCueForQuestion(drawn[0]);
+  const rounds = {};
+  let offset = 0;
+  for(let r=1; r<=cfg.rounds; r++){
+    const count = cfg.questionsPerRound[r-1] || 0;
+    rounds[r] = drawn.slice(offset, offset+count);
+    offset += count;
+  }
+  // Riparte da defaultState() per azzerare i progressi della partita precedente,
+  // ma preserva le regole/impostazioni scelte in lobby (config, Modalità Party).
+  const s = {
+    ...defaultState(),
+    config: cfg,
+    partyMode: (state && state.partyMode) || 'none',
+    party: (state && state.party) || defaultState().party,
+    phase:'question', round:1, qIndex:0, questionStartedAt:Date.now(),
+    gameQuestions: { rounds, final:null, tiebreak:null },
+    audioCue: audioCueForQuestion(drawn[0])
+  };
   await safeSet('state', s, true); await refresh();
 }
 async function adminCloseAnswers(){
@@ -46,7 +62,7 @@ async function adminNextQuestion(){
   const round = state.round, idx = state.qIndex;
   const list = getList(round);
   const qNumber = idx+1;
-  if(round===1 || round===2){
+  if(typeof round === 'number'){
     const midPoint = Math.ceil(list.length/2);
     if(list.length>=4 && qNumber===midPoint){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
@@ -71,12 +87,14 @@ async function adminSetCheckpointMode(mode){
 }
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
+  const totalRounds = (state.config && state.config.rounds) || 2;
   if(cp.type==='mid'){
     const nextQ = getQuestion(cp.round, state.qIndex+1);
     await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
-  } else if(cp.type==='end' && cp.round===1){
-    const nextQ = getQuestion(2, 0);
-    await safeSet('state', {...state, round:2, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+  } else if(cp.type==='end' && cp.round < totalRounds){
+    const nextRound = cp.round+1;
+    const nextQ = getQuestion(nextRound, 0);
+    await safeSet('state', {...state, round:nextRound, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   }
   await refresh();
 }

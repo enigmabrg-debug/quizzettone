@@ -54,10 +54,9 @@ const CATEGORIES =["Geografia","Storia","Matematica","Musica","Scienze","Cinema"
 function getList(round){
   const gq = state && state.gameQuestions;
   if(!gq) return [];
-  if(round===1) return gq.round1 || [];
-  if(round===2) return gq.round2 || [];
   if(round==='final') return gq.final || [];
   if(round==='tiebreak') return gq.tiebreak ? [gq.tiebreak] : [];
+  if(gq.rounds && gq.rounds[round]) return gq.rounds[round];
   return [];
 }
 function getQuestion(round, idx){ return getList(round)[idx]; }
@@ -99,7 +98,14 @@ function defaultState(){
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
     standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null,
     audioCue:null,
-    partyMode:'none', party:{bonus:null, malus:null, surprise:null}
+    partyMode:'none', party:{bonus:null, malus:null, surprise:null},
+    // Regole di gioco: vivono nello stato Firebase della partita invece di essere
+    // valori hardcoded nel codice (verranno espanse con il resto delle impostazioni
+    // avanzate quando arriverà la Sala pre-partita).
+    config: {
+      rounds: 2,
+      questionsPerRound: [15, 15]
+    }
   };
 }
 
@@ -177,7 +183,12 @@ function roundScore(id, round){
   for(let i=0;i<list.length;i++) sum += teamPointsForQuestion(id, round, i);
   return sum;
 }
-function qualificationScore(id){ return roundScore(id,1) + roundScore(id,2); }
+function qualificationScore(id){
+  const rounds = (state && state.config && state.config.rounds) || 2;
+  let sum = 0;
+  for(let r=1;r<=rounds;r++) sum += roundScore(id, r);
+  return sum;
+}
 function totalScore(id){ return qualificationScore(id) + roundScore(id,'final'); }
 
 /* ================== BANCA DOMANDE (Firebase, persiste tra le partite) ================== */

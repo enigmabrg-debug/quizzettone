@@ -12,6 +12,10 @@ module.exports = defineConfig({
   testDir: './tests/e2e',
   timeout: 30_000,
   fullyParallel: false,
+  // All specs share one emulator DB namespace (each test resets it in
+  // beforeEach), so cross-file parallel workers would race each other's
+  // resets/writes -- keep everything on a single worker.
+  workers: 1,
   retries: 0,
   use: {
     baseURL: 'http://127.0.0.1:8080',
