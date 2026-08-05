@@ -5,9 +5,11 @@ function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function timeRemaining(){
-  if(!state || !state.questionStartedAt) return 0;
-  const elapsed = Date.now() - state.questionStartedAt;
-  return Math.max(0, state.timerDuration - elapsed);
+  if(!state || !state.timer) return 0;
+  const t = state.timer;
+  if(t.status==='paused') return t.pausedRemainingMs || 0;
+  if(t.status!=='running' || !t.startedAt) return 0;
+  return Math.max(0, t.durationMs - (Date.now() - t.startedAt));
 }
 function circleTimer(remainingMs, total){
   const pct = Math.max(0, Math.min(1, remainingMs/total));
@@ -402,8 +404,13 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   if(!q) return '<div class="card center">Un attimo...</div>';
   const key = qkey(round, idx);
   const myAnswer = answersByTeam[teamId] && answersByTeam[teamId][key];
-  const remaining = active ? timeRemaining() : 0;
-  const expired = active && remaining<=0 && !myAnswer;
+  // Con l'avvio manuale del timer, la domanda è visibile ma non ancora
+  // rispondibile finché l'host non preme "Avvia timer": senza questa
+  // distinzione timeRemaining() (0 mentre status è 'idle') farebbe sembrare
+  // il tempo già scaduto fin da subito.
+  const timerIdle = active && state.timer && state.timer.status==='idle';
+  const remaining = active ? (timerIdle ? state.timer.durationMs : timeRemaining()) : 0;
+  const expired = active && !timerIdle && remaining<=0 && !myAnswer;
   const showCorrectness = round!=='tiebreak' && !active && !!state.solutionRevealed;
 
   let optionsHtml = q.options.map((opt,i)=>{
@@ -413,7 +420,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
       if(i===q.correctIndex) cls += ' correct';
       else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
     }
-    const disabled = readOnly || !active || !!myAnswer || remaining<=0;
+    const disabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0;
     return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
       <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
     </button>`;
@@ -421,6 +428,8 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
 
   let banner = '';
   if(myAnswer) banner = `<div class="status-banner sent">✓ Risposta inviata</div>`;
+  else if(timerIdle) banner = `<div class="status-banner">In attesa che l'host avvii il timer...</div>`;
+  else if(active && state.timer && state.timer.status==='paused') banner = `<div class="status-banner">⏸ Timer in pausa</div>`;
   else if(expired || (!active && !myAnswer)) banner = `<div class="status-banner expired">⏱ Tempo scaduto</div>`;
 
   const roundLabel = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
@@ -435,7 +444,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         <span class="pill">${escapeHtml(q.category)}</span>
         ${active ? `<span class="pill">✓ ${answeredCount}/${activeIds.length} risposto</span>` : ''}
       </div>
-      ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timerDuration)}</div>` : ''}
+      ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timer.durationMs)}</div>` : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
       <div class="options">${optionsHtml}</div>
       ${banner}
@@ -634,6 +643,10 @@ function renderSalaPrePartita(s, cfg){
         <label class="stack">Regola pareggio (finale)${tieSelect('setupTiebreakFinal', cfg.tiebreakRule.final)}</label>
         <label class="stack">Visibilità risposte agli eliminati<select id="setupAnswerVisibility" ${s.setupLocked?'disabled':''}>${visibilityOptions.map(([v,label])=>`<option value="${v}" ${v===cfg.answerVisibilityForEliminated?'selected':''}>${label}</option>`).join('')}</select></label>
         <label class="row" style="align-items:center;"><input type="checkbox" id="setupBlockDuplicates" ${cfg.blockDuplicateQuestions?'checked':''} ${s.setupLocked?'disabled':''}> Blocca domande duplicate</label>
+        <label class="stack">Avvio timer<select id="setupTimerStartMode" ${s.setupLocked?'disabled':''}>
+          <option value="auto" ${cfg.timerStartMode==='auto'?'selected':''}>Automatico all'apertura della domanda</option>
+          <option value="manual" ${cfg.timerStartMode==='manual'?'selected':''}>Manuale (comando dell'host)</option>
+        </select></label>
       </div>
 
       ${s.setupLocked?'':'<button class="btn" id="btnSaveSetup">Salva impostazioni</button>'}
@@ -690,12 +703,13 @@ function renderAdmin(){
   else if(s.phase==='question' || s.phase==='closed'){
     const round = s.round, idx = s.qIndex;
     const q = getQuestion(round, idx);
-    const remaining = s.phase==='question' ? timeRemaining() : 0;
-    const closed = s.phase==='closed' || remaining<=0;
-    if(s.phase==='question' && remaining<=0){
-      // auto-chiudi quando scade il tempo
-      setTimeout(()=>{ if(state.phase==='question' && timeRemaining()<=0) adminCloseAnswers(); }, 50);
-    }
+    const idle = s.phase==='question' && s.timer.status==='idle';
+    const paused = s.phase==='question' && s.timer.status==='paused';
+    const remaining = s.phase!=='question' ? 0 : (idle ? s.timer.durationMs : timeRemaining());
+    const closed = s.phase==='closed' || (!idle && remaining<=0);
+    // La chiusura a scadenza è gestita dal tick condiviso in startUiTick()
+    // (state.js), che chiama closeAnswersTransactional('expired') da
+    // qualunque scheda aperta, non solo da questa vista admin.
     const roundLabel = round==='final'?'FINALE': round==='tiebreak'?'SPAREGGIO':`MANCHE ${round}`;
     const activeTeams = activeTeamsForRound(round);
 
@@ -706,7 +720,13 @@ function renderAdmin(){
           <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
           <span class="pill">${escapeHtml(q.category)}</span>
         </div>
-        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timerDuration)}</div>`:''}
+        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?'<div class="pill">In attesa di avvio</div>':''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
+        ${!closed?`<div class="row">
+          ${idle?`<button class="btn" id="btnStartTimer">▶ Avvia timer</button>`:''}
+          ${!idle && s.timer.status==='running'?`<button class="btn secondary small" id="btnPauseTimer">⏸ Pausa</button>`:''}
+          ${paused?`<button class="btn secondary small" id="btnResumeTimer">▶ Riprendi</button>`:''}
+          ${!idle?`<button class="btn ghost small" id="btnTimerMinus5">-5s</button><button class="btn ghost small" id="btnTimerPlus5">+5s</button>`:''}
+        </div>`:''}
         <div class="qtext">${escapeHtml(q.question)}</div>
         <div class="options">
           ${q.options.map((opt,i)=>`<div class="opt ${i===q.correctIndex?'correct':''}" style="cursor:default;">
@@ -725,6 +745,8 @@ function renderAdmin(){
         <button class="btn ghost small" id="btnApplyQuestionScoring">Applica solo a questa domanda</button>
         <div class="row">
           ${!closed?`<button class="btn danger" id="btnCloseNow">Chiudi subito risposte</button>`:''}
+          ${closed && s.timer.closeReason==='expired' ?`<button class="btn ghost small" id="btnReopenAnswers">Riapri (errore tecnico)</button>`:''}
+          <button class="btn ghost small" id="btnCancelQuestion">Annulla domanda</button>
           ${closed && !s.solutionRevealed && round!=='tiebreak' ?`<button class="btn secondary" id="btnRevealSolution">Svela soluzione alle squadre</button>`:''}
           ${closed?`<button class="btn" id="btnNext">${round==='tiebreak'?'Verifica risultato spareggio':'Domanda successiva'}</button>`:''}
         </div>
@@ -1246,10 +1268,18 @@ function attachAdminHandlers(){
       patch.tiebreakRule.final = byId('setupTiebreakFinal').value;
       patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
       patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
+      patch.timerStartMode = byId('setupTimerStartMode').value;
     }
     await adminSaveSetup(gameName, patch);
   };
   if(byId('btnCloseNow')) byId('btnCloseNow').onclick = adminCloseAnswers;
+  if(byId('btnReopenAnswers')) byId('btnReopenAnswers').onclick = adminReopenAnswers;
+  if(byId('btnCancelQuestion')) byId('btnCancelQuestion').onclick = ()=>{ if(confirm('Annullare questa domanda? Non assegnerà punti a nessuno.')) adminCancelQuestion(); };
+  if(byId('btnStartTimer')) byId('btnStartTimer').onclick = adminStartTimerManually;
+  if(byId('btnPauseTimer')) byId('btnPauseTimer').onclick = adminPauseTimer;
+  if(byId('btnResumeTimer')) byId('btnResumeTimer').onclick = adminResumeTimer;
+  if(byId('btnTimerMinus5')) byId('btnTimerMinus5').onclick = ()=>adminAdjustTimer(-5000);
+  if(byId('btnTimerPlus5')) byId('btnTimerPlus5').onclick = ()=>adminAdjustTimer(5000);
   if(byId('btnRevealSolution')) byId('btnRevealSolution').onclick = adminRevealSolution;
   if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;
   if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;

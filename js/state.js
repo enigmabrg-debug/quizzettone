@@ -98,7 +98,11 @@ function defaultState(){
     setupLocked: false,
     joinCode: null, // generato da ensureJoinCode() al primo caricamento admin, non qui: va lo stesso per tutti
     phase:'lobby', round:1, qIndex:0,
-    questionStartedAt:null, timerDuration:20000,
+    // Timer sincronizzato: unica fonte di verità condivisa (non un'animazione
+    // locale) -- 'status' pilota sia il conto alla rovescia sia la chiusura
+    // automatica delle risposte, uguale per admin/display/squadre.
+    timer: {status:'idle', startedAt:null, durationMs:20000, pausedRemainingMs:null, closeReason:null, closedBy:null},
+    cancelledQuestions:[], // qkey delle domande annullate: non assegnano punti a nessuno
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
@@ -117,6 +121,7 @@ function defaultState(){
       finalQuestionCount: 10,
       tiebreakCandidateCount: 5,
       questionDurationMs: 20000,
+      timerStartMode: 'auto', // 'auto' | 'manual': parte da solo o l'host lo avvia a comando
       scoring: {correct:1, wrong:0, noAnswer:0},
       finalScoring: null, // null = usa 'scoring' anche in finale
       scoreCarryover: 'reset', // 'reset' | 'keep' | 'convert'
@@ -143,6 +148,7 @@ function withDefaults(raw){
   merged.config.tiebreakRule = {...base.config.tiebreakRule, ...((raw.config||{}).tiebreakRule||{})};
   merged.config.lateJoin = {...base.config.lateJoin, ...((raw.config||{}).lateJoin||{})};
   merged.party = {...base.party, ...(raw.party||{})};
+  merged.timer = {...base.timer, ...(raw.timer||{})};
   // Migrazione della vecchia forma {round1, round2} verso {rounds:{1,2,...}}
   if(raw.gameQuestions && (raw.gameQuestions.round1 || raw.gameQuestions.round2) && !raw.gameQuestions.rounds){
     merged.gameQuestions = {
@@ -150,6 +156,10 @@ function withDefaults(raw){
       final: raw.gameQuestions.final||null,
       tiebreak: raw.gameQuestions.tiebreak||null
     };
+  }
+  // Migrazione del vecchio timer piatto (questionStartedAt/timerDuration) verso state.timer
+  if(raw.questionStartedAt && !raw.timer){
+    merged.timer = {status:'running', startedAt:raw.questionStartedAt, durationMs:raw.timerDuration||20000, pausedRemainingMs:null, closeReason:null, closedBy:null};
   }
   return merged;
 }
@@ -237,7 +247,17 @@ async function ensureJoinCode(){
 }
 function startUiTick(){
   if(uiTickTimer) return;
-  uiTickTimer = setInterval(()=>{ if(state && state.phase==='question') render(); }, 250);
+  uiTickTimer = setInterval(()=>{
+    if(!state || state.phase!=='question') return;
+    // Qualunque scheda aperta (non solo quella dell'admin) partecipa alla
+    // chiusura a scadenza: closeAnswersTransactional è la stessa transazione
+    // idempotente usata dal pulsante manuale, quindi più schede che la
+    // rilevano nello stesso istante non producono chiusure duplicate.
+    if(state.timer && state.timer.status==='running' && timeRemaining()<=0){
+      closeAnswersTransactional('expired');
+    }
+    render();
+  }, 250);
 }
 async function refresh(){ render(); }
 
@@ -258,6 +278,7 @@ function pointsForAnswer(round, idx, optionIndex){
 }
 function teamPointsForQuestion(id, round, idx){
   const key = qkey(round, idx);
+  if(state && state.cancelledQuestions && state.cancelledQuestions.includes(key)) return 0;
   const ov = overridesByTeam[id] && overridesByTeam[id][key];
   if(ov !== undefined && ov !== null) return ov;
   const ans = answersByTeam[id] && answersByTeam[id][key];

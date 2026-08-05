@@ -1,4 +1,13 @@
 /* ================== AZIONI ADMIN (scrivono su 'state') ================== */
+// Costruisce il timer per una domanda appena aperta: parte da solo, a meno
+// che l'admin abbia scelto l'avvio manuale nelle impostazioni della partita.
+function openQuestionTimer(durationMs, cfg){
+  cfg = cfg || state.config;
+  const manual = cfg && cfg.timerStartMode === 'manual';
+  return manual
+    ? {status:'idle', startedAt:null, durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
+    : {status:'running', startedAt:Date.now(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
+}
 async function adminStartGame(){
   const cfg = (state && state.config) || defaultState().config;
   const totalNeeded = cfg.questionsPerRound.reduce((a,b)=>a+b, 0);
@@ -21,8 +30,8 @@ async function adminStartGame(){
     setupLocked: true,
     partyMode: (state && state.partyMode) || 'none',
     party: (state && state.party) || defaultState().party,
-    phase:'question', round:1, qIndex:0, questionStartedAt:Date.now(),
-    timerDuration: cfg.questionDurationMs,
+    phase:'question', round:1, qIndex:0,
+    timer: openQuestionTimer(cfg.questionDurationMs, cfg),
     gameQuestions: { rounds, final:null, tiebreak:null },
     audioCue: audioCueForQuestion(drawn[0])
   };
@@ -41,9 +50,75 @@ async function adminSaveSetup(gameName, patch){
   await safeSet('state', {...state, gameName, config:nextConfig}, true);
   await refresh();
 }
+/* Chiusura delle risposte unificata: sia il click manuale dell'admin sia la
+   scadenza rilevata dal tick di QUALSIASI client (vedi startUiTick in
+   state.js) passano da qui. È una transaction() Firebase pura e idempotente:
+   se più schede la eseguono nello stesso istante (es. il timer scade mentre
+   4 dispositivi hanno la tab aperta), solo la prima che raggiunge il server
+   trova ancora phase==='question' e scrive; le altre, rieseguite dall'SDK
+   sul valore già aggiornato, si fermano restituendo undefined (nessuna
+   doppia chiusura, nessun evento duplicato). Questo sostituisce il vecchio
+   meccanismo che chiudeva la domanda solo se la tab dell'admin era aperta e
+   si ri-renderizzava per caso in quel momento. */
+async function closeAnswersTransactional(reason){
+  const stateRef = db.ref(DB_ROOT + '/state');
+  await stateRef.transaction(current=>{
+    if(!current) return current;
+    if(current.phase !== 'question') return; // già chiusa/avanzata da qualcun altro
+    if(!current.timer || current.timer.status !== 'running') return;
+    if(reason==='expired'){
+      const {startedAt, durationMs} = current.timer;
+      if(!startedAt || (Date.now()-startedAt) < durationMs) return; // non ancora scaduta davvero
+    }
+    return {...current, phase:'closed', timer:{...current.timer, status:'closed', closeReason:reason, closedBy: reason==='expired' ? 'auto' : 'admin'}};
+  });
+}
 async function adminCloseAnswers(){
-  const s = {...state, phase:'closed'};
-  await safeSet('state', s, true); await refresh();
+  await closeAnswersTransactional('manual');
+  await refresh();
+}
+async function adminReopenAnswers(){
+  // "Riapre per un intervallo breve in caso di errore tecnico": non riprende
+  // il tempo residuo di prima, apre una finestra breve fissa per correggere.
+  if(state.phase !== 'closed') return;
+  await safeSet('state', {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:Date.now(), durationMs:10000, closeReason:null, closedBy:null}}, true);
+  await refresh();
+}
+async function adminCancelQuestion(){
+  if(state.phase!=='question' && state.phase!=='closed') return;
+  const key = qkey(state.round, state.qIndex);
+  const cancelledQuestions = [...(state.cancelledQuestions||[]), key];
+  await safeSet('state', {...state, phase:'closed', cancelledQuestions, timer:{...state.timer, status:'closed', closeReason:'cancelled', closedBy:'admin'}}, true);
+  await refresh();
+}
+async function adminStartTimerManually(){
+  if(state.phase!=='question' || state.timer.status!=='idle') return;
+  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt:Date.now()}}, true);
+  await refresh();
+}
+async function adminPauseTimer(){
+  if(state.phase!=='question' || state.timer.status!=='running') return;
+  await safeSet('state', {...state, timer:{...state.timer, status:'paused', pausedRemainingMs:timeRemaining()}}, true);
+  await refresh();
+}
+async function adminResumeTimer(){
+  if(state.phase!=='question' || state.timer.status!=='paused') return;
+  const remaining = state.timer.pausedRemainingMs || 0;
+  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt: Date.now()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
+  await refresh();
+}
+async function adminAdjustTimer(deltaMs){
+  if(state.phase!=='question') return;
+  const t = state.timer;
+  if(t.status==='paused'){
+    await safeSet('state', {...state, timer:{...t, pausedRemainingMs:Math.max(0, (t.pausedRemainingMs||0)+deltaMs)}}, true);
+  } else if(t.status==='running'){
+    const newDuration = Math.max(Date.now()-t.startedAt, t.durationMs+deltaMs);
+    await safeSet('state', {...state, timer:{...t, durationMs:newDuration}}, true);
+  } else {
+    return;
+  }
+  await refresh();
 }
 async function adminRevealSolution(){
   await safeSet('state', {...state, solutionRevealed:true}, true); await refresh();
@@ -87,13 +162,13 @@ async function adminNextQuestion(){
     } else if(qNumber===list.length){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='final'){
     if(qNumber===list.length){
       await safeSet('state', {...state, phase:'final_ready'}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await safeSet('state', {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='tiebreak'){
     await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
@@ -108,11 +183,11 @@ async function adminContinueFromCheckpoint(){
   const totalRounds = (state.config && state.config.rounds) || 2;
   if(cp.type==='mid'){
     const nextQ = getQuestion(cp.round, state.qIndex+1);
-    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   } else if(cp.type==='end' && cp.round < totalRounds){
     const nextRound = cp.round+1;
     const nextQ = getQuestion(nextRound, 0);
-    await safeSet('state', {...state, round:nextRound, qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet('state', {...state, round:nextRound, qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   }
   await refresh();
 }
@@ -142,7 +217,7 @@ async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
+  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
@@ -156,7 +231,7 @@ async function adminContinueToFinal(){
   const finalQuestionCount = (state.config && state.config.finalQuestionCount) || 10;
   const drawn = drawQuestionsForGame('finale', finalQuestionCount);
   await markQuestionsUsed(drawn);
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
+  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
   await refresh();
 }
 async function adminRevealWinner(){
@@ -217,6 +292,7 @@ async function adminResetGame(){
   for(const k of teamKeys) await safeDelete(k, true);
   const ids = Object.keys(teams);
   for(const id of ids){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
+  await safeDelete('presence', true);
   await safeSet('state', defaultState(), true);
   await refresh();
 }
