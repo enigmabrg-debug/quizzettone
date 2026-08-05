@@ -12,17 +12,34 @@ async function adminStartGame(){
     offset += count;
   }
   // Riparte da defaultState() per azzerare i progressi della partita precedente,
-  // ma preserva le regole/impostazioni scelte in lobby (config, Modalità Party).
+  // ma preserva le regole/impostazioni scelte in lobby (config, nome partita,
+  // Modalità Party) e blocca ulteriori modifiche alla configurazione.
   const s = {
     ...defaultState(),
     config: cfg,
+    gameName: (state && state.gameName) || defaultState().gameName,
+    setupLocked: true,
     partyMode: (state && state.partyMode) || 'none',
     party: (state && state.party) || defaultState().party,
     phase:'question', round:1, qIndex:0, questionStartedAt:Date.now(),
+    timerDuration: cfg.questionDurationMs,
     gameQuestions: { rounds, final:null, tiebreak:null },
     audioCue: audioCueForQuestion(drawn[0])
   };
   await safeSet('state', s, true); await refresh();
+}
+async function adminSaveSetup(gameName, patch){
+  if(state.setupLocked) return;
+  // Un'unica scrittura atomica: nome partita e config vanno salvati insieme,
+  // altrimenti due safeSet('state', ...) sequenziali (ciascuno basato sullo
+  // stesso 'state' locale non ancora aggiornato dall'eco del primo) si
+  // sovrascriverebbero a vicenda perdendo parte delle modifiche.
+  const nextConfig = {...state.config, ...patch};
+  if(patch.scoring) nextConfig.scoring = {...state.config.scoring, ...patch.scoring};
+  if(patch.tiebreakRule) nextConfig.tiebreakRule = {...state.config.tiebreakRule, ...patch.tiebreakRule};
+  if(patch.lateJoin) nextConfig.lateJoin = {...state.config.lateJoin, ...patch.lateJoin};
+  await safeSet('state', {...state, gameName, config:nextConfig}, true);
+  await refresh();
 }
 async function adminCloseAnswers(){
   const s = {...state, phase:'closed'};
@@ -64,7 +81,8 @@ async function adminNextQuestion(){
   const qNumber = idx+1;
   if(typeof round === 'number'){
     const midPoint = Math.ceil(list.length/2);
-    if(list.length>=4 && qNumber===midPoint){
+    const checkpointMinQuestions = (state.config && state.config.checkpointMinQuestions) || 4;
+    if(list.length>=checkpointMinQuestions && qNumber===midPoint){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
     } else if(qNumber===list.length){
       await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
@@ -99,26 +117,24 @@ async function adminContinueFromCheckpoint(){
   await refresh();
 }
 async function adminRevealFinalists(){
+  const finalistCount = (state.config && state.config.finalistCount) || 2;
+  const tiebreakCandidateCount = (state.config && state.config.tiebreakCandidateCount) || 5;
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score:qualificationScore(id)})).sort((a,b)=>b.score-a.score);
-  if(ranked.length<=2){
+  if(ranked.length<=finalistCount){
     await safeSet('state', {...state, phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]}, true);
     await refresh(); return;
   }
-  const secondScore = ranked[1].score;
-  const tiedForSecond = ranked.filter(r=>r.score===secondScore);
-  if(tiedForSecond.length>1 && ranked[0].score!==secondScore){
-    // primo posto chiaro, spareggio per il secondo posto
-    const candidateQuestions = drawQuestionsForGame('finale', 5);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[ranked[0].id], candidates: tiedForSecond.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
-  } else if(ranked[0].score===secondScore){
-    // pareggio anche per il primo posto: tutti i pari merito in spareggio, si prendono i primi 2
-    const topScore = ranked[0].score;
-    const tiedTop = ranked.filter(r=>r.score===topScore).map(r=>r.id);
-    const candidateQuestions = drawQuestionsForGame('finale', 5);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop, candidateQuestions, question:null, qIndex:null}}, true);
+  const cutoffScore = ranked[finalistCount-1].score;
+  const tiedAtCutoff = ranked.filter(r=>r.score===cutoffScore);
+  const aboveCutoff = ranked.filter(r=>r.score>cutoffScore);
+  if(tiedAtCutoff.length>1 && aboveCutoff.length<finalistCount){
+    // il taglio cade su un pari merito: chi è sopra il taglio è già qualificato,
+    // gli spareggianti si giocano i posti rimasti
+    const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
+    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar: aboveCutoff.map(r=>r.id), candidates: tiedAtCutoff.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
   } else {
-    await safeSet('state', {...state, phase:'reveal_finalists', finalists:[ranked[0].id, ranked[1].id], eliminated: ranked.slice(2).map(r=>r.id)}, true);
+    await safeSet('state', {...state, phase:'reveal_finalists', finalists: ranked.slice(0,finalistCount).map(r=>r.id), eliminated: ranked.slice(finalistCount).map(r=>r.id)}, true);
   }
   await refresh();
 }
@@ -130,14 +146,15 @@ async function adminStartTiebreakQuestion(qIdx){
   await refresh();
 }
 async function adminAssignTiebreakWinner(winnerId){
-  const need = 2 - state.tiebreak.qualifiedSoFar.length;
-  const finalists = [...state.tiebreak.qualifiedSoFar, winnerId].slice(0,2);
+  const finalistCount = (state.config && state.config.finalistCount) || 2;
+  const finalists = [...state.tiebreak.qualifiedSoFar, winnerId].slice(0,finalistCount);
   const eliminated = Object.keys(teams).filter(id=>!finalists.includes(id));
   await safeSet('state', {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null}, true);
   await refresh();
 }
 async function adminContinueToFinal(){
-  const drawn = drawQuestionsForGame('finale', 10);
+  const finalQuestionCount = (state.config && state.config.finalQuestionCount) || 10;
+  const drawn = drawQuestionsForGame('finale', finalQuestionCount);
   await markQuestionsUsed(drawn);
   await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', questionStartedAt:Date.now(), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
   await refresh();
@@ -279,15 +296,29 @@ async function findTeamByName(name){
   }
   return null;
 }
+// Una squadra che rientra con lo stesso nome non è mai considerata "in ritardo"
+// (è una riconnessione, non un nuovo ingresso): il limite si applica solo alla
+// creazione di una squadra che prima non esisteva.
+function lateJoinAllowed(gameState){
+  if(!gameState || gameState.phase==='lobby') return true;
+  const policy = (gameState.config && gameState.config.lateJoin && gameState.config.lateJoin.policy) || 'until_round1_end';
+  if(policy==='always') return true;
+  if(policy==='blocked_after_start') return false;
+  // 'until_round1_end': consentito per tutta la manche 1 (comprese le sue pause)
+  return typeof gameState.round === 'number' && gameState.round===1;
+}
 async function teamJoin(name){
   const trimmed = name.trim();
   const existing = await findTeamByName(trimmed);
   if(existing){
     teamId = existing.id; teamName = existing.name;
   } else {
+    const gameState = await safeGet('state', true);
+    if(!lateJoinAllowed(gameState)) throw new Error('LATE_JOIN_BLOCKED');
     teamId = 'team_' + Math.random().toString(36).slice(2,9);
     teamName = trimmed;
-    await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now()}, true);
+    const lateJoin = !(!gameState || gameState.phase==='lobby');
+    await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now(), lateJoin}, true);
   }
   joined = true;
   setUrlSession('team', teamId);

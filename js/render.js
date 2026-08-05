@@ -199,6 +199,7 @@ function renderTeamJoin(){
     <div class="card stack" style="margin-top:20px;">
       <h3>Nome squadra</h3>
       <input type="text" id="teamNameInput" placeholder="Es. I Fenomeni" maxlength="24">
+      <div id="joinError" class="note" style="color:var(--pink);display:none;">La partita è già iniziata e non accetta più nuove squadre.</div>
       <button class="btn" id="btnJoin">Entra in partita</button>
       <button class="btn ghost small" id="btnBack">← Indietro</button>
     </div>
@@ -209,7 +210,16 @@ function renderTeamJoin(){
   const doJoin = async ()=>{
     if(!input.value.trim()) return;
     role='team';
-    await teamJoin(input.value);
+    try{
+      await teamJoin(input.value);
+    } catch(e){
+      if(e.message === 'LATE_JOIN_BLOCKED'){
+        role = null;
+        document.getElementById('joinError').style.display = 'block';
+      } else {
+        throw e;
+      }
+    }
   };
   document.getElementById('btnJoin').onclick = doJoin;
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') doJoin(); });
@@ -536,6 +546,66 @@ function renderDisplay(){
   playPendingAudioCueIfAny();
 }
 
+/* ================== SALA PRE-PARTITA (configurazione essenziale + avanzata) ================== */
+function renderSalaPrePartita(s, cfg){
+  const questionsPerRound = cfg.questionsPerRound[0] || 15;
+  const tieOptions = [
+    ['prima_corretta','Prima risposta corretta'],
+    ['oltranza','Spareggio a oltranza'],
+    ['corretta_veloce','Corretta più veloce'],
+    ['numerica','Più vicino al valore corretto']
+  ];
+  const tieSelect = (id, selected)=> `<select id="${id}">${tieOptions.map(([v,label])=>`<option value="${v}" ${v===selected?'selected':''}>${label}</option>`).join('')}</select>`;
+  const lateJoinOptions = [
+    ['always','Sempre consentito'],
+    ['until_round1_end','Fino a fine prima manche'],
+    ['blocked_after_start','Bloccato dopo lo start']
+  ];
+  const carryoverOptions = [['reset','Azzera i punti'],['keep','Mantiene i punti'],['convert','Converte i punti']];
+  const visibilityOptions = [['secret','Segreta (solo dopo chiusura)'],['after_reveal','Diretta protetta (consigliata)'],['live','Diretta totale']];
+  const finalScoringEnabled = !!cfg.finalScoring;
+  const fs = cfg.finalScoring || cfg.scoring;
+  return `
+    <div class="card stack">
+      <h3>Sala pre-partita</h3>
+      ${s.setupLocked?'<p class="muted">Le regole sono bloccate: la partita è già iniziata.</p>':'<p class="muted">Imposta le regole essenziali prima di avviare. Le squadre possono già entrare in lobby.</p>'}
+      <label class="stack">Nome partita<input type="text" id="setupGameName" value="${escapeHtml(s.gameName)}" ${s.setupLocked?'disabled':''}></label>
+      <div class="row">
+        <label class="stack">Manche di qualificazione<input type="text" inputmode="numeric" id="setupRounds" value="${cfg.rounds}" ${s.setupLocked?'disabled':''}></label>
+        <label class="stack">Domande per manche<input type="text" inputmode="numeric" id="setupQuestionsPerRound" value="${questionsPerRound}" ${s.setupLocked?'disabled':''}></label>
+      </div>
+      <div class="row">
+        <label class="stack">Finalisti<input type="text" inputmode="numeric" id="setupFinalistCount" value="${cfg.finalistCount}" ${s.setupLocked?'disabled':''}></label>
+        <label class="stack">Domande finale<input type="text" inputmode="numeric" id="setupFinalQuestionCount" value="${cfg.finalQuestionCount}" ${s.setupLocked?'disabled':''}></label>
+        <label class="stack">Durata domande (secondi)<input type="text" inputmode="numeric" id="setupQuestionDuration" value="${Math.round(cfg.questionDurationMs/1000)}" ${s.setupLocked?'disabled':''}></label>
+      </div>
+      <div class="row">
+        <label class="stack">Punti corretta<input type="text" inputmode="numeric" id="setupScoringCorrect" value="${cfg.scoring.correct}" ${s.setupLocked?'disabled':''}></label>
+        <label class="stack">Punti sbagliata<input type="text" inputmode="numeric" id="setupScoringWrong" value="${cfg.scoring.wrong}" ${s.setupLocked?'disabled':''}></label>
+        <label class="stack">Punti non data<input type="text" inputmode="numeric" id="setupScoringNoAnswer" value="${cfg.scoring.noAnswer}" ${s.setupLocked?'disabled':''}></label>
+      </div>
+      <label class="stack">Regola pareggio (qualificazione)${tieSelect('setupTiebreakQualification', cfg.tiebreakRule.qualification)}</label>
+      <label class="stack">Ingresso tardivo<select id="setupLateJoinPolicy" ${s.setupLocked?'disabled':''}>${lateJoinOptions.map(([v,label])=>`<option value="${v}" ${v===cfg.lateJoin.policy?'selected':''}>${label}</option>`).join('')}</select></label>
+
+      <button class="btn ghost small" id="btnToggleAdvancedSetup">${showAdvancedSetup?'▲ Nascondi impostazioni avanzate':'▼ Impostazioni avanzate'}</button>
+      <div id="salaAdvancedSection" style="display:${showAdvancedSetup?'flex':'none'};flex-direction:column;gap:10px;">
+        <div class="divider"></div>
+        <label class="row" style="align-items:center;"><input type="checkbox" id="setupFinalScoringEnabled" ${finalScoringEnabled?'checked':''} ${s.setupLocked?'disabled':''}> Punteggi diversi in finale</label>
+        <div class="row">
+          <label class="stack">Finale: corretta<input type="text" inputmode="numeric" id="setupFinalScoringCorrect" value="${fs.correct}" ${s.setupLocked?'disabled':''}></label>
+          <label class="stack">Finale: sbagliata<input type="text" inputmode="numeric" id="setupFinalScoringWrong" value="${fs.wrong}" ${s.setupLocked?'disabled':''}></label>
+          <label class="stack">Finale: non data<input type="text" inputmode="numeric" id="setupFinalScoringNoAnswer" value="${fs.noAnswer}" ${s.setupLocked?'disabled':''}></label>
+        </div>
+        <label class="stack">Punti in ingresso finale<select id="setupScoreCarryover" ${s.setupLocked?'disabled':''}>${carryoverOptions.map(([v,label])=>`<option value="${v}" ${v===cfg.scoreCarryover?'selected':''}>${label}</option>`).join('')}</select></label>
+        <label class="stack">Regola pareggio (finale)${tieSelect('setupTiebreakFinal', cfg.tiebreakRule.final)}</label>
+        <label class="stack">Visibilità risposte agli eliminati<select id="setupAnswerVisibility" ${s.setupLocked?'disabled':''}>${visibilityOptions.map(([v,label])=>`<option value="${v}" ${v===cfg.answerVisibilityForEliminated?'selected':''}>${label}</option>`).join('')}</select></label>
+        <label class="row" style="align-items:center;"><input type="checkbox" id="setupBlockDuplicates" ${cfg.blockDuplicateQuestions?'checked':''} ${s.setupLocked?'disabled':''}> Blocca domande duplicate</label>
+      </div>
+
+      ${s.setupLocked?'':'<button class="btn" id="btnSaveSetup">Salva impostazioni</button>'}
+    </div>`;
+}
+
 /* ================== VISTA ADMIN ================== */
 function renderAdmin(){
   const app = document.getElementById('app');
@@ -548,11 +618,13 @@ function renderAdmin(){
 
   if(s.phase==='lobby'){
     const pm = s.partyMode || 'none';
+    const cfg = s.config;
     controlPanel = `
+      ${renderSalaPrePartita(s, cfg)}
       <div class="card stack">
         <h3>Lobby</h3>
         <p class="muted">${teamIds.length} squadre collegate</p>
-        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${teams[id].name}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
+        <div class="stack">${teamIds.map(id=>`<div class="team-tag">🎮 ${teams[id].name}${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}</div>`).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
       </div>
       <div class="card stack">
@@ -1087,6 +1159,53 @@ function renderAdminStandings(round, qualification){
 function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
   if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
+  if(byId('btnToggleAdvancedSetup')) byId('btnToggleAdvancedSetup').onclick = ()=>{
+    // Cambia solo la visibilità della sezione (niente render()): un re-render
+    // completo qui ricostruirebbe il form da 'state' e cancellerebbe eventuali
+    // modifiche ai campi essenziali non ancora salvate dall'admin.
+    showAdvancedSetup = !showAdvancedSetup;
+    byId('salaAdvancedSection').style.display = showAdvancedSetup ? 'flex' : 'none';
+    byId('btnToggleAdvancedSetup').textContent = showAdvancedSetup ? '▲ Nascondi impostazioni avanzate' : '▼ Impostazioni avanzate';
+  };
+  if(byId('btnSaveSetup')) byId('btnSaveSetup').onclick = async ()=>{
+    const intVal = id => parseInt(byId(id).value, 10);
+    const rounds = intVal('setupRounds') || 1;
+    const perRound = intVal('setupQuestionsPerRound') || 1;
+    const gameName = byId('setupGameName').value.trim() || 'Quizzettone';
+    // I campi "avanzati" esistono nel DOM solo quando la sezione è aperta: se è
+    // chiusa non tocchiamo quelle chiavi di config, per non azzerare a sua
+    // insaputa un'impostazione avanzata salvata in precedenza.
+    const patch = {
+      rounds,
+      questionsPerRound: Array(rounds).fill(perRound),
+      finalistCount: intVal('setupFinalistCount') || 1,
+      finalQuestionCount: intVal('setupFinalQuestionCount') || 0,
+      questionDurationMs: (intVal('setupQuestionDuration') || 20) * 1000,
+      scoring: {
+        correct: intVal('setupScoringCorrect') || 0,
+        wrong: intVal('setupScoringWrong') || 0,
+        noAnswer: intVal('setupScoringNoAnswer') || 0
+      },
+      tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
+      lateJoin: { policy: byId('setupLateJoinPolicy').value }
+    };
+    // I campi avanzati esistono sempre nel DOM (sono solo nascosti via CSS),
+    // ma li applichiamo al patch solo se la sezione è stata aperta: altrimenti
+    // conterrebbero ancora i valori dell'ultimo render pieno, non le scelte
+    // dell'admin per QUESTA partita.
+    if(showAdvancedSetup){
+      patch.finalScoring = byId('setupFinalScoringEnabled').checked ? {
+        correct: intVal('setupFinalScoringCorrect') || 0,
+        wrong: intVal('setupFinalScoringWrong') || 0,
+        noAnswer: intVal('setupFinalScoringNoAnswer') || 0
+      } : null;
+      patch.scoreCarryover = byId('setupScoreCarryover').value;
+      patch.tiebreakRule.final = byId('setupTiebreakFinal').value;
+      patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
+      patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
+    }
+    await adminSaveSetup(gameName, patch);
+  };
   if(byId('btnCloseNow')) byId('btnCloseNow').onclick = adminCloseAnswers;
   if(byId('btnRevealSolution')) byId('btnRevealSolution').onclick = adminRevealSolution;
   if(byId('btnNext')) byId('btnNext').onclick = adminNextQuestion;

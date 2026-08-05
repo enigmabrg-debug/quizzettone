@@ -77,6 +77,7 @@ let answersByTeam = {};   // id -> {qkey: {optionIndex, ts}}
 let overridesByTeam = {}; // id -> {qkey: points}
 let questionBank = {};    // id -> domanda (persiste tra una partita e l'altra)
 let showQuestionManager = false; // toggle locale (solo per questo admin), non condiviso
+let showAdvancedSetup = false; // toggle locale: sezione "impostazioni avanzate" della Sala pre-partita
 let scoringDefaults = DEFAULT_SCORING; // punteggio di default, persiste tra le partite
 let showScoringSettings = false; // toggle locale (solo per questo admin), non condiviso
 let soundEffects = {};    // id -> effetto sonoro (persiste tra una partita e l'altra)
@@ -91,6 +92,8 @@ let lastPartyCardSeen = {bonus:null, malus:null, surprise:null}; // locale, mai 
 
 function defaultState(){
   return {
+    gameName: 'Quizzettone',
+    setupLocked: false,
     phase:'lobby', round:1, qIndex:0,
     questionStartedAt:null, timerDuration:20000,
     checkpoint:null, checkpointMode:null,
@@ -100,13 +103,52 @@ function defaultState(){
     audioCue:null,
     partyMode:'none', party:{bonus:null, malus:null, surprise:null},
     // Regole di gioco: vivono nello stato Firebase della partita invece di essere
-    // valori hardcoded nel codice (verranno espanse con il resto delle impostazioni
-    // avanzate quando arriverà la Sala pre-partita).
+    // valori hardcoded nel codice. L'admin le imposta nella Sala pre-partita
+    // prima dello start; alcuni campi (finalScoring, scoreCarryover, tiebreakRule,
+    // answerVisibilityForEliminated) vengono già salvati qui ma il loro
+    // comportamento differenziato viene applicato nelle fasi successive.
     config: {
       rounds: 2,
-      questionsPerRound: [15, 15]
+      questionsPerRound: [15, 15],
+      finalistCount: 2,
+      finalQuestionCount: 10,
+      tiebreakCandidateCount: 5,
+      questionDurationMs: 20000,
+      scoring: {correct:1, wrong:0, noAnswer:0},
+      finalScoring: null, // null = usa 'scoring' anche in finale
+      scoreCarryover: 'reset', // 'reset' | 'keep' | 'convert'
+      tiebreakRule: {qualification:'prima_corretta', final:'oltranza'},
+      lateJoin: {policy:'until_round1_end'}, // 'always' | 'until_round1_end' | 'blocked_after_start'
+      checkpointMinQuestions: 4,
+      blockDuplicateQuestions: true,
+      answerVisibilityForEliminated: 'after_reveal' // 'secret' | 'after_reveal' | 'live'
     }
   };
+}
+
+/* Unico punto di retrocompatibilità: qualunque stato letto da Firebase (anche
+   uno vecchio, salvato prima che esistesse 'config', o una partita in corso
+   quando questo codice viene distribuito) viene fuso con i default correnti
+   invece di rompersi per un campo mancante. Party Mode viaggia già dentro
+   'state' da prima e viene preservata dallo spread additivo qui sotto. */
+function withDefaults(raw){
+  const base = defaultState();
+  if(!raw) return base;
+  const merged = {...base, ...raw};
+  merged.config = {...base.config, ...(raw.config||{})};
+  merged.config.scoring = {...base.config.scoring, ...((raw.config||{}).scoring||{})};
+  merged.config.tiebreakRule = {...base.config.tiebreakRule, ...((raw.config||{}).tiebreakRule||{})};
+  merged.config.lateJoin = {...base.config.lateJoin, ...((raw.config||{}).lateJoin||{})};
+  merged.party = {...base.party, ...(raw.party||{})};
+  // Migrazione della vecchia forma {round1, round2} verso {rounds:{1,2,...}}
+  if(raw.gameQuestions && (raw.gameQuestions.round1 || raw.gameQuestions.round2) && !raw.gameQuestions.rounds){
+    merged.gameQuestions = {
+      rounds: {1: raw.gameQuestions.round1||[], 2: raw.gameQuestions.round2||[]},
+      final: raw.gameQuestions.final||null,
+      tiebreak: raw.gameQuestions.tiebreak||null
+    };
+  }
+  return merged;
 }
 
 /* Un solo listener realtime su tutto il nodo del gioco, al posto del polling
@@ -131,7 +173,7 @@ function startListening(){
     questionBank = newQuestionBank;
     soundEffects = newEffects;
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
-    state = all.state || defaultState();
+    state = withDefaults(all.state);
     partyDecks = {
       normale: (all.mazzi && all.mazzi.normale) || [],
       extreme: (all.mazzi && all.mazzi.extreme) || []
@@ -161,7 +203,10 @@ async function refresh(){ render(); }
 function scoringFor(round, idx){
   const key = qkey(round, idx);
   const override = state && state.scoringOverrides && state.scoringOverrides[key];
-  return override || scoringDefaults || DEFAULT_SCORING;
+  if(override) return override;
+  const cfg = state && state.config;
+  if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
+  return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;
 }
 function pointsForAnswer(round, idx, optionIndex){
   const q = getQuestion(round, idx);
