@@ -179,7 +179,36 @@ function defaultState(){
       // governa solo se lo sblocco delle risposte è immediato o manuale
       // (vedi resolvePresentationMode/answerUnlockPolicyFor); nessuna vista
       // Display dedicata è costruita in questo pacchetto.
-      displayMode: 'team_devices'
+      displayMode: 'team_devices',
+      // PL-13 (motore di scoring a profili): solo plumbing in questo
+      // pacchetto, per decisione esplicita presa durante l'esecuzione (vedi
+      // PROGRESS_LOG.md). 'classico' è l'UNICO profilo che il codice legge
+      // davvero oggi (pointsForAnswer/scoringFor invariati per qualunque
+      // valore di scoringProfile): selezionare 'dinamico'/'personalizzato'
+      // NON cambia ancora il punteggio calcolato. dynamicScoring porta i
+      // valori di default dichiarati da Piano_modifiche_Quizzettone.md §4.2
+      // (tabella bonus d'ordine, fasce di penalità/rimonta), riservati per
+      // PL-14 (bonus ordine) e PL-15 (penalità adattiva + rimonta), che li
+      // leggeranno davvero.
+      scoringProfile: 'classico', // 'classico' | 'dinamico' | 'personalizzato'
+      dynamicScoring: {
+        // % di bonus per le prime N risposte corrette, in ordine di arrivo
+        // (PL-14); dalla posizione successiva alla lunghezza dell'array, 0%.
+        orderBonusPercents: [25, 20, 15, 10, 5],
+        // aliquota di errore sul valore base (config.scoring.correct),
+        // moltiplicata per errorMultiplier della fascia (PL-15).
+        wrongPenaltyRate: 0.20,
+        // fasce di classifica congelata prima dell'apertura della domanda
+        // (PL-15): maxPercentile è il limite superiore (inclusivo) della
+        // fascia, in percentuale di squadre partendo dalla testa classifica.
+        penaltyBands: [
+          {maxPercentile:10, errorMultiplier:2.00, comebackBonusPercent:0},
+          {maxPercentile:25, errorMultiplier:1.75, comebackBonusPercent:0},
+          {maxPercentile:50, errorMultiplier:1.40, comebackBonusPercent:2},
+          {maxPercentile:75, errorMultiplier:1.10, comebackBonusPercent:5},
+          {maxPercentile:100, errorMultiplier:0.70, comebackBonusPercent:8}
+        ]
+      }
     }
   };
 }
@@ -197,6 +226,7 @@ function withDefaults(raw){
   merged.config.scoring = {...base.config.scoring, ...((raw.config||{}).scoring||{})};
   merged.config.tiebreakRule = {...base.config.tiebreakRule, ...((raw.config||{}).tiebreakRule||{})};
   merged.config.lateJoin = {...base.config.lateJoin, ...((raw.config||{}).lateJoin||{})};
+  merged.config.dynamicScoring = {...base.config.dynamicScoring, ...((raw.config||{}).dynamicScoring||{})};
   merged.party = {...base.party, ...(raw.party||{})};
   merged.timer = {...base.timer, ...(raw.timer||{})};
   merged.history = {...base.history, ...(raw.history||{})};
@@ -517,6 +547,11 @@ function scoringFor(round, idx){
   if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
   return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;
 }
+/* PL-13: NON legge ancora config.scoringProfile/dynamicScoring (scelta
+   esplicita, vedi PROGRESS_LOG.md — solo plumbing in questo pacchetto). Il
+   punteggio resta esattamente questo per qualunque profilo finché PL-14
+   (bonus ordine) e PL-15 (penalità adattiva + rimonta) non lo estendono
+   davvero. */
 function pointsForAnswer(round, idx, optionIndex, speedBonus){
   const q = getQuestion(round, idx);
   if(!q) return 0;
@@ -848,4 +883,24 @@ async function markQuestionsUsed(questions){
 function audioCueForQuestion(q){
   if(!q || !q.audioUrl) return null;
   return {url:q.audioUrl, kind:'question', label:q.category, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)};
+}
+
+/* PL-13: apertura minima per i test unitari sulle funzioni pure di scoring
+   (tests/unit/scoring.spec.js). Questo file resta uno script non-modulo
+   caricato via <script> in quizzettone.html: 'module' non esiste mai in
+   browser, quindi questo blocco non gira e non cambia nulla lì. In Node
+   (require() di questo file) espone le funzioni pure e due setter di sola
+   comodità per i test, così i test possono preparare lo stato locale
+   (altrimenti privato al modulo) senza dover passare da Firebase. */
+if(typeof module !== 'undefined' && module.exports){
+  module.exports = {
+    defaultState, withDefaults, withGameQuestionsDefaults,
+    qkey, getQuestion, getList,
+    computeEffectiveScoringForOpen, withScoringSnapshotApplied, applyQuestionInstanceFields,
+    scoringFor, pointsForAnswer, computeSpeedBonusAtSubmission,
+    resolvePresentationMode, answerUnlockPolicyFor,
+    __setTestState: (s)=>{ state = s; },
+    __setTestGameQuestions: (gq)=>{ gameQuestions = gq; },
+    __setTestScoringDefaults: (sd)=>{ scoringDefaults = sd; }
+  };
 }

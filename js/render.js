@@ -918,7 +918,7 @@ function applyPresetValuesToForm(values){
   const byId = id=>document.getElementById(id);
   const hasAdvanced = values.scoreCarryover || (values.tiebreakRule && values.tiebreakRule.final) ||
     values.answerVisibilityForEliminated || values.blockDuplicateQuestions!=null || values.speedBonus ||
-    ('finalScoring' in values);
+    ('finalScoring' in values) || values.scoringProfile;
   if(hasAdvanced && !showAdvancedSetup){
     showAdvancedSetup = true;
     byId('salaAdvancedSection').style.display = 'flex';
@@ -944,6 +944,7 @@ function applyPresetValuesToForm(values){
   }
   if(values.timerStartMode) byId('setupTimerStartMode').value = values.timerStartMode;
   if(values.displayMode) byId('setupDisplayMode').value = values.displayMode;
+  if(values.scoringProfile) byId('setupScoringProfile').value = values.scoringProfile;
   if(values.tiebreakRule){
     if(values.tiebreakRule.qualification) byId('setupTiebreakQualification').value = values.tiebreakRule.qualification;
     if(values.tiebreakRule.final) byId('setupTiebreakFinal').value = values.tiebreakRule.final;
@@ -996,6 +997,7 @@ function collectSetupPatchFromForm(includeAdvancedAlways){
     displayMode: byId('setupDisplayMode').value
   };
   if(includeAdvancedAlways || showAdvancedSetup){
+    patch.scoringProfile = byId('setupScoringProfile').value;
     patch.finalScoring = byId('setupFinalScoringEnabled').checked ? {
       correct: intVal('setupFinalScoringCorrect') || 0,
       wrong: intVal('setupFinalScoringWrong') || 0,
@@ -1054,10 +1056,11 @@ function showStartSummaryModal(cfg, onConfirm){
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
   const displayModeLabels = {team_devices:'solo dispositivi squadra', shared_screen:'schermo condiviso', hybrid:'ibrida'};
   const carryoverLabels = {reset:'azzerati', keep:'mantenuti', convert:'convertiti'};
+  const profileLabels = {classico:'Classico', dinamico:'Dinamico (in arrivo, calcolo identico a Classico per ora)', personalizzato:'Personalizzato (in arrivo, calcolo identico a Classico per ora)'};
   const lines = [
     `${cfg.rounds} manche di qualificazione da ${cfg.questionsPerRound[0]||0} domande`,
     `Finale: ${cfg.finalistCount} finalisti, ${cfg.finalQuestionCount} domande`,
-    `Punteggio: corretta +${cfg.scoring.correct}, sbagliata ${cfg.scoring.wrong}, non data ${cfg.scoring.noAnswer}`,
+    `Punteggio: corretta +${cfg.scoring.correct}, sbagliata ${cfg.scoring.wrong}, non data ${cfg.scoring.noAnswer} (profilo: ${profileLabels[cfg.scoringProfile]||cfg.scoringProfile||'Classico'})`,
     `Timer: ${Math.round(cfg.questionDurationMs/1000)}s, avvio ${cfg.timerStartMode==='manual'?'manuale':'automatico'}`,
     `Presentazione: ${displayModeLabels[cfg.displayMode]||cfg.displayMode}`,
     `Punti in ingresso finale: ${carryoverLabels[cfg.scoreCarryover]||cfg.scoreCarryover}`
@@ -1150,6 +1153,12 @@ function renderSalaPrePartita(s, cfg){
       <button class="btn ghost small" id="btnToggleAdvancedSetup">${showAdvancedSetup?'▲ Nascondi impostazioni avanzate':'▼ Impostazioni avanzate'}</button>
       <div id="salaAdvancedSection" style="display:${showAdvancedSetup?'flex':'none'};flex-direction:column;gap:10px;">
         <div class="divider"></div>
+        <label class="stack">Profilo di scoring<select id="setupScoringProfile" ${s.setupLocked?'disabled':''}>
+          <option value="classico" ${(cfg.scoringProfile||'classico')==='classico'?'selected':''}>Classico (punteggio fisso, come oggi)</option>
+          <option value="dinamico" ${cfg.scoringProfile==='dinamico'?'selected':''}>Dinamico (bonus ordine + penalità a fascia — in arrivo)</option>
+          <option value="personalizzato" ${cfg.scoringProfile==='personalizzato'?'selected':''}>Personalizzato (in arrivo)</option>
+        </select></label>
+        <p class="muted" style="font-size:12px;">"Dinamico" e "Personalizzato" sono selezionabili e salvati, ma il calcolo dei punti resta identico a "Classico" finché i meccanismi (bonus ordine, penalità a fascia, bonus rimonta) non saranno collegati in un aggiornamento successivo.</p>
         <label class="row" style="align-items:center;"><input type="checkbox" id="setupFinalScoringEnabled" ${finalScoringEnabled?'checked':''} ${s.setupLocked?'disabled':''}> Punteggi diversi in finale</label>
         <div class="row">
           <label class="stack">Finale: corretta<input type="text" inputmode="numeric" id="setupFinalScoringCorrect" value="${fs.correct}" ${s.setupLocked?'disabled':''}></label>
