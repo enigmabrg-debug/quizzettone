@@ -153,6 +153,39 @@ function showResetChecklistModal(onConfirm){
   renderStep1();
 }
 
+/* Rinomina squadra da Admin (PL-07): un modale semplice invece di
+   window.prompt(), coerente con lo stile del resto dell'app (niente dialog
+   nativi del browser). */
+function showRenameTeamModal(currentName, onRename){
+  const existing = document.getElementById('renameTeamOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'renameTeamOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:360px;margin:20px;">
+      <h3>Rinomina squadra</h3>
+      <input type="text" id="renameTeamInput" maxlength="24">
+      <div class="row">
+        <button class="btn" id="renameTeamConfirm">Rinomina</button>
+        <button class="btn ghost" id="renameTeamCancel">Annulla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const input = document.getElementById('renameTeamInput');
+  input.value = currentName;
+  input.focus();
+  input.select();
+  const confirmRename = ()=>{
+    const val = input.value.trim();
+    overlay.remove();
+    if(val && val!==currentName) onRename(val);
+  };
+  document.getElementById('renameTeamConfirm').onclick = confirmRename;
+  document.getElementById('renameTeamCancel').onclick = ()=> overlay.remove();
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmRename(); });
+}
+
 /* Codice breve + QR per entrare in partita: il QR punta a ?role=team, che
    restoreFromUrl() apre direttamente sulla schermata "inserisci nome
    squadra" (vedi js/actions.js), saltando la selezione del ruolo. */
@@ -971,7 +1004,8 @@ function renderAdmin(){
             ${teams[id].ready?' <span class="pill gold">Pronta</span>':''}
             ${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}
             ${teams[id].isTest?' <span class="pill">PROVA</span>':''}
-            <button class="btn ghost small" data-remove-team="${id}" style="margin-left:auto;">✕</button>
+            <button class="btn ghost small" data-rename-team="${id}" style="margin-left:auto;">✎</button>
+            <button class="btn ghost small" data-remove-team="${id}">✕</button>
           </div>`;
         }).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
@@ -1697,6 +1731,13 @@ function attachAdminHandlers(){
       const id = btn.getAttribute('data-remove-team');
       const name = teams[id] ? teams[id].name : 'questa squadra';
       showConfirmModal('Rimuovere '+name+' dalla partita?', 'Rimuovi squadra', ()=>adminRemoveTeam(id));
+    };
+  });
+  document.querySelectorAll('[data-rename-team]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-rename-team');
+      const name = teams[id] ? teams[id].name : '';
+      showRenameTeamModal(name, newName => adminRenameTeam(id, newName));
     };
   });
   if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;

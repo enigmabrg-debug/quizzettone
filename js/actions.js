@@ -565,16 +565,21 @@ async function adminRemoveTeam(id){
   const before = teams[id];
   if(!before) return;
   await withUndo('Squadra rimossa: '+before.name, 'teaminfo:'+id, before, null);
+  // Libera il nome nell'indice di unicità (PL-07): altrimenti resterebbe
+  // "prenotato" per sempre, impedendo a chiunque di riusarlo, anche dopo che
+  // "Annulla ultima azione" ripristina la squadra stessa.
+  await safeDelete('teamNames:'+teamNameKey(before.name), true);
 }
 
 /* ================== AZIONI SQUADRA ================== */
-async function findTeamByName(name){
-  const teamKeys = await safeList('teaminfo:', true);
-  for(const k of teamKeys){
-    const t = await safeGet(k, true);
-    if(t && t.name && t.name.trim().toLowerCase() === name.trim().toLowerCase()) return t;
-  }
-  return null;
+/* Chiave stabile e univoca per un nome squadra normalizzato (maiuscole/
+   minuscole e spazi ai bordi non contano, come nel confronto usato prima),
+   sicura come segmento di percorso Firebase (niente '.', '#', '$', '[', ']',
+   che sono vietati nelle chiavi RTDB e non vengono escapati da
+   encodeURIComponent). Usata come indice teamNames:<key> -> teamId per
+   rendere il join atomico invece di un check-then-act. */
+function teamNameKey(name){
+  return encodeURIComponent(name.trim().toLowerCase()).replace(/\./g, '%2E');
 }
 // Una squadra che rientra con lo stesso nome non è mai considerata "in ritardo"
 // (è una riconnessione, non un nuovo ingresso): il limite si applica solo alla
@@ -587,25 +592,103 @@ function lateJoinAllowed(gameState){
   // 'until_round1_end': consentito per tutta la manche 1 (comprese le sue pause)
   return typeof gameState.round === 'number' && gameState.round===1;
 }
+// Il vincitore della transazione su teamNames:<key> scrive teaminfo:<id> in
+// un secondo passo, non atomico col primo: chi perde la transazione (stesso
+// nome, quasi simultaneo) potrebbe leggere l'indice prima che quella
+// scrittura sia arrivata. Qualche tentativo con una breve attesa copre
+// questa finestra invece di far fallire un join legittimo per un timing
+// sfortunato.
+async function waitForTeamInfo(id, attempts){
+  for(let i=0; i<attempts; i++){
+    const info = await safeGet('teaminfo:'+id, true);
+    if(info) return info;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  return null;
+}
+/* Join atomico e univoco per nome (FT-08): una transaction() su
+   teamNames:<nome-normalizzato> decide chi "vince" il nome, invece del
+   vecchio check-then-act (leggi tutte le squadre, poi crea se non trovi
+   corrispondenza) che due join simultanei con lo stesso nome potevano far
+   sfuggire. Chi vince crea la squadra; chi perde recupera quella già creata
+   dal vincitore ed entra come se fosse una riconnessione. */
 async function teamJoin(name){
   const trimmed = name.trim();
-  const existing = await findTeamByName(trimmed);
-  if(existing){
-    teamId = existing.id; teamName = existing.name;
-  } else {
-    const gameState = await safeGet('state', true);
-    if(!lateJoinAllowed(gameState)) throw new Error('LATE_JOIN_BLOCKED');
-    const newTeamId = 'team_' + Math.random().toString(36).slice(2,9);
-    const lateJoin = !(!gameState || gameState.phase==='lobby');
-    const ok = await safeSet('teaminfo:'+newTeamId, {id:newTeamId, name:trimmed, joinedAt:Date.now(), lateJoin}, true);
-    if(!ok) throw new Error('JOIN_FAILED');
-    teamId = newTeamId;
-    teamName = trimmed;
+  const nameKey = teamNameKey(trimmed);
+  const nameIndexRef = db.ref(DB_ROOT + '/teamNames:' + nameKey);
+  const provisionalTeamId = 'team_' + Math.random().toString(36).slice(2,9);
+
+  let result;
+  try{
+    result = await nameIndexRef.transaction(current => current ? undefined : provisionalTeamId);
+  } catch(e){
+    throw new Error('JOIN_FAILED');
   }
+
+  if(result.committed){
+    const gameState = await safeGet('state', true);
+    if(!lateJoinAllowed(gameState)){
+      await nameIndexRef.remove(); // il nome non deve restare "prenotato" se il join viene rifiutato
+      throw new Error('LATE_JOIN_BLOCKED');
+    }
+    const lateJoin = !(!gameState || gameState.phase==='lobby');
+    const ok = await safeSet('teaminfo:'+provisionalTeamId, {id:provisionalTeamId, name:trimmed, joinedAt:Date.now(), lateJoin}, true);
+    if(!ok){
+      await nameIndexRef.remove();
+      throw new Error('JOIN_FAILED');
+    }
+    teamId = provisionalTeamId;
+    teamName = trimmed;
+  } else {
+    const existingId = result.snapshot.val();
+    const existing = await waitForTeamInfo(existingId, 5);
+    if(!existing) throw new Error('JOIN_FAILED');
+    teamId = existing.id;
+    teamName = existing.name;
+  }
+
   joined = true;
   setUrlSession('team', teamId);
   saveTeamSession(teamId, teamName);
   startListening();
+}
+/* Rinomina da Admin: se il nome normalizzato non cambia (solo maiuscole o
+   spazi diversi) basta aggiornare teaminfo:; altrimenti va prenotato
+   atomicamente il nuovo indice prima di spostare il nome, e liberato quello
+   vecchio solo a spostamento riuscito. */
+async function adminRenameTeam(id, newName){
+  const trimmed = newName.trim();
+  if(!trimmed) return;
+  const team = teams[id];
+  if(!team) return;
+  const oldKey = teamNameKey(team.name);
+  const newKey = teamNameKey(trimmed);
+  if(oldKey === newKey){
+    const ok = await safeSet('teaminfo:'+id, {...team, name:trimmed}, true);
+    if(!ok) showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
+    else await refresh();
+    return;
+  }
+  const newIndexRef = db.ref(DB_ROOT + '/teamNames:' + newKey);
+  let result;
+  try{
+    result = await newIndexRef.transaction(current => current ? undefined : id);
+  } catch(e){
+    showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
+    return;
+  }
+  if(!result.committed){
+    showErrorBanner('Esiste già una squadra con questo nome.');
+    return;
+  }
+  const ok = await safeSet('teaminfo:'+id, {...team, name:trimmed}, true);
+  if(!ok){
+    await newIndexRef.remove();
+    showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
+    return;
+  }
+  await safeDelete('teamNames:'+oldKey, true);
+  await refresh();
 }
 async function teamSetReady(ready){
   const info = teams[teamId] || {id:teamId, name:teamName};
