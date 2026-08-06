@@ -72,6 +72,28 @@ function showConfirmModal(message, confirmLabel, onConfirm){
   document.getElementById('confirmModalNo').onclick = ()=>{ overlay.remove(); };
 }
 
+/* Banner di errore per un'operazione Firebase fallita (FT-05): appeso a
+   document.body come showConfirmModal, così non sparisce al prossimo
+   render(). onRetry è opzionale: se assente il banner ha solo "Chiudi". */
+function showErrorBanner(message, onRetry){
+  const existing = document.getElementById('errorBannerOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'errorBannerOverlay';
+  overlay.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:1001;display:flex;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:420px;border-color:rgba(255,77,109,.4);">
+      <p style="color:var(--pink);font-weight:700;margin:0;">${escapeHtml(message)}</p>
+      <div class="row">
+        ${onRetry ? `<button class="btn danger" id="errorBannerRetry">Riprova</button>` : ''}
+        <button class="btn ghost" id="errorBannerClose">Chiudi</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('errorBannerClose').onclick = ()=> overlay.remove();
+  if(onRetry) document.getElementById('errorBannerRetry').onclick = ()=>{ overlay.remove(); onRetry(); };
+}
+
 /* Codice breve + QR per entrare in partita: il QR punta a ?role=team, che
    restoreFromUrl() apre direttamente sulla schermata "inserisci nome
    squadra" (vedi js/actions.js), saltando la selezione del ruolo. */
@@ -291,13 +313,17 @@ function renderTeamJoin(){
   input.focus();
   const doJoin = async ()=>{
     if(!input.value.trim()) return;
+    const attemptedName = input.value;
     role='team';
     try{
-      await teamJoin(input.value);
+      await teamJoin(attemptedName);
     } catch(e){
       if(e.message === 'LATE_JOIN_BLOCKED'){
         role = null;
         document.getElementById('joinError').style.display = 'block';
+      } else if(e.message === 'JOIN_FAILED'){
+        role = null;
+        showErrorBanner('Impossibile entrare in partita: controlla la connessione e riprova.', ()=>{ input.value = attemptedName; doJoin(); });
       } else {
         throw e;
       }

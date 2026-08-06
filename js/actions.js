@@ -25,13 +25,19 @@ function openQuestionTimer(durationMs, cfg){
 async function withUndo(label, path, before, next){
   const log = [...((state.history && state.history.log)||[]).slice(-29), {type:'action', label, at:Date.now()}];
   const history = {last:{label, path, beforeJson: JSON.stringify(before===undefined?null:before), at:Date.now()}, log};
+  let ok;
   if(path==='state'){
-    await safeSet('state', {...next, history}, true);
+    ok = await safeSet('state', {...next, history}, true);
   } else {
-    await safeSet('state', {...state, history}, true);
-    await safeSet(path, next===undefined?null:next, true);
+    ok = await safeSet('state', {...state, history}, true);
+    if(ok) ok = await safeSet(path, next===undefined?null:next, true);
+  }
+  if(!ok){
+    showErrorBanner('Operazione non riuscita ("'+label+'"): controlla la connessione e riprova.', ()=>withUndo(label, path, before, next));
+    return false;
   }
   await refresh();
+  return true;
 }
 async function adminUndoLast(){
   const last = state.history && state.history.last;
@@ -76,7 +82,12 @@ async function adminStartGame(){
     gameQuestions: { rounds, final:null, tiebreak:null },
     audioCue: audioCueForQuestion(drawn[0])
   };
-  await safeSet('state', s, true); await refresh();
+  const ok = await safeSet('state', s, true);
+  if(!ok){
+    showErrorBanner('Avvio partita non riuscito: controlla la connessione e riprova.', adminStartGame);
+    return;
+  }
+  await refresh();
 }
 async function adminSaveSetup(gameName, patch){
   if(state.setupLocked) return;
@@ -88,7 +99,11 @@ async function adminSaveSetup(gameName, patch){
   if(patch.scoring) nextConfig.scoring = {...state.config.scoring, ...patch.scoring};
   if(patch.tiebreakRule) nextConfig.tiebreakRule = {...state.config.tiebreakRule, ...patch.tiebreakRule};
   if(patch.lateJoin) nextConfig.lateJoin = {...state.config.lateJoin, ...patch.lateJoin};
-  await safeSet('state', {...state, gameName, config:nextConfig}, true);
+  const ok = await safeSet('state', {...state, gameName, config:nextConfig}, true);
+  if(!ok){
+    showErrorBanner('Salvataggio impostazioni non riuscito: controlla la connessione e riprova.', ()=>adminSaveSetup(gameName, patch));
+    return;
+  }
   await refresh();
 }
 /* Chiusura delle risposte unificata: sia il click manuale dell'admin sia la
@@ -371,7 +386,11 @@ async function adminResetGame(){
   const ids = Object.keys(teams);
   for(const id of ids){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
   await safeDelete('presence', true);
-  await safeSet('state', defaultState(), true);
+  const ok = await safeSet('state', defaultState(), true);
+  if(!ok){
+    showErrorBanner('Reset non completato: lo stato condiviso potrebbe essere rimasto incoerente. Riprova o ricarica la pagina.', adminResetGame);
+    return;
+  }
   await refresh();
 }
 
@@ -576,10 +595,12 @@ async function teamJoin(name){
   } else {
     const gameState = await safeGet('state', true);
     if(!lateJoinAllowed(gameState)) throw new Error('LATE_JOIN_BLOCKED');
-    teamId = 'team_' + Math.random().toString(36).slice(2,9);
-    teamName = trimmed;
+    const newTeamId = 'team_' + Math.random().toString(36).slice(2,9);
     const lateJoin = !(!gameState || gameState.phase==='lobby');
-    await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now(), lateJoin}, true);
+    const ok = await safeSet('teaminfo:'+newTeamId, {id:newTeamId, name:trimmed, joinedAt:Date.now(), lateJoin}, true);
+    if(!ok) throw new Error('JOIN_FAILED');
+    teamId = newTeamId;
+    teamName = trimmed;
   }
   joined = true;
   setUrlSession('team', teamId);
@@ -684,6 +705,10 @@ async function teamSubmitAnswer(round, idx, optionIndex){
   if(current[key]) return; // già risposto
   const ts = Date.now();
   current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
-  await safeSet('answers:'+teamId, current, true);
+  const ok = await safeSet('answers:'+teamId, current, true);
+  if(!ok){
+    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex));
+    return;
+  }
   await refresh();
 }
