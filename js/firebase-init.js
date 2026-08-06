@@ -22,7 +22,18 @@ if(new URLSearchParams(location.search).get('emulator') === '1'){
 }
 const DB_ROOT = 'quizzettone'; // tutti i dati del gioco vivono sotto questo "nodo" del database
 
+const MAX_AUDIO_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB: file più grandi rallentano troppo un caricamento da telefono in serata
+
 async function uploadAudioFile(file, folder){
+  // Validato qui, non nell'attributo accept="audio/*" dell'<input>: quello è
+  // solo un suggerimento per il selettore di file del sistema operativo, non
+  // impedisce di scegliere un file diverso o troppo grande.
+  if(!file.type || !file.type.startsWith('audio/')){
+    throw new Error('Il file deve essere un audio (tipo rilevato: ' + (file.type || 'sconosciuto') + ').');
+  }
+  if(file.size > MAX_AUDIO_FILE_SIZE_BYTES){
+    throw new Error('File troppo grande (' + Math.round(file.size/1024/1024) + 'MB): il limite è ' + Math.round(MAX_AUDIO_FILE_SIZE_BYTES/1024/1024) + 'MB.');
+  }
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = 'quizzettone-audio/' + folder + '/' + Date.now() + '_' + safeName;
   const ref = storage.ref(path);
