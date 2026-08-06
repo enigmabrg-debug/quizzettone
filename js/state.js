@@ -308,6 +308,7 @@ function startListening(){
       migrateFlatStateToSessions(all).then(migrated=>{
         if(!migrated){ ensureSeedQuestions(); ensureSeedPartyDecks(); ensureJoinCode(); }
       });
+      ensureOrderBonusComputed();
     }
     render();
   }, err=>{
@@ -547,23 +548,36 @@ function scoringFor(round, idx){
   if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
   return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;
 }
-/* PL-13: NON legge ancora config.scoringProfile/dynamicScoring (scelta
-   esplicita, vedi PROGRESS_LOG.md — solo plumbing in questo pacchetto). Il
-   punteggio resta esattamente questo per qualunque profilo finché PL-14
-   (bonus ordine) e PL-15 (penalità adattiva + rimonta) non lo estendono
-   davvero. */
-function pointsForAnswer(round, idx, optionIndex, speedBonus){
+/* PL-14: il profilo 'dinamico'/'personalizzato' sostituisce il bonus
+   velocità lineare (submit-time, profilo classico) con un bonus per ORDINE
+   di arrivo tra le sole risposte corrette, che richiede di conoscere tutte
+   le risposte e quindi va letto da orderBonusAssignments — calcolato alla
+   chiusura della domanda da ensureOrderBonusComputed/
+   computeOrderBonusAssignments, non al submit. Serve quindi anche il
+   teamId, che il profilo classico non usa (il suo bonus arriva già
+   calcolato dentro 'speedBonus', persistito sulla risposta stessa). */
+function pointsForAnswer(round, idx, optionIndex, speedBonus, teamId){
   const q = getQuestion(round, idx);
   if(!q) return 0;
   const sc = scoringFor(round, idx);
-  return optionIndex === q.correctIndex ? sc.correct + (speedBonus||0) : sc.wrong;
+  if(optionIndex !== q.correctIndex) return sc.wrong;
+  const profile = state && state.config && state.config.scoringProfile;
+  if(profile && profile!=='classico'){
+    const orderBonusPercent = (q.orderBonusAssignments && teamId && q.orderBonusAssignments[teamId]) || 0;
+    return sc.correct + Math.round(sc.correct * orderBonusPercent / 100);
+  }
+  return sc.correct + (speedBonus||0);
 }
 /* Il bonus velocità va calcolato una sola volta, al momento dell'invio della
    risposta (vedi teamSubmitAnswer), e poi persistito dentro la risposta
    stessa: calcolarlo più tardi confrontando ts con state.timer.startedAt
    darebbe un risultato sbagliato per qualunque domanda diversa da quella
-   corrente, perché state.timer.startedAt nel frattempo è già cambiato. */
+   corrente, perché state.timer.startedAt nel frattempo è già cambiato.
+   PL-14: si applica solo al profilo 'classico' — 'dinamico'/'personalizzato'
+   usano il bonus d'ordine calcolato alla chiusura (vedi pointsForAnswer). */
 function computeSpeedBonusAtSubmission(ts){
+  const profile = state && state.config && state.config.scoringProfile;
+  if(profile && profile!=='classico') return 0;
   const sb = state && state.config && state.config.speedBonus;
   if(!sb || !sb.enabled) return 0;
   const startedAt = state.timer && state.timer.startedAt;
@@ -573,6 +587,52 @@ function computeSpeedBonusAtSubmission(ts){
   if(windowMs<=0 || elapsed<0 || elapsed>=windowMs) return 0;
   return Math.round(sb.maxBonus * (1 - elapsed/windowMs));
 }
+/* PL-14: bonus per ordine di arrivo tra le SOLE risposte corrette a questa
+   domanda, usando il timestamp server-autorevole (ts, PL-11) di ciascuna.
+   Pari-merito a timestamp identico ricevono lo stesso bonus e la
+   numerazione prosegue competitiva (due prime a pari tempo sono seguite
+   dalla terza posizione, non dalla seconda) — coerente con la tabella del
+   piano §4.2. Pura: nessuna scrittura Firebase qui, la fa il chiamante
+   (ensureOrderBonusComputed). */
+function computeOrderBonusAssignments(round, idx){
+  const q = getQuestion(round, idx);
+  if(!q) return {};
+  const key = qkey(round, idx);
+  const table = (state && state.config && state.config.dynamicScoring && state.config.dynamicScoring.orderBonusPercents) || [];
+  const correctAnswers = Object.keys(answersByTeam)
+    .map(id => ({id, ans: answersByTeam[id] && answersByTeam[id][key]}))
+    .filter(x => x.ans && x.ans.optionIndex === q.correctIndex)
+    .sort((a,b) => a.ans.ts - b.ans.ts);
+  const assignments = {};
+  let rank = 0, lastTs = null;
+  correctAnswers.forEach((entry, i)=>{
+    if(lastTs === null || entry.ans.ts !== lastTs){ rank = i; lastTs = entry.ans.ts; }
+    assignments[entry.id] = table[rank] || 0;
+  });
+  return assignments;
+}
+/* PL-14: side effect admin-gated, stesso stile di ensureJoinCode/
+   ensureSeedQuestions — gira ogni volta che arriva uno snapshot con la
+   domanda corrente chiusa, ma scrive una volta sola per partita+domanda
+   (dedup su gameId+qkey: qkey da solo si ripeterebbe identico a ogni
+   rivincita/reset, dove invece va ricalcolato per la nuova partita). Solo
+   per i profili che usano davvero il bonus d'ordine. */
+let orderBonusEnsureAttempted = {};
+async function ensureOrderBonusComputed(){
+  if(!state || state.phase !== 'closed' || !state.gameId) return;
+  const profile = state.config && state.config.scoringProfile;
+  if(!profile || profile==='classico') return;
+  const round = state.round, idx = state.qIndex;
+  const dedupKey = state.gameId + ':' + qkey(round, idx);
+  if(orderBonusEnsureAttempted[dedupKey]) return;
+  const q = getQuestion(round, idx);
+  if(!q) return;
+  if(q.orderBonusAssignments){ orderBonusEnsureAttempted[dedupKey] = true; return; }
+  orderBonusEnsureAttempted[dedupKey] = true;
+  const assignments = computeOrderBonusAssignments(round, idx);
+  const newGameQuestions = applyQuestionInstanceFields(gameQuestions, round, idx, {orderBonusAssignments: assignments});
+  await db.ref(DB_ROOT + '/' + questionInstancesPath()).set(newGameQuestions);
+}
 function teamPointsForQuestion(id, round, idx){
   const key = qkey(round, idx);
   if(state && state.cancelledQuestions && state.cancelledQuestions.includes(key)) return 0;
@@ -580,7 +640,7 @@ function teamPointsForQuestion(id, round, idx){
   if(ov !== undefined && ov !== null) return ov;
   const ans = answersByTeam[id] && answersByTeam[id][key];
   if(!ans) return scoringFor(round, idx).noAnswer;
-  return pointsForAnswer(round, idx, ans.optionIndex, ans.speedBonus);
+  return pointsForAnswer(round, idx, ans.optionIndex, ans.speedBonus, id);
 }
 function roundScore(id, round){
   const list = getList(round);
@@ -898,9 +958,12 @@ if(typeof module !== 'undefined' && module.exports){
     qkey, getQuestion, getList,
     computeEffectiveScoringForOpen, withScoringSnapshotApplied, applyQuestionInstanceFields,
     scoringFor, pointsForAnswer, computeSpeedBonusAtSubmission,
+    computeOrderBonusAssignments, teamPointsForQuestion,
     resolvePresentationMode, answerUnlockPolicyFor,
     __setTestState: (s)=>{ state = s; },
     __setTestGameQuestions: (gq)=>{ gameQuestions = gq; },
-    __setTestScoringDefaults: (sd)=>{ scoringDefaults = sd; }
+    __setTestScoringDefaults: (sd)=>{ scoringDefaults = sd; },
+    __setTestAnswersByTeam: (a)=>{ answersByTeam = a; },
+    __setTestOverridesByTeam: (o)=>{ overridesByTeam = o; }
   };
 }

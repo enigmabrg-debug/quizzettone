@@ -5,18 +5,23 @@
 //      dichiarati da Piano_modifiche_Quizzettone.md §4.2, e sopravvivono
 //      correttamente a withDefaults() (stesso pattern di retrocompatibilità
 //      già usato per scoring/tiebreakRule/lateJoin).
-//   2. Il calcolo dei punti (pointsForAnswer) è OGGI identico per tutti e
-//      tre i profili: PL-13 introduce solo l'interruttore e i dati riservati,
-//      non ancora letti a runtime (decisione esplicita, vedi PROGRESS_LOG.md).
-//      Questo test blocca una futura regressione in cui selezionare
-//      "Dinamico"/"Personalizzato" cambiasse il punteggio prima che i
-//      pacchetti che dovrebbero farlo (PL-14/PL-15) siano stati eseguiti.
+//   2. (PL-13) Il calcolo dei punti (pointsForAnswer) è identico per tutti e
+//      tre i profili finché orderBonusAssignments non esiste ancora
+//      sull'istanza della domanda — blocca una regressione in cui
+//      selezionare "Dinamico" cambiasse il punteggio prima del previsto.
+//   3. (PL-14) Una volta che orderBonusAssignments esiste (calcolato alla
+//      chiusura da ensureOrderBonusComputed/computeOrderBonusAssignments),
+//      il profilo dinamico applica davvero il bonus per ordine di arrivo tra
+//      le risposte corrette, e il bonus velocità lineare (classico) si
+//      disattiva per gli altri profili.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   defaultState, withDefaults,
-  scoringFor, pointsForAnswer,
-  __setTestState, __setTestGameQuestions, __setTestScoringDefaults
+  scoringFor, pointsForAnswer, computeSpeedBonusAtSubmission,
+  computeOrderBonusAssignments, teamPointsForQuestion,
+  __setTestState, __setTestGameQuestions, __setTestScoringDefaults,
+  __setTestAnswersByTeam, __setTestOverridesByTeam
 } = require('../../js/state.js');
 
 test('defaultState().config ha scoringProfile "classico" e le tabelle di default del piano §4.2', () => {
@@ -74,4 +79,75 @@ test('scoringFor rispetta ancora precedenza override > snapshot > config live, i
     scoringOverrides: {}
   });
   assert.deepEqual(scoringFor(1, 0), {correct:5, wrong:-1, noAnswer:0}); // snapshot vince sulla config live
+});
+
+// PL-14: bonus per ordine di arrivo tra le sole risposte corrette.
+test('computeOrderBonusAssignments segue la tabella configurata, in ordine di timestamp crescente', () => {
+  const question = { question: 'Q', options: ['a','b','c','d'], correctIndex: 1 };
+  __setTestGameQuestions({ rounds: { 1: [question] }, final: null, tiebreak: null });
+  __setTestState({
+    config: { scoringProfile: 'dinamico', dynamicScoring: { orderBonusPercents: [25, 20, 15, 10, 5] } }
+  });
+  __setTestAnswersByTeam({
+    teamC: { '1-0': { optionIndex: 1, ts: 3000 } }, // terza in ordine di arrivo
+    teamA: { '1-0': { optionIndex: 1, ts: 1000 } }, // prima
+    teamB: { '1-0': { optionIndex: 1, ts: 2000 } }, // seconda
+    teamWrong: { '1-0': { optionIndex: 0, ts: 500 } } // sbagliata: non occupa una posizione
+  });
+  const assignments = computeOrderBonusAssignments(1, 0);
+  assert.deepEqual(assignments, { teamA: 25, teamB: 20, teamC: 15 });
+  assert.equal(assignments.teamWrong, undefined);
+});
+
+test('computeOrderBonusAssignments: pari-merito a timestamp identico riceve lo stesso bonus, con numerazione competitiva', () => {
+  const question = { question: 'Q', options: ['a','b'], correctIndex: 0 };
+  __setTestGameQuestions({ rounds: { 1: [question] }, final: null, tiebreak: null });
+  __setTestState({
+    config: { scoringProfile: 'dinamico', dynamicScoring: { orderBonusPercents: [25, 20, 15, 10, 5] } }
+  });
+  __setTestAnswersByTeam({
+    teamA: { '1-0': { optionIndex: 0, ts: 1000 } }, // pari merito 1ª
+    teamB: { '1-0': { optionIndex: 0, ts: 1000 } }, // pari merito 1ª (stesso ts di teamA)
+    teamC: { '1-0': { optionIndex: 0, ts: 2000 } }  // 3ª (non 2ª: numerazione competitiva)
+  });
+  const assignments = computeOrderBonusAssignments(1, 0);
+  assert.deepEqual(assignments, { teamA: 25, teamB: 25, teamC: 15 });
+});
+
+test('pointsForAnswer aggiunge il bonus d\'ordine per il profilo dinamico, letto da orderBonusAssignments', () => {
+  const question = { question: 'Q', options: ['a','b'], correctIndex: 0, orderBonusAssignments: { teamA: 20 } };
+  __setTestGameQuestions({ rounds: { 1: [question] }, final: null, tiebreak: null });
+  __setTestState({
+    config: { scoring: {correct: 10, wrong: -2, noAnswer: 0}, scoringProfile: 'dinamico' },
+    scoringOverrides: {}
+  });
+  assert.equal(pointsForAnswer(1, 0, 0, 0, 'teamA'), 12); // 10 + round(10*20/100) = 12
+  assert.equal(pointsForAnswer(1, 0, 0, 0, 'teamZ'), 10); // nessun bonus assegnato a questa squadra: solo il base
+  assert.equal(pointsForAnswer(1, 0, 1, 0, 'teamA'), -2); // sbagliata: nessun bonus, solo il malus
+});
+
+test('teamPointsForQuestion applica il bonus d\'ordine end-to-end (via answersByTeam, non un parametro esplicito)', () => {
+  const question = { question: 'Q', options: ['a','b'], correctIndex: 0, orderBonusAssignments: { teamA: 25 } };
+  __setTestGameQuestions({ rounds: { 1: [question] }, final: null, tiebreak: null });
+  __setTestOverridesByTeam({});
+  __setTestAnswersByTeam({ teamA: { '1-0': { optionIndex: 0, ts: 1000 } } });
+  __setTestState({
+    config: { scoring: {correct: 8, wrong: 0, noAnswer: 0}, scoringProfile: 'dinamico' },
+    cancelledQuestions: []
+  });
+  assert.equal(teamPointsForQuestion('teamA', 1, 0), 10); // 8 + round(8*25/100) = 10
+});
+
+test('computeSpeedBonusAtSubmission è disattivato per i profili diversi da "classico", anche se speedBonus.enabled è true', () => {
+  __setTestState({
+    config: { scoringProfile: 'dinamico', speedBonus: {enabled:true, maxBonus:5, windowMs:10000} },
+    timer: {status:'running', startedAt: 1000, durationMs: 10000}
+  });
+  assert.equal(computeSpeedBonusAtSubmission(2000), 0);
+
+  __setTestState({
+    config: { scoringProfile: 'classico', speedBonus: {enabled:true, maxBonus:5, windowMs:10000} },
+    timer: {status:'running', startedAt: 1000, durationMs: 10000}
+  });
+  assert.ok(computeSpeedBonusAtSubmission(2000) > 0); // comportamento classico invariato
 });
