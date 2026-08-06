@@ -94,24 +94,37 @@ autorevole) è esattamente il terreno su cui altrimenti si costruirebbero le nuo
   console (verificabile con `firebase deploy --only database,storage --dry-run` o confronto manuale);
   è documentato chi può scrivere ogni ramo.
 
-### PL-05 — Ambiente di prova separato reale (FT-01 / item 1)
+### PL-05 — Reset a due passaggi con checklist di backup manuale (FT-01 / item 1, versione rivista)
 
-- **Cosa manca:** esiste solo un emulatore RTDB locale per i test Playwright automatizzati
-  (`js/firebase-init.js:20-22`, `tests/helpers/emulator.js`). La Modalità prova con squadre fittizie
-  (`js/actions.js:384-440`) scrive sullo stesso database di produzione, solo escludendo le squadre
-  `isTest:true` dalle statistiche.
-- **File toccati:** `js/firebase-init.js` (seconda `firebaseConfig`), `.firebaserc`, eventualmente
-  `quizzettone.html` (nuovo parametro URL).
-- **Approccio tecnico:** creare un secondo progetto Firebase reale (es. `quizzettone-test`), copiare
-  solo la banca domande di esempio necessaria. Estendere il meccanismo già esistente basato su
-  `URLSearchParams` (oggi usato per `?emulator=1`) con un nuovo flag `?env=test` che seleziona la
-  seconda `firebaseConfig`, così la Modalità prova esistente scrive lì. Non serve toccare la logica di
-  `adminAddTestTeams`/`simulateTestTeamAnswers`, solo il progetto Firebase target.
-- **Dipendenze:** PL-04 (bisogna conoscere le regole prima di replicarle sul progetto di test).
+> **Nota di revisione:** questo pacchetto sostituisce l'approccio originale (secondo progetto Firebase
+> reale) per decisione esplicita presa durante l'esecuzione. Verificato che nel repo non esisteva alcuna
+> implementazione precedente di questa alternativa (né codice né traccia in `git log`): FT-01 resta
+> aperto finché questo pacchetto non viene eseguito. Un secondo progetto Firebase avrebbe isolato i dati
+> di prova da quelli reali; questa versione non lo fa — riduce invece il rischio con un reset che non può
+> più partire da un click distratto, chiedendo all'admin di confermare esplicitamente di aver già
+> messo al sicuro ciò che conta prima di procedere. È una mitigazione più leggera, coerente con un
+> progetto hobbistico mantenuto da una sola persona, non un sostituto equivalente dell'isolamento reale.
+- **Cosa manca:** `adminResetGame` (`js/actions.js`) è protetto solo da una singola `showConfirmModal`
+  generica ("Azzerare tutta la partita?..."), senza alcun controllo che l'admin abbia effettivamente
+  pensato a salvare ciò che serve prima di cancellare squadre, risposte e punteggi.
+- **File toccati:** `js/render.js` (nuovo modale a due passaggi, al posto della `showConfirmModal`
+  usata oggi da `btnReset`).
+- **Approccio tecnico:** nuova funzione `showResetChecklistModal(onConfirm)` in `js/render.js`:
+  1. **Step 1 — checklist:** un modale con caselle da spuntare (nessuna preselezionata): "Ho salvato o
+     annotato il podio/le statistiche della serata (se rilevanti)", "Nessuna squadra deve ancora vedere
+     un risultato non ancora rivelato", "Sono sicuro/a: squadre, risposte e punteggi verranno cancellati
+     e l'azione non è annullabile con 'Annulla ultima azione'". Il pulsante "Continua" resta disabilitato
+     finché non sono tutte spuntate.
+  2. **Step 2 — conferma definitiva:** dopo "Continua", il modale mostra un'ultima conferma esplicita
+     ("Reset definitivo") che richiama `adminResetGame` solo al click.
+  3. `btnReset` in `renderAdmin` chiama `showResetChecklistModal(adminResetGame)` al posto
+     dell'attuale `showConfirmModal(...)`.
+- **Dipendenze:** nessuna (PL-04 non è stato eseguito in questa sessione, per la decisione FT-02 presa
+  a monte: nessuna azione sulle regole Firebase).
 - **Complessità:** S
-- **Criterio di completamento:** attivando `?env=test`, i dati della Modalità prova finiscono nel
-  progetto Firebase di test (verificabile in console); un reset in modalità test non tocca in alcun
-  modo il progetto di produzione.
+- **Criterio di completamento:** cliccando "Reset partita" compare la checklist con il pulsante di
+  continuazione disabilitato; il reset vero e proprio (`adminResetGame`) non viene mai chiamato finché
+  tutte le caselle non sono spuntate e la conferma finale non è stata cliccata esplicitamente.
 
 ### PL-06 — Invio atomico delle risposte (FT-06 / item 6)
 
