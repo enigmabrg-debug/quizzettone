@@ -105,6 +105,7 @@ let showAdvancedSetup = false; // toggle locale: sezione "impostazioni avanzate"
 let scoringDefaults = DEFAULT_SCORING; // punteggio di default, persiste tra le partite
 let showScoringSettings = false; // toggle locale (solo per questo admin), non condiviso
 let soundEffects = {};    // id -> effetto sonoro (persiste tra una partita e l'altra)
+let presets = {};         // id -> {id, name, config, createdAt}: preset di configurazione salvati (PL-12), persistono tra una partita e l'altra
 let showEffectsManager = false; // toggle locale (solo per questo admin), non condiviso
 let showHistoryLog = false; // toggle locale: pannello "storico azioni" nel pannello di regia
 let showPartyDeckManager = false; // toggle locale: gestione mazzi Party (aggiungi/elimina carte)
@@ -256,6 +257,7 @@ function startListening(){
     presenceByTeam = session.presence || {};
     questionBank = all.questionBank || {};
     soundEffects = all.soundEffects || {};
+    presets = all.presets || {};
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
     state = withDefaults(session.state);
     gameQuestions = withGameQuestionsDefaults(session.questionInstances);

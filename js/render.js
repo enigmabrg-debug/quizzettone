@@ -897,6 +897,186 @@ function renderPreGameChecklist(){
 }
 
 /* ================== SALA PRE-PARTITA (configurazione essenziale + avanzata) ================== */
+/* PL-12 (item 13): 4 preset dichiarati dal piano (§4.1) — "Personalizzata" non
+   ha un bottone dedicato: è già lo stato di default del form (tutti i campi
+   liberamente modificabili), coerente con "nessun nuovo motore, solo default
+   diversi". "Tutti contro tutti" ("nessuna squadra eliminata nell'ultima
+   manche") riusa il ramo già esistente in adminRevealFinalists
+   (ranked.length<=finalistCount ⇒ nessuno escluso) impostando un
+   finalistCount molto alto, invece di introdurre un nuovo motore di gioco. */
+const BUILTIN_CONFIG_PRESETS = [
+  {id:'classica', label:'Serata classica', values:{rounds:2, questionsPerRound:15, finalistCount:2, finalQuestionCount:10, scoreCarryover:'reset'}},
+  {id:'rapida', label:'Partita rapida', values:{rounds:1, questionsPerRound:10, finalistCount:2, finalQuestionCount:5, scoreCarryover:'reset'}},
+  {id:'tutti_contro_tutti', label:'Tutti contro tutti', values:{rounds:2, questionsPerRound:15, finalistCount:999, finalQuestionCount:10, scoreCarryover:'keep'}}
+];
+/* Scrive i valori di un preset (built-in o salvato) direttamente sui campi
+   del form, senza un render() completo: stesso principio già usato per
+   btnToggleAdvancedSetup, per non perdere altre modifiche non ancora
+   salvate. Accetta sia i valori parziali dei preset built-in sia un intero
+   "patch" salvato da adminSaveConfigPreset (stessa forma, superset di campi). */
+function applyPresetValuesToForm(values){
+  const byId = id=>document.getElementById(id);
+  const hasAdvanced = values.scoreCarryover || (values.tiebreakRule && values.tiebreakRule.final) ||
+    values.answerVisibilityForEliminated || values.blockDuplicateQuestions!=null || values.speedBonus ||
+    ('finalScoring' in values);
+  if(hasAdvanced && !showAdvancedSetup){
+    showAdvancedSetup = true;
+    byId('salaAdvancedSection').style.display = 'flex';
+    byId('btnToggleAdvancedSetup').textContent = '▲ Nascondi impostazioni avanzate';
+  }
+  if(values.rounds!=null) byId('setupRounds').value = values.rounds;
+  // I preset built-in dichiarano un numero semplice (una sola manche di
+  // riferimento); i preset salvati da adminSaveConfigPreset portano invece
+  // l'array già espanso per manche (stessa forma del patch di
+  // adminSaveSetup, es. [7,7,7]) — il form ha un solo campo "domande per
+  // manche", quindi si legge sempre il primo valore.
+  if(values.questionsPerRound!=null){
+    const qpr = Array.isArray(values.questionsPerRound) ? values.questionsPerRound[0] : values.questionsPerRound;
+    byId('setupQuestionsPerRound').value = qpr;
+  }
+  if(values.finalistCount!=null) byId('setupFinalistCount').value = values.finalistCount;
+  if(values.finalQuestionCount!=null) byId('setupFinalQuestionCount').value = values.finalQuestionCount;
+  if(values.questionDurationMs!=null) byId('setupQuestionDuration').value = Math.round(values.questionDurationMs/1000);
+  if(values.scoring){
+    byId('setupScoringCorrect').value = values.scoring.correct;
+    byId('setupScoringWrong').value = values.scoring.wrong;
+    byId('setupScoringNoAnswer').value = values.scoring.noAnswer;
+  }
+  if(values.timerStartMode) byId('setupTimerStartMode').value = values.timerStartMode;
+  if(values.displayMode) byId('setupDisplayMode').value = values.displayMode;
+  if(values.tiebreakRule){
+    if(values.tiebreakRule.qualification) byId('setupTiebreakQualification').value = values.tiebreakRule.qualification;
+    if(values.tiebreakRule.final) byId('setupTiebreakFinal').value = values.tiebreakRule.final;
+  }
+  if(values.lateJoin && values.lateJoin.policy) byId('setupLateJoinPolicy').value = values.lateJoin.policy;
+  if(values.scoreCarryover) byId('setupScoreCarryover').value = values.scoreCarryover;
+  if(values.answerVisibilityForEliminated) byId('setupAnswerVisibility').value = values.answerVisibilityForEliminated;
+  if(values.blockDuplicateQuestions!=null) byId('setupBlockDuplicates').checked = values.blockDuplicateQuestions;
+  if(values.speedBonus){
+    byId('setupSpeedBonusEnabled').checked = values.speedBonus.enabled;
+    byId('setupSpeedBonusMax').value = values.speedBonus.maxBonus;
+    byId('setupSpeedBonusWindow').value = Math.round((values.speedBonus.windowMs||0)/1000);
+  }
+  if('finalScoring' in values){
+    byId('setupFinalScoringEnabled').checked = !!values.finalScoring;
+    if(values.finalScoring){
+      byId('setupFinalScoringCorrect').value = values.finalScoring.correct;
+      byId('setupFinalScoringWrong').value = values.finalScoring.wrong;
+      byId('setupFinalScoringNoAnswer').value = values.finalScoring.noAnswer;
+    }
+  }
+}
+/* Raccoglie il patch dallo stato ATTUALE del form (stessa forma passata ad
+   adminSaveSetup). Fattorizzata da dentro l'handler di btnSaveSetup così può
+   essere riusata anche per "Salva come preset". includeAdvancedAlways=true
+   (usato solo dal salvataggio preset) legge sempre i campi avanzati, anche a
+   sezione chiusa: un preset è un'istantanea a sé stante, non ha uno stato
+   "già salvato" da preservare come invece succede nel salvataggio normale
+   (dove il comportamento originale — non toccare i campi avanzati se la
+   sezione non è mai stata aperta in questa sessione — resta invariato). */
+function collectSetupPatchFromForm(includeAdvancedAlways){
+  const byId = id=>document.getElementById(id);
+  const intVal = id => parseInt(byId(id).value, 10);
+  const rounds = intVal('setupRounds') || 1;
+  const perRound = intVal('setupQuestionsPerRound') || 1;
+  const patch = {
+    rounds,
+    questionsPerRound: Array(rounds).fill(perRound),
+    finalistCount: intVal('setupFinalistCount') || 1,
+    finalQuestionCount: intVal('setupFinalQuestionCount') || 0,
+    questionDurationMs: (intVal('setupQuestionDuration') || 20) * 1000,
+    scoring: {
+      correct: intVal('setupScoringCorrect') || 0,
+      wrong: intVal('setupScoringWrong') || 0,
+      noAnswer: intVal('setupScoringNoAnswer') || 0
+    },
+    tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
+    lateJoin: { policy: byId('setupLateJoinPolicy').value },
+    timerStartMode: byId('setupTimerStartMode').value,
+    displayMode: byId('setupDisplayMode').value
+  };
+  if(includeAdvancedAlways || showAdvancedSetup){
+    patch.finalScoring = byId('setupFinalScoringEnabled').checked ? {
+      correct: intVal('setupFinalScoringCorrect') || 0,
+      wrong: intVal('setupFinalScoringWrong') || 0,
+      noAnswer: intVal('setupFinalScoringNoAnswer') || 0
+    } : null;
+    patch.scoreCarryover = byId('setupScoreCarryover').value;
+    patch.tiebreakRule.final = byId('setupTiebreakFinal').value;
+    patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
+    patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
+    patch.speedBonus = {
+      enabled: byId('setupSpeedBonusEnabled').checked,
+      maxBonus: intVal('setupSpeedBonusMax') || 0,
+      windowMs: (intVal('setupSpeedBonusWindow') || 0) * 1000
+    };
+  }
+  return patch;
+}
+/* Modale generico per nominare un preset da salvare (PL-12), stesso stile di
+   showRenameTeamModal: niente window.prompt nativo. */
+function showSavePresetModal(onSave){
+  const existing = document.getElementById('savePresetOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'savePresetOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:360px;margin:20px;">
+      <h3>Salva preset</h3>
+      <input type="text" id="savePresetInput" maxlength="40" placeholder="Nome del preset">
+      <div class="row">
+        <button class="btn" id="savePresetConfirm">Salva</button>
+        <button class="btn ghost" id="savePresetCancel">Annulla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const input = document.getElementById('savePresetInput');
+  input.focus();
+  const confirmSave = ()=>{
+    const val = input.value.trim();
+    overlay.remove();
+    if(val) onSave(val);
+  };
+  document.getElementById('savePresetConfirm').onclick = confirmSave;
+  document.getElementById('savePresetCancel').onclick = ()=> overlay.remove();
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmSave(); });
+}
+/* Riepilogo testuale prima dello start (PL-12, item 12): l'ultimo momento
+   utile per accorgersi di una regola sbagliata prima che la config si blocchi
+   (setupLocked). Solo lettura, nessun campo modificabile qui: per correggere
+   si annulla e si torna al form. */
+function showStartSummaryModal(cfg, onConfirm){
+  const existing = document.getElementById('startSummaryOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'startSummaryOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  const displayModeLabels = {team_devices:'solo dispositivi squadra', shared_screen:'schermo condiviso', hybrid:'ibrida'};
+  const carryoverLabels = {reset:'azzerati', keep:'mantenuti', convert:'convertiti'};
+  const lines = [
+    `${cfg.rounds} manche di qualificazione da ${cfg.questionsPerRound[0]||0} domande`,
+    `Finale: ${cfg.finalistCount} finalisti, ${cfg.finalQuestionCount} domande`,
+    `Punteggio: corretta +${cfg.scoring.correct}, sbagliata ${cfg.scoring.wrong}, non data ${cfg.scoring.noAnswer}`,
+    `Timer: ${Math.round(cfg.questionDurationMs/1000)}s, avvio ${cfg.timerStartMode==='manual'?'manuale':'automatico'}`,
+    `Presentazione: ${displayModeLabels[cfg.displayMode]||cfg.displayMode}`,
+    `Punti in ingresso finale: ${carryoverLabels[cfg.scoreCarryover]||cfg.scoreCarryover}`
+  ];
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:420px;margin:20px;">
+      <h3>Riepilogo partita</h3>
+      <ul style="margin:0;padding-left:18px;">
+        ${lines.map(l=>`<li>${escapeHtml(l)}</li>`).join('')}
+      </ul>
+      <div class="row">
+        <button class="btn" id="startSummaryConfirm">Avvia Manche 1</button>
+        <button class="btn ghost" id="startSummaryCancel">Annulla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('startSummaryConfirm').onclick = ()=>{ overlay.remove(); onConfirm(); };
+  document.getElementById('startSummaryCancel').onclick = ()=> overlay.remove();
+}
 function renderSalaPrePartita(s, cfg){
   const questionsPerRound = cfg.questionsPerRound[0] || 15;
   const tieOptions = [
@@ -922,6 +1102,24 @@ function renderSalaPrePartita(s, cfg){
       ${renderJoinCodeBlock(s.joinCode)}
       ${renderPreGameChecklist()}
       <div class="divider"></div>
+      ${!s.setupLocked ? `
+      <div class="eyebrow">Preset di partita</div>
+      <div class="row">
+        ${BUILTIN_CONFIG_PRESETS.map(p=>`<button class="btn ghost small" data-builtin-preset="${p.id}">${escapeHtml(p.label)}</button>`).join('')}
+      </div>
+      ${Object.keys(presets).length ? `<div class="stack">
+        ${Object.keys(presets).map(id=>{
+          const p = presets[id];
+          return `<div class="row" style="align-items:center;">
+            <span style="flex:1;">${escapeHtml(p.name)}</span>
+            <button class="btn ghost small" data-load-preset="${id}">Carica</button>
+            <button class="btn ghost small" data-delete-preset="${id}">Elimina</button>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+      <button class="btn ghost small" id="btnSaveAsPreset">💾 Salva impostazioni attuali come preset</button>
+      <div class="divider"></div>
+      ` : ''}
       <label class="stack">Nome partita<input type="text" id="setupGameName" value="${escapeHtml(s.gameName)}" ${s.setupLocked?'disabled':''}></label>
       <div class="row">
         <label class="stack">Manche di qualificazione<input type="text" inputmode="numeric" id="setupRounds" value="${cfg.rounds}" ${s.setupLocked?'disabled':''}></label>
@@ -1689,7 +1887,7 @@ function bindDelegatedRegiaHandlersOnce(){
 function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
   bindDelegatedRegiaHandlersOnce();
-  if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
+  if(byId('btnStart')) byId('btnStart').onclick = ()=> showStartSummaryModal(state.config, adminStartGame);
   if(byId('btnToggleTestMode')) byId('btnToggleTestMode').onclick = adminToggleTestMode;
   if(byId('btnAddTestTeams')) byId('btnAddTestTeams').onclick = ()=>adminAddTestTeams(4);
   if(byId('btnRemoveTestTeams')) byId('btnRemoveTestTeams').onclick = adminRemoveTestTeams;
@@ -1703,50 +1901,31 @@ function attachAdminHandlers(){
     byId('btnToggleAdvancedSetup').textContent = showAdvancedSetup ? '▲ Nascondi impostazioni avanzate' : '▼ Impostazioni avanzate';
   };
   if(byId('btnSaveSetup')) byId('btnSaveSetup').onclick = async ()=>{
-    const intVal = id => parseInt(byId(id).value, 10);
-    const rounds = intVal('setupRounds') || 1;
-    const perRound = intVal('setupQuestionsPerRound') || 1;
     const gameName = byId('setupGameName').value.trim() || 'Quizzettone';
-    // I campi "avanzati" esistono nel DOM solo quando la sezione è aperta: se è
-    // chiusa non tocchiamo quelle chiavi di config, per non azzerare a sua
-    // insaputa un'impostazione avanzata salvata in precedenza.
-    const patch = {
-      rounds,
-      questionsPerRound: Array(rounds).fill(perRound),
-      finalistCount: intVal('setupFinalistCount') || 1,
-      finalQuestionCount: intVal('setupFinalQuestionCount') || 0,
-      questionDurationMs: (intVal('setupQuestionDuration') || 20) * 1000,
-      scoring: {
-        correct: intVal('setupScoringCorrect') || 0,
-        wrong: intVal('setupScoringWrong') || 0,
-        noAnswer: intVal('setupScoringNoAnswer') || 0
-      },
-      tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
-      lateJoin: { policy: byId('setupLateJoinPolicy').value },
-      timerStartMode: byId('setupTimerStartMode').value,
-      displayMode: byId('setupDisplayMode').value
-    };
-    // I campi avanzati esistono sempre nel DOM (sono solo nascosti via CSS),
-    // ma li applichiamo al patch solo se la sezione è stata aperta: altrimenti
-    // conterrebbero ancora i valori dell'ultimo render pieno, non le scelte
-    // dell'admin per QUESTA partita.
-    if(showAdvancedSetup){
-      patch.finalScoring = byId('setupFinalScoringEnabled').checked ? {
-        correct: intVal('setupFinalScoringCorrect') || 0,
-        wrong: intVal('setupFinalScoringWrong') || 0,
-        noAnswer: intVal('setupFinalScoringNoAnswer') || 0
-      } : null;
-      patch.scoreCarryover = byId('setupScoreCarryover').value;
-      patch.tiebreakRule.final = byId('setupTiebreakFinal').value;
-      patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
-      patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
-      patch.speedBonus = {
-        enabled: byId('setupSpeedBonusEnabled').checked,
-        maxBonus: intVal('setupSpeedBonusMax') || 0,
-        windowMs: (intVal('setupSpeedBonusWindow') || 0) * 1000
-      };
-    }
+    const patch = collectSetupPatchFromForm(false);
     await adminSaveSetup(gameName, patch);
+  };
+  document.querySelectorAll('[data-builtin-preset]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const preset = BUILTIN_CONFIG_PRESETS.find(p=>p.id===btn.getAttribute('data-builtin-preset'));
+      if(preset) applyPresetValuesToForm(preset.values);
+    };
+  });
+  document.querySelectorAll('[data-load-preset]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const p = presets[btn.getAttribute('data-load-preset')];
+      if(p && p.config) applyPresetValuesToForm(p.config);
+    };
+  });
+  document.querySelectorAll('[data-delete-preset]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-delete-preset');
+      const name = presets[id] ? presets[id].name : 'questo preset';
+      showConfirmModal('Eliminare il preset "'+name+'"?', 'Elimina preset', ()=>adminDeleteConfigPreset(id));
+    };
+  });
+  if(byId('btnSaveAsPreset')) byId('btnSaveAsPreset').onclick = ()=>{
+    showSavePresetModal(name => adminSaveConfigPreset(name, collectSetupPatchFromForm(true)));
   };
   if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;
   if(byId('btnModePause')) byId('btnModePause').onclick = ()=>adminSetCheckpointMode('pause');

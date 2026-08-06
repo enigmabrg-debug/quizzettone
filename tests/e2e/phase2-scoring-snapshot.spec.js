@@ -33,6 +33,7 @@ test('changing scoring config mid-game does not retroactively alter already-open
   await expect(admin.locator('.team-tag', { hasText: 'Squadra Snapshot' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toContainText('Domanda 1/3');
 
   // Q1 apre sotto la config di default (correct:1) e riceve il suo snapshot.

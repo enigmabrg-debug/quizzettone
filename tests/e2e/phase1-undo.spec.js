@@ -29,6 +29,7 @@ test('undo restores points after a manual adjustment, and only once', async ({ b
   await expect(admin.locator('.team-tag', { hasText: 'Team Undo' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toBeVisible();
 
   // No undo button before any undoable action has happened yet.

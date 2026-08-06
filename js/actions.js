@@ -166,6 +166,22 @@ async function adminSaveSetup(gameName, patch){
   }
   await refresh();
 }
+/* PL-12 (item 14): salva la config CORRENTE DEL FORM (non necessariamente
+   ancora scritta su statePath() con "Salva impostazioni") come preset
+   riusabile, su un nodo globale 'presets/' che sopravvive a reset/rivincite
+   esattamente come questionBank/soundEffects/mazzi. 'config' qui è già nella
+   stessa forma del 'patch' che adminSaveSetup fonde su state.config, quindi
+   riapplicarlo in una partita successiva richiede solo ripopolare il form
+   (nessuna nuova logica di gioco, coerente con lo scope del pacchetto). */
+async function adminSaveConfigPreset(name, config){
+  const id = 'preset_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  await safeSet(presetPath(id), {id, name, config, createdAt: Date.now()}, true);
+  await refresh();
+}
+async function adminDeleteConfigPreset(id){
+  await safeDelete(presetPath(id), true);
+  await refresh();
+}
 /* Chiusura delle risposte unificata: sia il click manuale dell'admin sia la
    scadenza rilevata dal tick di QUALSIASI client (vedi startUiTick in
    state.js) passano da qui. È una transaction() Firebase pura e idempotente:

@@ -32,6 +32,7 @@ test('test mode teams answer on their own during a rehearsal question, and are t
   await expect(admin.locator('.team-tag', { hasText: 'PROVA' })).toHaveCount(4);
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toBeVisible();
 
   // All 4 fake teams answer on their own within the question's timer window,

@@ -28,6 +28,7 @@ test('two concurrent submits for the same team/question (e.g. two open tabs) rec
   await expect(admin.locator('.team-tag', { hasText: 'Squadra Doppia Tab' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(team.locator('.opt').first()).toBeVisible();
 
   // Two tabs of the same team would both run in the *same* teamId context,
@@ -79,6 +80,7 @@ test('the buttons lock immediately on click and stay locked through the pending 
   await expect(admin.locator('.team-tag', { hasText: 'Squadra Click Rapidi' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   const firstOption = team.locator('.opt[data-idx="0"]');
   await expect(firstOption).toBeVisible();
 

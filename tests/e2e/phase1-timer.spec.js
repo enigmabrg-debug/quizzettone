@@ -64,6 +64,7 @@ test('timer pause/resume and +5/-5 sync across admin, display and team', async (
   await display.goto(BASE + '&role=display');
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.timer-num')).toBeVisible();
   await expect(team.locator('.timer-num')).toBeVisible();
   await expect(display.locator('.timer-num')).toBeVisible();
@@ -111,6 +112,7 @@ test('manual timer start holds answering until the host triggers it', async ({ b
   await expect(admin.locator('.team-tag', { hasText: 'Team Manuale' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('#btnStartTimer')).toBeVisible();
   await expect(team.locator('.opt').first()).toBeDisabled();
 
@@ -152,6 +154,7 @@ test('expiry auto-closes exactly once with multiple clients watching', async ({ 
   await display.goto(BASE + '&role=display');
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.timer-num')).toBeVisible();
 
   // 2s question duration: wait past expiry, then check all three clients

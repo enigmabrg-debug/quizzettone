@@ -68,6 +68,7 @@ test('admin configures the game via the setup screen, config locks after start, 
   await expect(admin.locator('.team-tag', { hasText: 'Team Puntuale' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toContainText('Domanda 1/5');
   await expect(admin.locator('h3:has-text("Sala pre-partita")')).toHaveCount(0);
 

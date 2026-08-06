@@ -92,6 +92,7 @@ test('submit answer: a failed write shows an error banner and does not fake succ
   await expect(admin.locator('.team-tag', { hasText: 'Squadra Risposta' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(team.locator('.opt').first()).toBeVisible();
 
   await failNextWriteTo(team, 'sessions/current/answers');

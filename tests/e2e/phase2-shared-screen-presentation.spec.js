@@ -39,6 +39,7 @@ test('shared_screen: le risposte restano bloccate finché l\'admin non le apre, 
   await expect(admin.locator('.team-tag', { hasText: 'Squadra Schermo' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
 
   // La domanda è aperta ma non ancora sbloccata: la squadra non vede le
   // opzioni, solo il rimando allo schermo condiviso.
@@ -92,6 +93,7 @@ test('shared_screen: il fallback "Mostra domanda sui telefoni" mostra la domanda
   await expect(admin.locator('.team-tag', { hasText: 'Squadra Fallback' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(team.locator('.status-banner', { hasText: 'Guarda lo schermo condiviso' })).toBeVisible();
 
   await admin.click('#btnActivateTeamFallback');

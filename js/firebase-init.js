@@ -43,6 +43,7 @@ function scoreLedgerPath(id){ return sessionPath('scoreLedger' + (id ? '/' + id 
 function presencePath(id, connId){ return sessionPath('presence' + (id ? '/' + id + (connId ? '/' + connId : '') : '')); }
 function questionBankPath(id){ return 'questionBank' + (id ? '/' + id : ''); }
 function soundEffectPath(id){ return 'soundEffects' + (id ? '/' + id : ''); }
+function presetPath(id){ return 'presets' + (id ? '/' + id : ''); } // PL-12: config salvate, globali come questionBank/soundEffects
 
 const MAX_AUDIO_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB: file più grandi rallentano troppo un caricamento da telefono in serata
 
