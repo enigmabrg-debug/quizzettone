@@ -27,6 +27,15 @@ Da `AGGIORNAMENTO_PIANO_UX_fase5.md` (allegato dall'utente): a fine PL-24, PL-25
 PL-32 del piano originale vengono sostituiti da **PL-25-UX**, **PL-27-UX**, **PL-30-UX**.
 `PIANO_IMPLEMENTAZIONE_CONSOLIDATO.md` verrà aggiornato di conseguenza prima di eseguirli.
 
+## Stato di ripresa (fine sessione corrente)
+
+Completati e pushati: PL-04 (saltato), PL-01, PL-02, PL-03, PL-08. Nessun pacchetto "in corso" a metà.
+**Prossimo pacchetto da eseguire: PL-06** (invio atomico delle risposte — transazione Firebase su
+`teamSubmitAnswer`/`adminSubmitTestAnswer`), poi PL-07 (join atomico/univoco), poi il checkpoint di
+conferma FT-01/PL-05 (vedi Passo 0 sopra, ancora senza risposta esplicita dell'utente). Sessione
+interrotta qui per prudenza (pacchetti rimanenti più delicati architetturalmente), non per errori o
+contesto esaurito a metà lavoro.
+
 ## Log pacchetti
 
 | ID | Titolo | Stato | Commit | Note/deviazioni |
