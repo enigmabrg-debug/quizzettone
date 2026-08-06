@@ -71,6 +71,10 @@ let listening = false;
 let uiTickTimer = null;
 let standingsAutoPlayTimer = null; // locale: guida "rivelazione automatica" solo dal lato admin che l'ha avviata
 let connected = true;     // stato connessione Firebase (.info/connected)
+let bootStatus = 'connecting'; // 'connecting' | 'ready' | 'timeout': stato del primo caricamento,
+                                // prima che arrivi il primissimo snapshot da Firebase (vedi FT-04)
+let bootTimeoutTimer = null;
+const BOOT_TIMEOUT_MS = 8000;
 
 let state = null;         // stato di gioco condiviso
 let teams = {};           // id -> {id, name}
@@ -185,7 +189,20 @@ function withDefaults(raw){
 function startListening(){
   if(listening) return;
   listening = true;
+  // Se il primo snapshot non arriva, non deve restare una schermata bianca:
+  // mostriamo subito uno stato "connessione in corso" e, se entro
+  // BOOT_TIMEOUT_MS non è ancora arrivato nulla, uno stato di errore con
+  // un comando di retry esplicito (vedi anche il callback di errore sotto).
+  if(!state){
+    bootStatus = 'connecting';
+    render();
+    bootTimeoutTimer = setTimeout(()=>{
+      if(!state){ bootStatus = 'timeout'; render(); }
+    }, BOOT_TIMEOUT_MS);
+  }
   db.ref(DB_ROOT).on('value', snap=>{
+    if(bootTimeoutTimer){ clearTimeout(bootTimeoutTimer); bootTimeoutTimer = null; }
+    bootStatus = 'ready';
     const all = snap.val() || {};
     const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {}, newEffects = {};
     Object.keys(all).forEach(k=>{
@@ -209,7 +226,11 @@ function startListening(){
     };
     if(role==='admin'){ ensureSeedQuestions(); ensureSeedPartyDecks(); ensureJoinCode(); }
     render();
-  }, err=>{ console.error('listener fallito', err); });
+  }, err=>{
+    console.error('listener fallito', err);
+    if(bootTimeoutTimer){ clearTimeout(bootTimeoutTimer); bootTimeoutTimer = null; }
+    if(!state){ bootStatus = 'timeout'; render(); }
+  });
   db.ref('.info/connected').on('value', snap=>{
     connected = snap.val() === true;
     // Va riarmata a ogni riconnessione (non una sola volta al boot): onDisconnect()
@@ -226,6 +247,15 @@ function stopListening(){
   db.ref('.info/connected').off('value');
   listening = false;
   if(uiTickTimer){ clearInterval(uiTickTimer); uiTickTimer = null; }
+  if(bootTimeoutTimer){ clearTimeout(bootTimeoutTimer); bootTimeoutTimer = null; }
+}
+/* Comando "Riprova" mostrato da renderBootScreen() quando il primo snapshot
+   non arriva entro BOOT_TIMEOUT_MS: riparte da zero il listener invece di
+   lasciare l'utente bloccato su una schermata di errore senza via d'uscita. */
+function retryBoot(){
+  stopListening();
+  bootStatus = 'connecting';
+  startListening();
 }
 /* Presenza online/offline per squadra: ogni scheda registra una propria
    connessione sotto presence/<teamId>/<connId>, con onDisconnect().remove()

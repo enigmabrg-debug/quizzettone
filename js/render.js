@@ -307,9 +307,44 @@ function renderTeamJoin(){
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') doJoin(); });
 }
 
+/* Schermata di avvio: mostrata al posto di una pagina bianca finché il primo
+   snapshot da Firebase non è arrivato. 'timeout' compare se non arriva nulla
+   entro BOOT_TIMEOUT_MS (vedi startListening in state.js) o se il listener
+   fallisce esplicitamente (es. regole Firebase che negano la lettura). */
+function renderBootScreen(){
+  const app = document.getElementById('app');
+  if(!app) return;
+  app.className = '';
+  if(bootStatus === 'timeout'){
+    app.innerHTML = `
+      <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+        <div class="eyebrow">Party Quiz</div>
+        <h1 class="brand">QUIZZETTONE</h1>
+      </div>
+      <div class="card center stack" style="margin-top:20px;">
+        <h3>Connessione non riuscita</h3>
+        <p class="muted">Non riesco a raggiungere il server dopo qualche secondo di attesa. Controlla la connessione e riprova.</p>
+        <button class="btn" id="btnBootRetry">Riprova</button>
+      </div>
+    `;
+    const btn = document.getElementById('btnBootRetry');
+    if(btn) btn.onclick = retryBoot;
+    return;
+  }
+  app.innerHTML = `
+    <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+      <div class="eyebrow">Party Quiz</div>
+      <h1 class="brand">QUIZZETTONE</h1>
+    </div>
+    <div class="card center stack" style="margin-top:20px;">
+      <p class="muted">Connessione in corso...</p>
+    </div>
+  `;
+}
+
 /* ================== RENDER PRINCIPALE ================== */
 function render(){
-  if(!state) return; // il primo snapshot da Firebase non è ancora arrivato
+  if(!state) return renderBootScreen(); // il primo snapshot da Firebase non è ancora arrivato
   if(role==='team' && joined) return renderTeam();
   if(role==='admin') return renderAdmin();
   if(role==='display') return renderDisplay();
