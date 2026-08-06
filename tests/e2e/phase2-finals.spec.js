@@ -47,6 +47,23 @@ test('eliminated team sees spectator status, not answer buttons, and cannot subm
   const res = await request.put(EMULATOR_ROOT, { data: root });
   if (!res.ok()) throw new Error('seed failed: ' + res.status());
 
+  // Come nell'uso reale, l'admin carica la pagina per primo: è lui a far
+  // partire la migrazione one-shot dal vecchio schema piatto (PL-09) verso
+  // sessions/current/..., prima che una squadra provi a recuperare la sua
+  // identità da lì. Bootstrap-only: si chiude subito dopo, il resto del test
+  // apre i suoi context come prima.
+  const bootstrapCtx = await browser.newContext();
+  const bootstrap = await bootstrapCtx.newPage();
+  await bootstrap.goto(BASE + '&role=admin');
+  await bootstrap.fill('#adminPinInput', '2468');
+  await bootstrap.click('#btnPinConfirm');
+  // Questo game è già in fase 'question' (non 'lobby'), quindi non c'è una
+  // lista squadre da controllare qui: basta attendere che il pannello di
+  // regia della domanda finale sia visibile, segno che 'state' è stato letto
+  // correttamente dal ramo migrato.
+  await expect(bootstrap.locator('.pill', { hasText: 'FINALE' })).toBeVisible();
+  await bootstrapCtx.close();
+
   const f1Ctx = await browser.newContext();
   const f1 = await f1Ctx.newPage();
   await f1.goto(BASE + '&role=team&id=team_f1');
@@ -72,7 +89,7 @@ test('eliminated team sees spectator status, not answer buttons, and cannot subm
   // server-side even if something tried to call it directly.
   const rejected = await e1.evaluate(async () => {
     await teamSubmitAnswer('final', 0, 1);
-    const snap = await db.ref("quizzettone/answers:team_e1").once('value');
+    const snap = await db.ref('quizzettone/' + answersPath('team_e1')).once('value');
     return snap.val();
   });
   expect(rejected).toBeNull();

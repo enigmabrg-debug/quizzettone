@@ -1845,7 +1845,7 @@ function attachAdminHandlers(){
   document.querySelectorAll('[data-play-effect]').forEach(btn=>{
     btn.onclick = ()=>{
       const fx = soundEffects[btn.getAttribute('data-play-effect')];
-      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+      if(fx) safeSet(statePath(), {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
     };
   });
   document.querySelectorAll('[data-delete-effect]').forEach(btn=>{

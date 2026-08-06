@@ -52,7 +52,7 @@ const CATEGORIES =["Geografia","Storia","Matematica","Musica","Scienze","Cinema"
    "di partenza" con cui popolare il database la prima volta che l'app parte
    a banca dati vuota (vedi ensureSeedQuestions). */
 function getList(round){
-  const gq = state && state.gameQuestions;
+  const gq = gameQuestions;
   if(!gq) return [];
   if(round==='final') return gq.final || [];
   if(round==='tiebreak') return gq.tiebreak ? [gq.tiebreak] : [];
@@ -80,6 +80,7 @@ let bootTimeoutTimer = null;
 const BOOT_TIMEOUT_MS = 8000;
 
 let state = null;         // stato di gioco condiviso
+let gameQuestions = null; // domande estratte per questa partita (ramo separato, PL-09): {rounds, final, tiebreak}
 let teams = {};           // id -> {id, name}
 let answersByTeam = {};   // id -> {qkey: {optionIndex, ts}}
 let overridesByTeam = {}; // id -> {qkey: points}
@@ -120,7 +121,7 @@ function defaultState(){
     checkpoint:null, checkpointMode:null,
     finalists:null, eliminated:null,
     tiebreak:null, winner:null, finalWinnerScoreSnapshot:null,
-    standingsVisible:false, gameQuestions:null, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null,
+    standingsVisible:false, solutionRevealed:false, scoringOverrides:{}, standingsReveal:null,
     audioCue:null,
     gameId:null, // generato ad ogni avvio partita, usato come chiave in statsHistory/<gameId>
     testMode:false, // rehearsal pre-partita con squadre fittizie (isTest:true), mai attivo a config bloccata
@@ -171,19 +172,27 @@ function withDefaults(raw){
   merged.party = {...base.party, ...(raw.party||{})};
   merged.timer = {...base.timer, ...(raw.timer||{})};
   merged.history = {...base.history, ...(raw.history||{})};
-  // Migrazione della vecchia forma {round1, round2} verso {rounds:{1,2,...}}
-  if(raw.gameQuestions && (raw.gameQuestions.round1 || raw.gameQuestions.round2) && !raw.gameQuestions.rounds){
-    merged.gameQuestions = {
-      rounds: {1: raw.gameQuestions.round1||[], 2: raw.gameQuestions.round2||[]},
-      final: raw.gameQuestions.final||null,
-      tiebreak: raw.gameQuestions.tiebreak||null
-    };
-  }
   // Migrazione del vecchio timer piatto (questionStartedAt/timerDuration) verso state.timer
   if(raw.questionStartedAt && !raw.timer){
     merged.timer = {status:'running', startedAt:raw.questionStartedAt, durationMs:raw.timerDuration||20000, pausedRemainingMs:null, closeReason:null, closedBy:null};
   }
   return merged;
+}
+
+/* Stesso spirito di withDefaults, ma per il ramo separato questionInstances
+   (PL-09, era il campo state.gameQuestions): normalizza la vecchia forma
+   {round1, round2} verso {rounds:{1,2,...}}. Usata sia dal listener sia
+   dalla migrazione one-shot dei dati piatti. */
+function withGameQuestionsDefaults(raw){
+  if(!raw) return null;
+  if((raw.round1 || raw.round2) && !raw.rounds){
+    return {
+      rounds: {1: raw.round1||[], 2: raw.round2||[]},
+      final: raw.final||null,
+      tiebreak: raw.tiebreak||null
+    };
+  }
+  return raw;
 }
 
 /* Un solo listener realtime su tutto il nodo del gioco, al posto del polling
@@ -207,27 +216,39 @@ function startListening(){
     if(bootTimeoutTimer){ clearTimeout(bootTimeoutTimer); bootTimeoutTimer = null; }
     bootStatus = 'ready';
     const all = snap.val() || {};
-    const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {}, newEffects = {};
-    Object.keys(all).forEach(k=>{
-      if(k.startsWith('teaminfo:')){ if(all[k]) newTeams[all[k].id] = all[k]; }
-      else if(k.startsWith('answers:')){ newAnswers[k.slice('answers:'.length)] = all[k] || {}; }
-      else if(k.startsWith('overrides:')){ newOverrides[k.slice('overrides:'.length)] = all[k] || {}; }
-      else if(k.startsWith('question:')){ if(all[k]) newQuestionBank[all[k].id] = all[k]; }
-      else if(k.startsWith('effect:')){ if(all[k]) newEffects[all[k].id] = all[k]; }
-    });
-    teams = newTeams;
-    answersByTeam = newAnswers;
-    overridesByTeam = newOverrides;
-    questionBank = newQuestionBank;
-    soundEffects = newEffects;
-    presenceByTeam = all.presence || {};
+    // Rami reali sotto sessions/current/... (PL-09), niente più smistamento
+    // per prefisso stringa su un unico nodo piatto. questionBank/soundEffects
+    // sono già chiavate per id (addQuestion/addEffect scrivono su
+    // questionBankPath(id)/soundEffectPath(id) con entry.id===id), quindi non
+    // serve più ricostruirle a mano leggendo entry.id da ogni valore.
+    const session = (all.sessions && all.sessions[SESSION_ID]) || {};
+    teams = session.teams || {};
+    answersByTeam = session.answers || {};
+    overridesByTeam = session.scoreLedger || {};
+    presenceByTeam = session.presence || {};
+    questionBank = all.questionBank || {};
+    soundEffects = all.soundEffects || {};
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
-    state = withDefaults(all.state);
+    state = withDefaults(session.state);
+    gameQuestions = withGameQuestionsDefaults(session.questionInstances);
     partyDecks = {
       normale: (all.mazzi && all.mazzi.normale) || [],
       extreme: (all.mazzi && all.mazzi.extreme) || []
     };
-    if(role==='admin'){ ensureSeedQuestions(); ensureSeedPartyDecks(); ensureJoinCode(); }
+    // La migrazione va fatta (e completata) PRIMA di ensureSeedQuestions/
+    // ensureJoinCode: quelle due decidono cosa scrivere in base a 'state'/
+    // 'questionBank' locali, che su QUESTO snapshot possono ancora essere i
+    // default pre-migrazione (session.state non esiste ancora finché
+    // l'update() della migrazione non ha fatto arrivare un nuovo snapshot).
+    // Se la migrazione ha davvero spostato qualcosa, si salta il resto di
+    // questo giro: il prossimo snapshot (innescato dallo stesso update())
+    // arriverà con i dati già a posto e le funzioni ensure* gireranno su
+    // valori corretti invece che su placeholder appena azzerati.
+    if(role==='admin'){
+      migrateFlatStateToSessions(all).then(migrated=>{
+        if(!migrated){ ensureSeedQuestions(); ensureSeedPartyDecks(); ensureJoinCode(); }
+      });
+    }
     render();
   }, err=>{
     console.error('listener fallito', err);
@@ -260,19 +281,67 @@ function retryBoot(){
   bootStatus = 'connecting';
   startListening();
 }
+/* Migrazione one-shot dal vecchio nodo piatto (chiavi a prefisso stringa
+   direttamente sotto DB_ROOT) al nuovo schema a rami sotto sessions/current/
+   (PL-09). Guardata come ensureSeedQuestions/ensureJoinCode: gira una sola
+   volta per sessione del browser e solo lato Admin. Se non trova nulla di
+   vecchio da migrare (database nuovo, o già migrato) non fa nulla. Tutte le
+   scritture E cancellazioni avvengono in un solo update() atomico, così non
+   può mai restare un ibrido a metà tra vecchio e nuovo schema. */
+const LEGACY_PREFIXES = ['teaminfo:', 'answers:', 'overrides:', 'teamNames:', 'question:', 'effect:'];
+function hasLegacyFlatData(all){
+  // 'state' da solo non basta come segnale: Firebase pota silenziosamente un
+  // valore {} (un caso reale, non solo teorico -- una partita mai avviata
+  // può aver lasciato solo domande in banca e nessuno stato vero), quindi un
+  // database può avere chiavi legacy da migrare anche senza 'state'.
+  if(all.state) return true;
+  return Object.keys(all).some(k => LEGACY_PREFIXES.some(p => k.startsWith(p)));
+}
+let migrationAttempted = false;
+async function migrateFlatStateToSessions(all){
+  if(migrationAttempted) return false;
+  migrationAttempted = true;
+  if(all.sessions && all.sessions[SESSION_ID] && all.sessions[SESSION_ID].state) return false; // già migrato
+  if(!hasLegacyFlatData(all)) return false; // database nuovo/vuoto, niente da migrare
+  const updates = {};
+  const legacyState = {...(all.state||{})};
+  const legacyGameQuestions = legacyState.gameQuestions;
+  delete legacyState.gameQuestions;
+  updates[statePath()] = legacyState;
+  updates[questionInstancesPath()] = withGameQuestionsDefaults(legacyGameQuestions) || null;
+  if(all.presence) updates[sessionPath('presence')] = all.presence;
+  Object.keys(all).forEach(k=>{
+    if(k.startsWith('teaminfo:')) updates[teamPath(k.slice('teaminfo:'.length))] = all[k];
+    else if(k.startsWith('answers:')) updates[answersPath(k.slice('answers:'.length))] = all[k];
+    else if(k.startsWith('overrides:')) updates[scoreLedgerPath(k.slice('overrides:'.length))] = all[k];
+    else if(k.startsWith('teamNames:')) updates[teamNamePath(k.slice('teamNames:'.length))] = all[k];
+    else if(k.startsWith('question:')) updates[questionBankPath(k.slice('question:'.length))] = all[k];
+    else if(k.startsWith('effect:')) updates[soundEffectPath(k.slice('effect:'.length))] = all[k];
+  });
+  // Le vecchie chiavi vengono azzerate nella STESSA update(): mai un momento
+  // in cui esistono sia la copia vecchia sia quella nuova (a parte durante
+  // l'applicazione atomica lato server, che update() garantisce indivisibile).
+  updates['state'] = null;
+  updates['presence'] = null;
+  Object.keys(all).forEach(k=>{
+    if(k.startsWith('teaminfo:')||k.startsWith('answers:')||k.startsWith('overrides:')||k.startsWith('teamNames:')||k.startsWith('question:')||k.startsWith('effect:')) updates[k] = null;
+  });
+  await db.ref(DB_ROOT).update(updates);
+  return true;
+}
 /* Presenza online/offline per squadra: ogni scheda registra una propria
    connessione sotto presence/<teamId>/<connId>, con onDisconnect().remove()
    affinché sparisca automaticamente se la scheda si chiude o perde la rete.
    "Online" = almeno una connessione presente; "dispositivi collegati" = quante. */
 function armPresence(teamId){
   presenceConnId = presenceConnId || ('conn_' + Math.random().toString(36).slice(2,10));
-  const connRef = db.ref(DB_ROOT + '/presence/' + teamId + '/' + presenceConnId);
+  const connRef = db.ref(DB_ROOT + '/' + presencePath(teamId, presenceConnId));
   connRef.onDisconnect().remove();
   connRef.set({connectedAt: firebase.database.ServerValue.TIMESTAMP});
 }
 function disarmPresence(teamId){
   if(!presenceConnId) return;
-  db.ref(DB_ROOT + '/presence/' + teamId + '/' + presenceConnId).remove();
+  db.ref(DB_ROOT + '/' + presencePath(teamId, presenceConnId)).remove();
 }
 function isTeamOnline(id){ return !!(presenceByTeam[id] && Object.keys(presenceByTeam[id]).length>0); }
 function teamDeviceCount(id){ return presenceByTeam[id] ? Object.keys(presenceByTeam[id]).length : 0; }
@@ -291,7 +360,7 @@ async function ensureJoinCode(){
   if(joinCodeEnsureAttempted) return;
   joinCodeEnsureAttempted = true;
   if(state && state.joinCode) return;
-  await safeSet('state', {...state, joinCode: generateJoinCode()}, true);
+  await safeSet(statePath(), {...state, joinCode: generateJoinCode()}, true);
 }
 function startUiTick(){
   if(uiTickTimer) return;
@@ -521,10 +590,10 @@ function newQuestionId(){ return 'q_' + Math.random().toString(36).slice(2,10); 
 async function addQuestion(q){
   const id = newQuestionId();
   const entry = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, lastUsedAt:null};
-  await safeSet('question:'+id, entry, true);
+  await safeSet(questionBankPath(id), entry, true);
   return id;
 }
-async function deleteQuestion(id){ await safeDelete('question:'+id, true); }
+async function deleteQuestion(id){ await safeDelete(questionBankPath(id), true); }
 
 function parseBulkQuestions(text){
   const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
@@ -545,7 +614,7 @@ async function bulkAddQuestions(list){
   const updates = {};
   list.forEach(q=>{
     const id = newQuestionId();
-    updates['question:'+id] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null};
+    updates[questionBankPath(id)] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null};
   });
   await db.ref(DB_ROOT).update(updates);
 }
@@ -554,10 +623,10 @@ async function bulkAddQuestions(list){
 function newEffectId(){ return 'fx_' + Math.random().toString(36).slice(2,10); }
 async function addEffect(name, url){
   const id = newEffectId();
-  await safeSet('effect:'+id, {id, name, url, createdAt:Date.now()}, true);
+  await safeSet(soundEffectPath(id), {id, name, url, createdAt:Date.now()}, true);
   return id;
 }
-async function deleteEffect(id){ await safeDelete('effect:'+id, true); }
+async function deleteEffect(id){ await safeDelete(soundEffectPath(id), true); }
 
 /* La prima volta che un admin si collega a banca dati vuota, la popoliamo con
    le domande "storiche" (quelle che prima erano fisse nel codice), così il
@@ -566,12 +635,12 @@ let seedAttempted = false;
 async function ensureSeedQuestions(){
   if(seedAttempted) return;
   seedAttempted = true;
-  const existing = await safeList('question:', true);
+  const existing = await safeList(questionBankPath(), true);
   if(existing.length>0) return;
   const updates = {};
   const seed = (list, pool)=> list.forEach(q=>{
     const id = newQuestionId();
-    updates['question:'+id] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:null, lastUsedAt:null};
+    updates[questionBankPath(id)] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:null, lastUsedAt:null};
   });
   seed(Q1, 'manche'); seed(Q2, 'manche'); seed(QF, 'finale');
   await db.ref(DB_ROOT).update(updates);
@@ -645,7 +714,7 @@ async function markQuestionsUsed(questions){
   if(!questions.length) return;
   const updates = {};
   const now = Date.now();
-  questions.forEach(q=>{ updates['question:'+q.id+'/lastUsedAt'] = now; });
+  questions.forEach(q=>{ updates[questionBankPath(q.id)+'/lastUsedAt'] = now; });
   await db.ref(DB_ROOT).update(updates);
 }
 

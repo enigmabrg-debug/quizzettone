@@ -60,7 +60,7 @@ async function failNextWriteTo(page, pathSubstring) {
 test('team join: a failed write shows an error banner and does not fake success', async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto(BASE);
-  await failNextWriteTo(page, 'teaminfo:');
+  await failNextWriteTo(page, 'sessions/current/teams');
   await page.click('#btnTeam');
   await page.fill('#teamNameInput', 'Squadra Fragile');
   await page.click('#btnJoin');
@@ -94,7 +94,7 @@ test('submit answer: a failed write shows an error banner and does not fake succ
   await admin.click('#btnStart');
   await expect(team.locator('.opt').first()).toBeVisible();
 
-  await failNextWriteTo(team, 'answers:');
+  await failNextWriteTo(team, 'sessions/current/answers');
   await team.locator('.opt').first().click();
 
   await expect(team.locator('#errorBannerOverlay')).toBeVisible();

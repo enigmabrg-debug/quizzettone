@@ -1,4 +1,4 @@
-/* ================== AZIONI ADMIN (scrivono su 'state') ================== */
+/* ================== AZIONI ADMIN (scrivono su statePath()) ================== */
 // Costruisce il timer per una domanda appena aperta: parte da solo, a meno
 // che l'admin abbia scelto l'avvio manuale nelle impostazioni della partita.
 function openQuestionTimer(durationMs, cfg){
@@ -9,27 +9,27 @@ function openQuestionTimer(durationMs, cfg){
     : {status:'running', startedAt:Date.now(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
 }
 /* Storico minimo + "annulla ultima azione": salva uno snapshot del path
-   PRIMA della modifica, poi scrive la modifica stessa. 'path' === 'state'
+   PRIMA della modifica, poi scrive la modifica stessa. 'path' === statePath()
    viene scritto in un'unica operazione insieme al nuovo 'history' (altrimenti
-   due safeSet('state', ...) sequenziali basati sullo stesso 'state' locale si
+   due safeSet(statePath(), ...) sequenziali basati sullo stesso 'state' locale si
    sovrascriverebbero a vicenda, come nel bug di adminSaveSetup); per path
-   diversi da 'state' (es. 'overrides:'+id, 'teaminfo:'+id) le due scritture
+   diversi da statePath() (es. scoreLedgerPath(id), teamPath(id)) le due scritture
    sono su nodi indipendenti e non hanno questo rischio.
 
    'before' viaggia come stringa JSON (beforeJson) invece che come oggetto
    annidato: Firebase "pota" silenziosamente le proprietà annidate il cui
    valore è {} (es. una squadra senza ancora nessun punteggio manuale), quindi
-   uno snapshot vuoto sparirebbe dalla scrittura di 'state' senza errori,
+   uno snapshot vuoto sparirebbe dalla scrittura di statePath() senza errori,
    rendendo l'undo successivo un no-op. Una stringa non va mai incontro a
    questa potatura, qualunque sia la forma del valore che rappresenta. */
 async function withUndo(label, path, before, next){
   const log = [...((state.history && state.history.log)||[]).slice(-29), {type:'action', label, at:Date.now()}];
   const history = {last:{label, path, beforeJson: JSON.stringify(before===undefined?null:before), at:Date.now()}, log};
   let ok;
-  if(path==='state'){
-    ok = await safeSet('state', {...next, history}, true);
+  if(path===statePath()){
+    ok = await safeSet(statePath(), {...next, history}, true);
   } else {
-    ok = await safeSet('state', {...state, history}, true);
+    ok = await safeSet(statePath(), {...state, history}, true);
     if(ok) ok = await safeSet(path, next===undefined?null:next, true);
   }
   if(!ok){
@@ -44,12 +44,12 @@ async function adminUndoLast(){
   if(!last) return;
   const before = JSON.parse(last.beforeJson);
   await safeSet(last.path, before, true); // ripristina il valore precedente
-  const restored = await safeGet('state', true); // se last.path==='state', il ripristino ha già cambiato anche history
+  const restored = await safeGet(statePath(), true); // se last.path===statePath(), il ripristino ha già cambiato anche history
   const priorLog = (restored && restored.history && restored.history.log) || [];
   const log = [...priorLog.slice(-29), {type:'undo', label:'Annullato: '+last.label, at:Date.now()}];
   // 'last' va pulito DOPO il ripristino, con una scrittura separata: garantisce
   // un solo livello di undo invece di annullamenti a catena.
-  await safeSet('state/history', {last:null, log}, true);
+  await safeSet(stateHistoryPath(), {last:null, log}, true);
   await refresh();
 }
 async function adminStartGame(){
@@ -79,10 +79,18 @@ async function adminStartGame(){
     party: (state && state.party) || defaultState().party,
     phase:'question', round:1, qIndex:0,
     timer: openQuestionTimer(cfg.questionDurationMs, cfg),
-    gameQuestions: { rounds, final:null, tiebreak:null },
     audioCue: audioCueForQuestion(drawn[0])
   };
-  const ok = await safeSet('state', s, true);
+  // state e questionInstances sono rami separati (PL-09): scritti insieme in
+  // un solo update() atomico, così non c'è mai un istante in cui l'uno è già
+  // aggiornato e l'altro no.
+  let ok = true;
+  try{
+    await db.ref(DB_ROOT).update({
+      [statePath()]: s,
+      [questionInstancesPath()]: { rounds, final:null, tiebreak:null }
+    });
+  } catch(e){ ok = false; }
   if(!ok){
     showErrorBanner('Avvio partita non riuscito: controlla la connessione e riprova.', adminStartGame);
     return;
@@ -92,14 +100,14 @@ async function adminStartGame(){
 async function adminSaveSetup(gameName, patch){
   if(state.setupLocked) return;
   // Un'unica scrittura atomica: nome partita e config vanno salvati insieme,
-  // altrimenti due safeSet('state', ...) sequenziali (ciascuno basato sullo
+  // altrimenti due safeSet(statePath(), ...) sequenziali (ciascuno basato sullo
   // stesso 'state' locale non ancora aggiornato dall'eco del primo) si
   // sovrascriverebbero a vicenda perdendo parte delle modifiche.
   const nextConfig = {...state.config, ...patch};
   if(patch.scoring) nextConfig.scoring = {...state.config.scoring, ...patch.scoring};
   if(patch.tiebreakRule) nextConfig.tiebreakRule = {...state.config.tiebreakRule, ...patch.tiebreakRule};
   if(patch.lateJoin) nextConfig.lateJoin = {...state.config.lateJoin, ...patch.lateJoin};
-  const ok = await safeSet('state', {...state, gameName, config:nextConfig}, true);
+  const ok = await safeSet(statePath(), {...state, gameName, config:nextConfig}, true);
   if(!ok){
     showErrorBanner('Salvataggio impostazioni non riuscito: controlla la connessione e riprova.', ()=>adminSaveSetup(gameName, patch));
     return;
@@ -117,7 +125,7 @@ async function adminSaveSetup(gameName, patch){
    meccanismo che chiudeva la domanda solo se la tab dell'admin era aperta e
    si ri-renderizzava per caso in quel momento. */
 async function closeAnswersTransactional(reason){
-  const stateRef = db.ref(DB_ROOT + '/state');
+  const stateRef = db.ref(DB_ROOT + '/' + statePath());
   await stateRef.transaction(current=>{
     if(!current) return current;
     if(current.phase !== 'question') return; // già chiusa/avanzata da qualcun altro
@@ -137,7 +145,7 @@ async function adminReopenAnswers(){
   // "Riapre per un intervallo breve in caso di errore tecnico": non riprende
   // il tempo residuo di prima, apre una finestra breve fissa per correggere.
   if(state.phase !== 'closed') return;
-  await safeSet('state', {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:Date.now(), durationMs:10000, closeReason:null, closedBy:null}}, true);
+  await safeSet(statePath(), {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:Date.now(), durationMs:10000, closeReason:null, closedBy:null}}, true);
   await refresh();
 }
 async function adminCancelQuestion(){
@@ -145,44 +153,44 @@ async function adminCancelQuestion(){
   const key = qkey(state.round, state.qIndex);
   const cancelledQuestions = [...(state.cancelledQuestions||[]), key];
   const next = {...state, phase:'closed', cancelledQuestions, timer:{...state.timer, status:'closed', closeReason:'cancelled', closedBy:'admin'}};
-  await withUndo('Domanda annullata', 'state', state, next);
+  await withUndo('Domanda annullata', statePath(), state, next);
 }
 async function adminStartTimerManually(){
   if(state.phase!=='question' || state.timer.status!=='idle') return;
-  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt:Date.now()}}, true);
+  await safeSet(statePath(), {...state, timer:{...state.timer, status:'running', startedAt:Date.now()}}, true);
   await refresh();
 }
 async function adminPauseTimer(){
   if(state.phase!=='question' || state.timer.status!=='running') return;
-  await safeSet('state', {...state, timer:{...state.timer, status:'paused', pausedRemainingMs:timeRemaining()}}, true);
+  await safeSet(statePath(), {...state, timer:{...state.timer, status:'paused', pausedRemainingMs:timeRemaining()}}, true);
   await refresh();
 }
 async function adminResumeTimer(){
   if(state.phase!=='question' || state.timer.status!=='paused') return;
   const remaining = state.timer.pausedRemainingMs || 0;
-  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt: Date.now()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
+  await safeSet(statePath(), {...state, timer:{...state.timer, status:'running', startedAt: Date.now()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
   await refresh();
 }
 async function adminAdjustTimer(deltaMs){
   if(state.phase!=='question') return;
   const t = state.timer;
   if(t.status==='paused'){
-    await safeSet('state', {...state, timer:{...t, pausedRemainingMs:Math.max(0, (t.pausedRemainingMs||0)+deltaMs)}}, true);
+    await safeSet(statePath(), {...state, timer:{...t, pausedRemainingMs:Math.max(0, (t.pausedRemainingMs||0)+deltaMs)}}, true);
   } else if(t.status==='running'){
     const newDuration = Math.max(Date.now()-t.startedAt, t.durationMs+deltaMs);
-    await safeSet('state', {...state, timer:{...t, durationMs:newDuration}}, true);
+    await safeSet(statePath(), {...state, timer:{...t, durationMs:newDuration}}, true);
   } else {
     return;
   }
   await refresh();
 }
 async function adminRevealSolution(){
-  await safeSet('state', {...state, solutionRevealed:true}, true); await refresh();
+  await safeSet(statePath(), {...state, solutionRevealed:true}, true); await refresh();
 }
 async function adminReplayCurrentAudio(){
   const q = getQuestion(state.round, state.qIndex);
   const cue = audioCueForQuestion(q);
-  if(cue) await safeSet('state', {...state, audioCue:cue}, true);
+  if(cue) await safeSet(statePath(), {...state, audioCue:cue}, true);
   await refresh();
 }
 async function adminStopAudio(){
@@ -190,13 +198,13 @@ async function adminStopAudio(){
   if(!cue) return;
   const el = document.getElementById('gameAudioEl');
   const pos = el ? el.currentTime : 0;
-  await safeSet('state', {...state, audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await safeSet(statePath(), {...state, audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
   await refresh();
 }
 async function adminResumeAudio(fromStart){
   const cue = state.audioCue;
   if(!cue) return;
-  await safeSet('state', {...state, audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await safeSet(statePath(), {...state, audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
   await refresh();
 }
 async function adminAdjustPoints(id, round, idx, delta){
@@ -205,7 +213,7 @@ async function adminAdjustPoints(id, round, idx, delta){
   const before = {...(overridesByTeam[id]||{})};
   const next = {...before, [key]: current+delta};
   const label = 'Punti '+(teams[id]?teams[id].name:id)+' '+(delta>0?'+':'')+delta;
-  await withUndo(label, 'overrides:'+id, before, next);
+  await withUndo(label, scoreLedgerPath(id), before, next);
 }
 async function adminNextQuestion(){
   const round = state.round, idx = state.qIndex;
@@ -215,36 +223,36 @@ async function adminNextQuestion(){
     const midPoint = Math.ceil(list.length/2);
     const checkpointMinQuestions = (state.config && state.config.checkpointMinQuestions) || 4;
     if(list.length>=checkpointMinQuestions && qNumber===midPoint){
-      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
+      await safeSet(statePath(), {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
     } else if(qNumber===list.length){
-      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
+      await safeSet(statePath(), {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await safeSet(statePath(), {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='final'){
     if(qNumber===list.length){
-      await safeSet('state', {...state, phase:'final_ready'}, true);
+      await safeSet(statePath(), {...state, phase:'final_ready'}, true);
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await safeSet(statePath(), {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
     }
   } else if(round==='tiebreak'){
-    await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
+    await safeSet(statePath(), {...state, phase:'tiebreak_closed'}, true);
   }
   await refresh();
 }
 async function adminSetCheckpointMode(mode){
-  await withUndo('Modalità checkpoint: '+mode, 'state', state, {...state, checkpointMode:mode});
+  await withUndo('Modalità checkpoint: '+mode, statePath(), state, {...state, checkpointMode:mode});
 }
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
   const totalRounds = (state.config && state.config.rounds) || 2;
   if(cp.type==='mid'){
     const nextQ = getQuestion(cp.round, state.qIndex+1);
-    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet(statePath(), {...state, qIndex:state.qIndex+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   } else if(cp.type==='end' && cp.round < totalRounds){
     const nextRound = cp.round+1;
     const nextQ = getQuestion(nextRound, 0);
-    await safeSet('state', {...state, round:nextRound, qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await safeSet(statePath(), {...state, round:nextRound, qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
   }
   await refresh();
 }
@@ -254,7 +262,7 @@ async function adminRevealFinalists(){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score:qualificationScore(id)})).sort((a,b)=>b.score-a.score);
   if(ranked.length<=finalistCount){
-    await safeSet('state', {...state, phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]}, true);
+    await safeSet(statePath(), {...state, phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]}, true);
     await refresh(); return;
   }
   const cutoffScore = ranked[finalistCount-1].score;
@@ -264,9 +272,9 @@ async function adminRevealFinalists(){
     // il taglio cade su un pari merito: chi è sopra il taglio è già qualificato,
     // gli spareggianti si giocano i posti rimasti
     const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar: aboveCutoff.map(r=>r.id), candidates: tiedAtCutoff.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
+    await safeSet(statePath(), {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar: aboveCutoff.map(r=>r.id), candidates: tiedAtCutoff.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
   } else {
-    await safeSet('state', {...state, phase:'reveal_finalists', finalists: ranked.slice(0,finalistCount).map(r=>r.id), eliminated: ranked.slice(finalistCount).map(r=>r.id)}, true);
+    await safeSet(statePath(), {...state, phase:'reveal_finalists', finalists: ranked.slice(0,finalistCount).map(r=>r.id), eliminated: ranked.slice(finalistCount).map(r=>r.id)}, true);
   }
   await refresh();
 }
@@ -274,11 +282,16 @@ async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
+  const s = {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen)};
+  await db.ref(DB_ROOT).update({
+    [statePath()]: s,
+    [questionInstancesPath()]: {...gameQuestions, tiebreak: chosen}
+  });
   await refresh();
 }
 /* Snapshot di sola lettura persistito a fine partita, sopravvive a un reset o
-   a una rivincita (rimane raggiungibile via statsHistory/<gameId>). */
+   a una rivincita (rimane raggiungibile via statsHistory/<gameId>, che resta
+   un ramo globale: deve sopravvivere anche a un reset della sessione). */
 async function persistFinalStatsSnapshot(){
   if(!state.gameId) return;
   const stats = computeFinalStats();
@@ -286,7 +299,7 @@ async function persistFinalStatsSnapshot(){
 }
 async function adminAssignTiebreakWinner(winnerId){
   if(state.tiebreak.forFinal){
-    await safeSet('state', {...state, phase:'reveal_winner', winner:winnerId, finalWinnerScoreSnapshot: state.tiebreak.finalScoresSnapshot||[], tiebreak:null}, true);
+    await safeSet(statePath(), {...state, phase:'reveal_winner', winner:winnerId, finalWinnerScoreSnapshot: state.tiebreak.finalScoresSnapshot||[], tiebreak:null}, true);
     await refresh();
     await persistFinalStatsSnapshot();
     return;
@@ -294,14 +307,18 @@ async function adminAssignTiebreakWinner(winnerId){
   const finalistCount = (state.config && state.config.finalistCount) || 2;
   const finalists = [...state.tiebreak.qualifiedSoFar, winnerId].slice(0,finalistCount);
   const eliminated = Object.keys(teams).filter(id=>!finalists.includes(id));
-  await safeSet('state', {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null, tiebreak:null}, true);
+  await safeSet(statePath(), {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null, tiebreak:null}, true);
   await refresh();
 }
 async function adminContinueToFinal(){
   const finalQuestionCount = (state.config && state.config.finalQuestionCount) || 10;
   const drawn = drawQuestionsForGame('finale', finalQuestionCount);
   await markQuestionsUsed(drawn);
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
+  const s = {...state, round:'final', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0])};
+  await db.ref(DB_ROOT).update({
+    [statePath()]: s,
+    [questionInstancesPath()]: {...gameQuestions, final:drawn}
+  });
   await refresh();
 }
 async function adminRevealWinner(){
@@ -314,17 +331,17 @@ async function adminRevealWinner(){
     // usato per l'accesso in finale, non solo un flag 'TIE' con scelta libera.
     const tiebreakCandidateCount = (state.config && state.config.tiebreakCandidateCount) || 5;
     const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop.map(s=>s.id), candidateQuestions, question:null, qIndex:null, forFinal:true, finalScoresSnapshot:scores}}, true);
+    await safeSet(statePath(), {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop.map(s=>s.id), candidateQuestions, question:null, qIndex:null, forFinal:true, finalScoresSnapshot:scores}}, true);
     await refresh();
     return;
   }
   const winner = scores[0] ? scores[0].id : null;
-  await safeSet('state', {...state, phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
+  await safeSet(statePath(), {...state, phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
   await refresh();
   await persistFinalStatsSnapshot();
 }
 async function adminToggleStandings(){
-  await safeSet('state', {...state, standingsVisible: !state.standingsVisible}, true);
+  await safeSet(statePath(), {...state, standingsVisible: !state.standingsVisible}, true);
   await refresh();
 }
 // Ordine di rivelazione calcolato dal sistema (mai scelto a mano dall'admin):
@@ -343,31 +360,31 @@ function computeStandingsRevealOrder(){
 }
 async function adminSetupStandingsReveal(){
   const order = computeStandingsRevealOrder();
-  await safeSet('state', {...state, standingsReveal:{order, revealedCount:0, speed:'normal', autoPlaying:false}}, true);
+  await safeSet(statePath(), {...state, standingsReveal:{order, revealedCount:0, speed:'normal', autoPlaying:false}}, true);
   await refresh();
 }
 async function adminRevealNextStanding(){
   const sr = state.standingsReveal;
   const revealedCount = Math.min(sr.order.length, sr.revealedCount+1);
   const next = {...state, standingsReveal:{...sr, revealedCount}};
-  await withUndo('Rivelata posizione classifica', 'state', state, next);
+  await withUndo('Rivelata posizione classifica', statePath(), state, next);
 }
 async function adminSkipToFullStandingsReveal(){
   const sr = state.standingsReveal;
   const next = {...state, standingsReveal:{...sr, revealedCount:sr.order.length, autoPlaying:false}};
-  await withUndo('Classifica rivelata per intero', 'state', state, next);
+  await withUndo('Classifica rivelata per intero', statePath(), state, next);
 }
 async function adminSetStandingsRevealSpeed(speed){
-  await safeSet('state', {...state, standingsReveal:{...state.standingsReveal, speed}}, true);
+  await safeSet(statePath(), {...state, standingsReveal:{...state.standingsReveal, speed}}, true);
   await refresh();
 }
 async function adminToggleAutoPlayReveal(){
   const sr = state.standingsReveal;
-  await safeSet('state', {...state, standingsReveal:{...sr, autoPlaying:!sr.autoPlaying}}, true);
+  await safeSet(statePath(), {...state, standingsReveal:{...sr, autoPlaying:!sr.autoPlaying}}, true);
   await refresh();
 }
 async function adminCloseStandingsReveal(){
-  await safeSet('state', {...state, standingsReveal:null}, true);
+  await safeSet(statePath(), {...state, standingsReveal:null}, true);
   await refresh();
 }
 async function adminSetScoringDefaults(values){
@@ -377,16 +394,21 @@ async function adminSetScoringDefaults(values){
 async function adminSetQuestionScoring(round, idx, values){
   const key = qkey(round, idx);
   const overrides = {...(state.scoringOverrides||{}), [key]: values};
-  await safeSet('state', {...state, scoringOverrides: overrides}, true);
+  await safeSet(statePath(), {...state, scoringOverrides: overrides}, true);
   await refresh();
 }
 async function adminResetGame(){
-  const teamKeys = await safeList('teaminfo:', true);
-  for(const k of teamKeys) await safeDelete(k, true);
   const ids = Object.keys(teams);
-  for(const id of ids){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
-  await safeDelete('presence', true);
-  const ok = await safeSet('state', defaultState(), true);
+  for(const id of ids){
+    await safeDelete(teamPath(id), true);
+    await safeDelete(answersPath(id), true);
+    await safeDelete(scoreLedgerPath(id), true);
+    await safeDelete(teamNamePath(teamNameKey(teams[id].name)), true);
+  }
+  await safeDelete(sessionPath('presence'), true);
+  await safeDelete(sessionPath('teamNames'), true); // pulizia extra di eventuali indici orfani
+  const ok = await safeSet(statePath(), defaultState(), true);
+  await safeSet(questionInstancesPath(), null, true);
   if(!ok){
     showErrorBanner('Reset non completato: lo stato condiviso potrebbe essere rimasto incoerente. Riprova o ricarica la pagina.', adminResetGame);
     return;
@@ -401,7 +423,7 @@ async function adminResetGame(){
    come farebbe con quella vera, per collaudare timer/audio/display; "Reset
    partita" le rimuove insieme a tutto il resto prima della serata vera. */
 async function adminToggleTestMode(){
-  await safeSet('state', {...state, testMode: !state.testMode}, true);
+  await safeSet(statePath(), {...state, testMode: !state.testMode}, true);
   await refresh();
 }
 function newTestTeamId(){ return 'test_' + Math.random().toString(36).slice(2,10); }
@@ -410,7 +432,7 @@ async function adminAddTestTeams(count){
   const writes = [];
   for(let i=1; i<=count; i++){
     const id = newTestTeamId();
-    writes.push(safeSet('teaminfo:'+id, {id, name:'Squadra prova '+(existingCount+i), joinedAt:Date.now(), isTest:true, ready:true}, true));
+    writes.push(safeSet(teamPath(id), {id, name:'Squadra prova '+(existingCount+i), joinedAt:Date.now(), isTest:true, ready:true}, true));
   }
   await Promise.all(writes);
   await refresh();
@@ -418,9 +440,9 @@ async function adminAddTestTeams(count){
 async function adminRemoveTestTeams(){
   const ids = Object.keys(teams).filter(id=>teams[id].isTest);
   for(const id of ids){
-    await safeDelete('teaminfo:'+id, true);
-    await safeDelete('answers:'+id, true);
-    await safeDelete('overrides:'+id, true);
+    await safeDelete(teamPath(id), true);
+    await safeDelete(answersPath(id), true);
+    await safeDelete(scoreLedgerPath(id), true);
   }
   await refresh();
 }
@@ -433,7 +455,7 @@ async function adminSubmitTestAnswer(id, round, idx, optionIndex){
   const ts = Date.now();
   const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   try{
-    await db.ref(DB_ROOT + '/answers:' + id).child(key).transaction(current => current ? undefined : answer);
+    await db.ref(DB_ROOT + '/' + answersPath(id)).child(key).transaction(current => current ? undefined : answer);
   } catch(e){ console.error('invio risposta prova fallito', e); }
   await refresh();
 }
@@ -466,7 +488,7 @@ async function simulateTestTeamAnswers(){
 async function adminStartRematch(){
   const cfg = state.config;
   const realIds = Object.keys(teams).filter(id=>!teams[id].isTest);
-  for(const id of realIds){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
+  for(const id of realIds){ await safeDelete(answersPath(id), true); await safeDelete(scoreLedgerPath(id), true); }
   const s = {
     ...defaultState(),
     config: cfg,
@@ -476,13 +498,14 @@ async function adminStartRematch(){
     partyMode: state.partyMode || 'none',
     party: state.party || defaultState().party,
   };
-  await safeSet('state', s, true);
+  await safeSet(statePath(), s, true);
+  await safeSet(questionInstancesPath(), null, true);
   await refresh();
 }
 
 /* ================== AZIONI ADMIN · MODALITÀ PARTY ================== */
 async function adminSetPartyMode(mode){
-  await safeSet('state', {...state, partyMode: mode}, true);
+  await safeSet(statePath(), {...state, partyMode: mode}, true);
   await refresh();
 }
 async function adminMarkPartySlot(slot){
@@ -490,7 +513,7 @@ async function adminMarkPartySlot(slot){
   if(!card){ alert('Il mazzo attivo non ha carte disponibili.'); return; }
   const forQuestion = (state.phase==='question' || state.phase==='closed') ? qkey(state.round, state.qIndex) : null;
   const party = {...(state.party||{}), [slot]: {card, confirmed:false, revealed:false, revealNonce:null, revealedAt:null, forQuestion}};
-  await safeSet('state', {...state, party}, true);
+  await safeSet(statePath(), {...state, party}, true);
   partyPopupSlot = slot;
   partyManualListOpen = false;
   await refresh();
@@ -499,7 +522,7 @@ async function adminStartSurprise(){
   const card = drawRandomPartyCard();
   if(!card){ alert('Il mazzo attivo non ha carte disponibili.'); return; }
   const party = {...(state.party||{}), surprise: {card, confirmed:false, revealed:false, revealNonce:null, revealedAt:null, forQuestion:null}};
-  await safeSet('state', {...state, party}, true);
+  await safeSet(statePath(), {...state, party}, true);
   partyPopupSlot = 'surprise';
   partyManualListOpen = false;
   await refresh();
@@ -510,7 +533,7 @@ async function adminRedrawPartyCard(slot){
   const card = drawRandomPartyCard(current.card && current.card.id);
   if(!card){ alert("Non c'è un'altra carta disponibile nel mazzo."); return; }
   const party = {...state.party, [slot]: {...current, card, confirmed:false}};
-  await safeSet('state', {...state, party}, true);
+  await safeSet(statePath(), {...state, party}, true);
   partyManualListOpen = false;
   await refresh();
 }
@@ -519,7 +542,7 @@ async function adminPickPartyCardManually(slot, cardId){
   const card = activePartyDeck().find(c=>c.id===cardId);
   if(!card) return;
   const party = {...(state.party||{}), [slot]: {...current, card, confirmed:true}};
-  await safeSet('state', {...state, party}, true);
+  await safeSet(statePath(), {...state, party}, true);
   partyPopupSlot = null;
   partyManualListOpen = false;
   await refresh();
@@ -528,7 +551,7 @@ async function adminConfirmPartyCard(slot){
   const current = state.party && state.party[slot];
   if(!current) return;
   const party = {...state.party, [slot]: {...current, confirmed:true}};
-  await safeSet('state', {...state, party}, true);
+  await safeSet(statePath(), {...state, party}, true);
   partyPopupSlot = null;
   partyManualListOpen = false;
   await refresh();
@@ -537,16 +560,17 @@ async function adminRevealPartyCard(slot){
   const current = state.party && state.party[slot];
   if(!current || !current.confirmed) return;
   const party = {...state.party, [slot]: {...current, revealed:true, revealNonce:Math.random().toString(36).slice(2), revealedAt:Date.now()}};
-  await safeSet('state', {...state, party}, true);
+  await safeSet(statePath(), {...state, party}, true);
   await refresh();
 }
 async function adminClearPartySlot(slot){
   const party = {...(state.party||{}), [slot]: null};
-  await safeSet('state', {...state, party}, true);
+  await safeSet(statePath(), {...state, party}, true);
   await refresh();
 }
 /* Gestione mazzi Party: aggiunge/rimuove carte da 'normale' o 'extreme'.
-   I mazzi vivono come array sotto mazzi/<nome> (vedi ensureSeedPartyDecks). */
+   I mazzi vivono come array sotto mazzi/<nome> (vedi ensureSeedPartyDecks),
+   ramo globale invariato da PL-09 (persiste tra le partite come questionBank). */
 async function adminAddPartyCard(deck, testo, tipo){
   const text = (testo||'').trim();
   if(!text) return;
@@ -564,11 +588,11 @@ async function adminDeletePartyCard(deck, cardId){
 async function adminRemoveTeam(id){
   const before = teams[id];
   if(!before) return;
-  await withUndo('Squadra rimossa: '+before.name, 'teaminfo:'+id, before, null);
+  await withUndo('Squadra rimossa: '+before.name, teamPath(id), before, null);
   // Libera il nome nell'indice di unicità (PL-07): altrimenti resterebbe
   // "prenotato" per sempre, impedendo a chiunque di riusarlo, anche dopo che
   // "Annulla ultima azione" ripristina la squadra stessa.
-  await safeDelete('teamNames:'+teamNameKey(before.name), true);
+  await safeDelete(teamNamePath(teamNameKey(before.name)), true);
 }
 
 /* ================== AZIONI SQUADRA ================== */
@@ -576,7 +600,7 @@ async function adminRemoveTeam(id){
    minuscole e spazi ai bordi non contano, come nel confronto usato prima),
    sicura come segmento di percorso Firebase (niente '.', '#', '$', '[', ']',
    che sono vietati nelle chiavi RTDB e non vengono escapati da
-   encodeURIComponent). Usata come indice teamNames:<key> -> teamId per
+   encodeURIComponent). Usata come indice teamNames/<key> -> teamId per
    rendere il join atomico invece di un check-then-act. */
 function teamNameKey(name){
   return encodeURIComponent(name.trim().toLowerCase()).replace(/\./g, '%2E');
@@ -592,7 +616,7 @@ function lateJoinAllowed(gameState){
   // 'until_round1_end': consentito per tutta la manche 1 (comprese le sue pause)
   return typeof gameState.round === 'number' && gameState.round===1;
 }
-// Il vincitore della transazione su teamNames:<key> scrive teaminfo:<id> in
+// Il vincitore della transazione su teamNamePath(key) scrive teamPath(id) in
 // un secondo passo, non atomico col primo: chi perde la transazione (stesso
 // nome, quasi simultaneo) potrebbe leggere l'indice prima che quella
 // scrittura sia arrivata. Qualche tentativo con una breve attesa copre
@@ -600,14 +624,14 @@ function lateJoinAllowed(gameState){
 // sfortunato.
 async function waitForTeamInfo(id, attempts){
   for(let i=0; i<attempts; i++){
-    const info = await safeGet('teaminfo:'+id, true);
+    const info = await safeGet(teamPath(id), true);
     if(info) return info;
     await new Promise(resolve => setTimeout(resolve, 150));
   }
   return null;
 }
 /* Join atomico e univoco per nome (FT-08): una transaction() su
-   teamNames:<nome-normalizzato> decide chi "vince" il nome, invece del
+   teamNamePath(nome-normalizzato) decide chi "vince" il nome, invece del
    vecchio check-then-act (leggi tutte le squadre, poi crea se non trovi
    corrispondenza) che due join simultanei con lo stesso nome potevano far
    sfuggire. Chi vince crea la squadra; chi perde recupera quella già creata
@@ -615,7 +639,7 @@ async function waitForTeamInfo(id, attempts){
 async function teamJoin(name){
   const trimmed = name.trim();
   const nameKey = teamNameKey(trimmed);
-  const nameIndexRef = db.ref(DB_ROOT + '/teamNames:' + nameKey);
+  const nameIndexRef = db.ref(DB_ROOT + '/' + teamNamePath(nameKey));
   const provisionalTeamId = 'team_' + Math.random().toString(36).slice(2,9);
 
   let result;
@@ -626,13 +650,13 @@ async function teamJoin(name){
   }
 
   if(result.committed){
-    const gameState = await safeGet('state', true);
+    const gameState = await safeGet(statePath(), true);
     if(!lateJoinAllowed(gameState)){
       await nameIndexRef.remove(); // il nome non deve restare "prenotato" se il join viene rifiutato
       throw new Error('LATE_JOIN_BLOCKED');
     }
     const lateJoin = !(!gameState || gameState.phase==='lobby');
-    const ok = await safeSet('teaminfo:'+provisionalTeamId, {id:provisionalTeamId, name:trimmed, joinedAt:Date.now(), lateJoin}, true);
+    const ok = await safeSet(teamPath(provisionalTeamId), {id:provisionalTeamId, name:trimmed, joinedAt:Date.now(), lateJoin}, true);
     if(!ok){
       await nameIndexRef.remove();
       throw new Error('JOIN_FAILED');
@@ -653,7 +677,7 @@ async function teamJoin(name){
   startListening();
 }
 /* Rinomina da Admin: se il nome normalizzato non cambia (solo maiuscole o
-   spazi diversi) basta aggiornare teaminfo:; altrimenti va prenotato
+   spazi diversi) basta aggiornare teamPath(id); altrimenti va prenotato
    atomicamente il nuovo indice prima di spostare il nome, e liberato quello
    vecchio solo a spostamento riuscito. */
 async function adminRenameTeam(id, newName){
@@ -664,12 +688,12 @@ async function adminRenameTeam(id, newName){
   const oldKey = teamNameKey(team.name);
   const newKey = teamNameKey(trimmed);
   if(oldKey === newKey){
-    const ok = await safeSet('teaminfo:'+id, {...team, name:trimmed}, true);
+    const ok = await safeSet(teamPath(id), {...team, name:trimmed}, true);
     if(!ok) showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
     else await refresh();
     return;
   }
-  const newIndexRef = db.ref(DB_ROOT + '/teamNames:' + newKey);
+  const newIndexRef = db.ref(DB_ROOT + '/' + teamNamePath(newKey));
   let result;
   try{
     result = await newIndexRef.transaction(current => current ? undefined : id);
@@ -681,18 +705,18 @@ async function adminRenameTeam(id, newName){
     showErrorBanner('Esiste già una squadra con questo nome.');
     return;
   }
-  const ok = await safeSet('teaminfo:'+id, {...team, name:trimmed}, true);
+  const ok = await safeSet(teamPath(id), {...team, name:trimmed}, true);
   if(!ok){
     await newIndexRef.remove();
     showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
     return;
   }
-  await safeDelete('teamNames:'+oldKey, true);
+  await safeDelete(teamNamePath(oldKey), true);
   await refresh();
 }
 async function teamSetReady(ready){
   const info = teams[teamId] || {id:teamId, name:teamName};
-  await safeSet('teaminfo:'+teamId, {...info, ready}, true);
+  await safeSet(teamPath(teamId), {...info, ready}, true);
   await refresh();
 }
 
@@ -745,7 +769,7 @@ async function restoreFromUrl(){
     return true;
   }
   if(r==='team' && id){
-    const info = await safeGet('teaminfo:'+id, true);
+    const info = await safeGet(teamPath(id), true);
     if(info){
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       saveTeamSession(teamId, teamName);
@@ -759,7 +783,7 @@ async function restoreFromUrl(){
   // (es. il browser è stato chiuso del tutto e poi riaperto).
   const saved = loadTeamSession();
   if(saved && saved.id){
-    const info = await safeGet('teaminfo:'+saved.id, true);
+    const info = await safeGet(teamPath(saved.id), true);
     if(info){
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       setUrlSession('team', teamId);
@@ -778,8 +802,8 @@ async function restoreFromUrl(){
   }
   return false;
 }
-/* Invio atomico: una transaction() sul singolo nodo answers:<teamId>/<key>
-   (non più un read-then-write sull'intero oggetto answers:<teamId>) fa sì
+/* Invio atomico: una transaction() sul singolo nodo answersPath(teamId)/<key>
+   (non più un read-then-write sull'intero oggetto answersPath(teamId)) fa sì
    che due tocchi ravvicinati, o due tab della stessa squadra che rispondono
    quasi insieme, non possano mai produrre due scritture concorrenti sulla
    stessa domanda: se il valore esiste già quando la transazione gira, la
@@ -798,7 +822,7 @@ async function teamSubmitAnswer(round, idx, optionIndex){
   let alreadyAnswered = false;
   let result;
   try{
-    result = await db.ref(DB_ROOT + '/answers:' + teamId).child(key).transaction(current => {
+    result = await db.ref(DB_ROOT + '/' + answersPath(teamId)).child(key).transaction(current => {
       if(current){ alreadyAnswered = true; return; }
       return answer;
     });

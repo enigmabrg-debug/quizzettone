@@ -161,7 +161,7 @@ test('expiry auto-closes exactly once with multiple clients watching', async ({ 
   await expect(team.locator('.status-banner.expired')).toBeVisible();
 
   const closeReason = await admin.evaluate(async () => {
-    const snap = await db.ref('quizzettone/state').once('value');
+    const snap = await db.ref('quizzettone/' + statePath()).once('value');
     return snap.val().timer.closeReason;
   });
   expect(closeReason).toBe('expired');
