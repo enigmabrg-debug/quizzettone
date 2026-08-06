@@ -94,6 +94,65 @@ function showErrorBanner(message, onRetry){
   if(onRetry) document.getElementById('errorBannerRetry').onclick = ()=>{ overlay.remove(); onRetry(); };
 }
 
+/* Reset partita a due passaggi (FT-01, versione "checklist di backup manuale"
+   al posto di un secondo progetto Firebase separato — vedi PL-05 nel piano):
+   Step 1 costringe l'admin a spuntare esplicitamente che ha pensato al
+   backup PRIMA di poter proseguire; Step 2 è l'ultima conferma esplicita,
+   che è l'unico punto che richiama davvero onConfirm(). Un reset non può
+   più partire da un solo click distratto. */
+function showResetChecklistModal(onConfirm){
+  const existing = document.getElementById('resetChecklistOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'resetChecklistOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  document.body.appendChild(overlay);
+
+  const items = [
+    'Ho salvato o annotato il podio/le statistiche della serata, se mi servono.',
+    'Nessuna squadra deve ancora vedere un risultato non ancora rivelato.',
+    "Sono sicuro/a: squadre, risposte e punteggi verranno cancellati. L'azione non è annullabile con \"Annulla ultima azione\"."
+  ];
+
+  function renderStep1(){
+    overlay.innerHTML = `
+      <div class="card stack" style="max-width:420px;margin:20px;">
+        <h3>Prima di azzerare la partita</h3>
+        <div class="stack">
+          ${items.map((label,i)=>`
+            <label class="row" style="align-items:flex-start;gap:10px;">
+              <input type="checkbox" id="resetCheck${i}" style="margin-top:3px;">
+              <span>${escapeHtml(label)}</span>
+            </label>`).join('')}
+        </div>
+        <div class="row">
+          <button class="btn danger" id="resetContinue" disabled>Continua</button>
+          <button class="btn ghost" id="resetCancel1">Annulla</button>
+        </div>
+      </div>`;
+    const checkboxes = items.map((_,i)=>document.getElementById('resetCheck'+i));
+    const continueBtn = document.getElementById('resetContinue');
+    const updateContinueEnabled = ()=>{ continueBtn.disabled = !checkboxes.every(cb=>cb.checked); };
+    checkboxes.forEach(cb=> cb.onchange = updateContinueEnabled);
+    continueBtn.onclick = ()=>{ if(!continueBtn.disabled) renderStep2(); };
+    document.getElementById('resetCancel1').onclick = ()=> overlay.remove();
+  }
+  function renderStep2(){
+    overlay.innerHTML = `
+      <div class="card stack" style="max-width:420px;margin:20px;">
+        <h3>Conferma definitiva</h3>
+        <p>Questo azzera davvero squadre, risposte e punteggi. Procedere?</p>
+        <div class="row">
+          <button class="btn danger" id="resetConfirmFinal">Reset definitivo</button>
+          <button class="btn ghost" id="resetCancel2">Annulla</button>
+        </div>
+      </div>`;
+    document.getElementById('resetConfirmFinal').onclick = ()=>{ overlay.remove(); onConfirm(); };
+    document.getElementById('resetCancel2').onclick = ()=> overlay.remove();
+  }
+  renderStep1();
+}
+
 /* Codice breve + QR per entrare in partita: il QR punta a ?role=team, che
    restoreFromUrl() apre direttamente sulla schermata "inserisci nome
    squadra" (vedi js/actions.js), saltando la selezione del ruolo. */
@@ -1620,9 +1679,7 @@ function attachAdminHandlers(){
   if(byId('btnRevealFinalists')) byId('btnRevealFinalists').onclick = adminRevealFinalists;
   if(byId('btnGoFinal')) byId('btnGoFinal').onclick = adminContinueToFinal;
   if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
-  if(byId('btnReset')) byId('btnReset').onclick = ()=>{
-    showConfirmModal('Azzerare tutta la partita? Squadre, risposte e punteggi andranno persi. Questa azione non è annullabile con "Annulla ultima azione".', 'Azzera partita', adminResetGame);
-  };
+  if(byId('btnReset')) byId('btnReset').onclick = ()=> showResetChecklistModal(adminResetGame);
   if(byId('btnUndoLast')) byId('btnUndoLast').onclick = adminUndoLast;
   document.querySelectorAll('[data-remove-team]').forEach(btn=>{
     btn.onclick = ()=>{

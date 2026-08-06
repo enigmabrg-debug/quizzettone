@@ -104,7 +104,12 @@ test('reset partita: a failed write shows an error banner and does not fake succ
 
   await failNextWriteTo(page, '/state');
   await page.click('#btnReset');
-  await page.click('#confirmModalYes');
+  // PL-05: reset now goes through a two-step backup checklist, not a plain confirm.
+  await page.check('#resetCheck0');
+  await page.check('#resetCheck1');
+  await page.check('#resetCheck2');
+  await page.click('#resetContinue');
+  await page.click('#resetConfirmFinal');
 
   await expect(page.locator('#errorBannerOverlay')).toBeVisible();
   await expect(page.locator('#errorBannerOverlay')).toContainText('Reset non completato');

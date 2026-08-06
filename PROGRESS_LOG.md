@@ -27,14 +27,12 @@ Da `AGGIORNAMENTO_PIANO_UX_fase5.md` (allegato dall'utente): a fine PL-24, PL-25
 PL-32 del piano originale vengono sostituiti da **PL-25-UX**, **PL-27-UX**, **PL-30-UX**.
 `PIANO_IMPLEMENTAZIONE_CONSOLIDATO.md` verrà aggiornato di conseguenza prima di eseguirli.
 
-## Stato di ripresa (fine sessione corrente)
+## Aggiornamento Passo 0 — FT-01 confermato
 
-Completati e pushati: PL-04 (saltato), PL-01, PL-02, PL-03, PL-08. Nessun pacchetto "in corso" a metà.
-**Prossimo pacchetto da eseguire: PL-06** (invio atomico delle risposte — transazione Firebase su
-`teamSubmitAnswer`/`adminSubmitTestAnswer`), poi PL-07 (join atomico/univoco), poi il checkpoint di
-conferma FT-01/PL-05 (vedi Passo 0 sopra, ancora senza risposta esplicita dell'utente). Sessione
-interrotta qui per prudenza (pacchetti rimanenti più delicati architetturalmente), non per errori o
-contesto esaurito a metà lavoro.
+L'utente ha confermato esplicitamente la proposta di default: dialog di reset a due passaggi +
+checklist di backup manuale, non il secondo progetto Firebase del piano originale.
+`PIANO_IMPLEMENTAZIONE_CONSOLIDATO.md` è stato aggiornato di conseguenza (sezione PL-05 riscritta,
+commit `2b55d31`) prima di eseguire il pacchetto.
 
 ## Log pacchetti
 
@@ -45,3 +43,4 @@ contesto esaurito a metà lavoro.
 | PL-02 | Loading, timeout, errore, retry all'avvio | fatto | a97a80b | Aggiunti `bootStatus`/`retryBoot()` in js/state.js (timeout 8s su `startListening`) e `renderBootScreen()` in js/render.js, richiamata da `render()` quando `!state` invece di lasciare la pagina bianca. Nuovo test tests/e2e/phase1-boot-recovery.spec.js (simula rete offline via `context.setOffline`, verifica loading→timeout→retry funzionante). Non toccato quizzettone.html: tutta la logica sta in state.js/render.js, non serve nulla nello script di boot. Suite completa non rieseguita (interrotta in background per evitare conflitti sull'emulatore condiviso); rieseguiti invece i test mirati più ampi (lobby, smoke, timer, xss) oltre a quello nuovo — tutti verdi. |
 | PL-03 | Gestire gli esiti reali delle operazioni Firebase | fatto | b9c6048 | Aggiunto `showErrorBanner()` in js/render.js. `withUndo` ora ritorna esito e mostra errore+retry se `safeSet` fallisce (copre indirettamente `adminAdjustPoints`, che delega tutto a `withUndo`). Controllato esplicitamente il ritorno di `safeSet` in `adminStartGame`, `adminSaveSetup`, `adminResetGame`, `teamJoin`, `teamSubmitAnswer`: su fallimento non si avanza più lo stato locale (es. `teamJoin` non assegna più `teamId`/`teamName` prima di sapere se la scrittura è riuscita). Fuori scope (non toccato, come da elenco file del pacchetto): le `safeDelete` (silenziose per disegno) e i `db.ref(...).update()` diretti altrove nel codice. Test nuovo tests/e2e/phase1-write-errors.spec.js: simula un fallimento reale di `.set()` via monkey-patch di `db.ref` (non tramite regole Firebase, per non toccare FT-02) su join/risposta/reset, verifica banner+retry funzionante per tutti e tre. Suite mirata (lobby, smoke, xss, undo, boot-recovery) tutta verde. |
 | PL-08 | Validazione e limiti sui file media | fatto | c5ecc5a | `uploadAudioFile` (js/firebase-init.js) ora rifiuta prima dell'upload i file non audio o oltre 8MB, con un `Error` dal messaggio chiaro. Non serve toccare js/render.js (a differenza di quanto ipotizzato dal piano): i due punti di chiamata (form domande, form effetti) avevano già un try/catch che mostra `e.message` nello stesso punto dove appare "Caricamento audio...", quindi ereditano il messaggio d'errore gratis. Nuovo test tests/e2e/phase1-media-validation.spec.js (tipo sbagliato + file sovradimensionato, su entrambi i punti di upload). Suite di regressione mirata (smoke, testmode-stats) verde. |
+| PL-05 | Reset a due passaggi con checklist di backup (versione rivista, ex "ambiente di prova separato") | fatto | (vedi prossimo commit) | Nuova `showResetChecklistModal()` in js/render.js: Step 1 checklist a 3 caselle (nessuna preselezionata) con "Continua" disabilitato finché non sono tutte spuntate; Step 2 conferma finale separata che è l'unico punto a chiamare `adminResetGame`. `btnReset` non usa più `showConfirmModal` generica. Aggiornati due test esistenti che assumevano il vecchio flusso a un solo step (`phase1-undo.spec.js`, `phase1-write-errors.spec.js`) più un nuovo test dedicato che verifica che il reset vero e proprio non scatti finché entrambi gli step non sono completati. Suite mirata (undo, write-errors, smoke) verde. |
