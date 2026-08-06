@@ -214,21 +214,81 @@ autorevole) è esattamente il terreno su cui altrimenti si costruirebbero le nuo
 - **Criterio di completamento:** cambiare lo scoring di default a metà partita non altera il punteggio
   già calcolato per le domande precedenti (verificabile con un test e2e dedicato).
 
-### PL-11 — Tempo autorevole condiviso (FT-11 / item 36)
+### PL-11 — Tempo autorevole condiviso + fasi separate presentazione/sblocco/timer (FT-11 / item 36)
 
-- **Cosa manca:** il timer usa `Date.now()` del client admin (`js/actions.js:4-10,135-150`), non
-  `firebase.database.ServerValue.TIMESTAMP` né `.info/serverTimeOffset`.
-- **File toccati:** `js/actions.js` (apertura/pausa/ripresa timer), `js/state.js` (`timeRemaining()`).
+> **Nota di revisione:** prima di iniziare l'implementazione, l'utente ha chiesto di far confluire in
+> questo pacchetto — allargandolo — una parte ridotta del documento di riferimento
+> `PROPOSTA_SCHERMO_CONDIVISO_completa.md` (progetto completo di modalità "schermo condiviso", non
+> implementato per intero: qui entra solo il sottoinsieme elencato sotto). Motivazione: il lavoro di
+> PL-11 tocca comunque il cuore del ciclo di vita della domanda (apertura, timer, sblocco risposte), ed
+> è il punto naturale per smettere di trattare "la domanda è mostrata" e "le risposte sono sbloccate" e
+> "il timer è partito" come un solo istante — un presupposto che una futura modalità a schermo condiviso
+> (proiettore/TV comune, risposta da telefono separata) romperebbe strutturalmente se non separato ora.
+> Non è un'implementazione della modalità schermo condiviso in sé (niente vista Display dedicata, niente
+> UI di scelta reale tra `team_devices`/`shared_screen` oltre al campo dati) — solo la separazione dei
+> tre momenti e le fondamenta dati minime perché una futura Display possa appoggiarsi. Restano
+> esplicitamente **fuori scope** (anche se presenti nel documento di riferimento completo):
+> `instanceId`/`activityId`/`revision` sulle risposte, un registro `ACTIVITY_TYPES`, `displayPresence.
+> capabilities`, uno switch lettere/testo per i pulsanti risposta, uno `spectatorContentMode`
+> configurabile (lo spettatore resta sempre a contenuto pieno, hardcoded, come oggi).
+- **Cosa manca (parte originale, tempo autorevole):** il timer usa `Date.now()` del client admin
+  (`js/actions.js:4-10,135-150`), non `firebase.database.ServerValue.TIMESTAMP` né
+  `.info/serverTimeOffset`.
+- **Cosa manca (parte aggiunta, fasi/presentazione — 9 punti ridotti dal documento di riferimento):**
+  1. Un campo di configurazione `sessionConfig.displayMode` (`team_devices` | `shared_screen` |
+     `hybrid`), impostabile in Sala pre-partita, default `team_devices` (comportamento attuale).
+  2. Due campi riservati sul contratto domanda futuro di PL-18: `presentation.mode` e
+     `sharedScreenRequirement` (solo riserva di schema qui; PL-18 li userà davvero).
+  3. Tre timestamp distinti per istanza di domanda invece di un solo "timer partito":
+     `presentedAt` (la domanda è mostrata), `inputUnlockedAt` (le risposte sono sbloccabili),
+     `timerStartedAt` (il countdown è partito). `timeRemaining()` calcola sempre da `timerStartedAt`.
+  4. Un resolver `resolvePresentationMode()` che scrive una sola volta `state.presentation.
+     resolvedMode` risolvendo `displayMode` (niente ricalcolo continuo).
+  5. Due politiche di sblocco risposte: `immediate` (comportamento attuale: sblocco e timer coincidono,
+     usata quando `displayMode==='team_devices'`) e `manual` (default quando `displayMode==='shared_screen'`
+     o `'hybrid'`: la domanda è mostrata ma le risposte restano bloccate finché l'admin non preme un
+     pulsante esplicito "Apri risposte", che sblocca l'input e fa partire il timer nello stesso istante).
+  6. Vista Team: quando `displayMode!=='team_devices'` e l'input non è ancora sbloccato, mostra solo un
+     messaggio "Guarda lo schermo condiviso" al posto delle opzioni di risposta.
+  7. Un fallback manuale per singola domanda: pulsante admin "Mostra domanda sui telefoni"
+     (`presentation.fallbackActive`), nessun fallback automatico — se lo schermo condiviso non
+     funziona, l'admin lo attiva a mano per quella domanda.
+  8. Contenuto spettatore resta sempre pieno, hardcoded (nessun nuovo switch di configurazione).
+  9. Un heartbeat di presenza per un futuro ruolo Display (`connected` + `lastSeenAt`, aggiornato ogni
+     2-3s, con `onDisconnect()`), stesso pattern già usato per la presenza squadra
+     (`armPresence`/`disarmPresence`, PL-09).
+- **File toccati:** `js/actions.js` (apertura/pausa/ripresa timer, apertura domanda, nuova azione
+  "Apri risposte", nuovo fallback per-domanda, heartbeat), `js/state.js` (`serverNow()`, offset,
+  `resolvePresentationMode()`, `defaultState()`/`withDefaults()` per i nuovi campi), `js/render.js`
+  (`timeRemaining()` — la sua definizione reale è qui, non in `js/state.js` come indicato nella
+  versione precedente di questa voce di piano —, Sala pre-partita per `displayMode`, vista Team per lo
+  stato "guarda lo schermo condiviso", pulsanti admin "Apri risposte"/"Mostra domanda sui telefoni").
 - **Approccio tecnico:** leggere una volta `db.ref('.info/serverTimeOffset').on('value', ...)` e tenere
-  un offset locale; usare `Date.now() + offset` ovunque oggi si usa `Date.now()` per il timer.
-  `closeAnswersTransactional` già valuta la scadenza lato server nella transazione, quindi il grosso
-  del lavoro è sul countdown visuale e sull'apertura/ripresa.
-- **Dipendenze:** nessuna rispetto a PL-09; da fare prima di completare PL-06 (bonus velocità coerente)
-  e PL-14 (bonus per ordine).
-- **Complessità:** L
-- **Criterio di completamento:** con l'orologio di un dispositivo volutamente sfasato di alcuni minuti,
-  il countdown mostrato converge con gli altri dispositivi entro ~500ms (obiettivo dichiarato dal
-  piano, domanda aperta §8.3).
+  un offset locale in `js/state.js`, con un helper `serverNow()` che sostituisce `Date.now()` nei punti
+  critici per il timer (apertura/pausa/ripresa/aggiustamento timer, timestamp `ts` delle risposte);
+  `Date.now()` non timer-critico (`joinedAt`, `createdAt`, ecc.) resta invariato, nessuna riscrittura
+  generale. `closeAnswersTransactional` già valuta la scadenza lato server nella transazione, quindi il
+  grosso del lavoro sul tempo autorevole è sul countdown visuale e sull'apertura/ripresa. Per le fasi
+  separate: `adminNextQuestion`/`adminContinueFromCheckpoint` scrivono `presentedAt` all'apertura; se
+  la policy è `immediate` scrivono anche `inputUnlockedAt`+`timerStartedAt` nello stesso istante (oggi);
+  se `manual`, questi due restano `null` finché l'admin non preme "Apri risposte" (nuova azione che li
+  scrive insieme). L'heartbeat Display riusa il meccanismo `.info/connected`+`onDisconnect()` già
+  presente per la presenza squadra, su un nuovo ramo `presencePath('display', connId)`.
+- **Dipendenze:** nessuna rispetto a PL-09 (di cui riusa i rami `state`/`questionInstances`/`presence`);
+  da fare prima di completare PL-06 (bonus velocità coerente) e PL-14 (bonus per ordine). Le due parti
+  di questo pacchetto (tempo autorevole, fasi separate) sono correlate ma indipendenti internamente —
+  possono essere implementate e testate in sequenza all'interno dello stesso commit.
+- **Criterio di completamento (parte originale):** con l'orologio di un dispositivo volutamente sfasato
+  di alcuni minuti, il countdown mostrato converge con gli altri dispositivi entro ~500ms (obiettivo
+  dichiarato dal piano, domanda aperta §8.3).
+- **Criterio di completamento (parte aggiunta):** con `displayMode:'team_devices'` (default) il
+  comportamento è identico a oggi (sblocco e timer coincidono con l'apertura). Con
+  `displayMode:'shared_screen'`, dopo l'apertura della domanda la squadra vede "Guarda lo schermo
+  condiviso" e non può rispondere finché l'admin non preme "Apri risposte"; da quel momento in poi
+  input e timer partono insieme e il flusso torna identico a oggi. Il pulsante "Mostra domanda sui
+  telefoni" sblocca manualmente l'input per la domanda corrente senza toccare la configurazione
+  globale. Un client con ruolo Display simulato nei test aggiorna `lastSeenAt` periodicamente e la sua
+  presenza risulta `connected:false` dopo la disconnessione.
 
 ### PL-12 — Sala pre-partita: riepilogo e preset (item 12, 13, 14)
 
@@ -332,6 +392,12 @@ autorevole) è esattamente il terreno su cui altrimenti si costruirebbero le nuo
 ## Fase 4 del piano — Tutte le tipologie principali
 
 ### PL-18 — Contratto comune delle domande (item 15)
+
+> **Nota di collegamento (da PL-11):** PL-11 ha riservato due campi che questo pacchetto deve popolare
+> davvero: `presentation.mode` (come la domanda va presentata, in relazione a `sessionConfig.
+> displayMode`) e `sharedScreenRequirement` (se la domanda richiede necessariamente lo schermo
+> condiviso, es. contenuto multimediale grande). Finché PL-18 non li implementa, restano riservati ma
+> inerti (nessuna domanda esistente li imposta, nessun ramo di codice li legge).
 
 - **Cosa manca:** le domande hanno solo `pool/category/question/options/correctIndex/adminNote/
   audioUrl` (`js/state.js:488-518`); nessun contratto con tipo di contenuto/risposta, tolleranza,
