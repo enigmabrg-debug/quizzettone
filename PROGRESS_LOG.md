@@ -34,6 +34,14 @@ checklist di backup manuale, non il secondo progetto Firebase del piano original
 `PIANO_IMPLEMENTAZIONE_CONSOLIDATO.md` è stato aggiornato di conseguenza (sezione PL-05 riscritta,
 commit `2b55d31`) prima di eseguire il pacchetto.
 
+## Gate iniziale completato
+
+Tutti gli 8 pacchetti del gate iniziale (Fase 0-1) sono conclusi: PL-04 (saltato), PL-01, PL-02, PL-03,
+PL-08, PL-05, PL-06, PL-07. Prossimo passo: PL-09 (Fase 2, nuovo modello dati strutturato), che
+richiede conferma esplicita dell'utente prima di partire (vedi Passo 0) perché contraddice la
+decisione precedente di mantenere lo stato piatto a sessione singola. Sessione interrotta qui in
+attesa di quella conferma.
+
 ## Log pacchetti
 
 | ID | Titolo | Stato | Commit | Note/deviazioni |
