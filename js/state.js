@@ -132,6 +132,8 @@ function defaultState(){
     // answerVisibilityForEliminated) vengono già salvati qui ma il loro
     // comportamento differenziato viene applicato nelle fasi successive.
     config: {
+      version: 0, // incrementato a ogni adminSaveSetup riuscito (PL-10): un contatore di
+                  // versione grezzo, non ancora usato per invalidare nulla da solo.
       rounds: 2,
       questionsPerRound: [15, 15],
       finalistCount: 2,
@@ -384,10 +386,49 @@ function startUiTick(){
 async function refresh(){ render(); }
 
 /* ================== LOGICA PUNTEGGI ================== */
+/* Punteggio effettivo da congelare nell'istanza al momento dell'apertura
+   (PL-10): stessa risoluzione config.finalScoring/config.scoring/
+   scoringDefaults di sempre, ma calcolata UNA VOLTA, quando la domanda
+   diventa quella corrente, non ogni volta che qualcuno guarda il punteggio.
+   'cfg' è opzionale: adminStartGame la passa esplicitamente perché in quel
+   punto lo 'state' locale non riflette ancora la config appena scelta. */
+function computeEffectiveScoringForOpen(round, cfg){
+  cfg = cfg || (state && state.config);
+  if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
+  return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;
+}
+/* Ritorna una copia di gameQuestions con lo scoringSnapshot scritto sulla
+   domanda round/idx. Pura (nessuna scrittura Firebase qui): il chiamante in
+   actions.js decide quando e come persisterla. */
+function withScoringSnapshotApplied(gq, round, idx, snapshot){
+  if(round==='tiebreak'){
+    return {...gq, tiebreak: gq.tiebreak ? {...gq.tiebreak, scoringSnapshot: snapshot} : gq.tiebreak};
+  }
+  if(round==='final'){
+    const final = [...(gq.final||[])];
+    if(final[idx]) final[idx] = {...final[idx], scoringSnapshot: snapshot};
+    return {...gq, final};
+  }
+  const rounds = {...(gq.rounds||{})};
+  const list = [...(rounds[round]||[])];
+  if(list[idx]) list[idx] = {...list[idx], scoringSnapshot: snapshot};
+  rounds[round] = list;
+  return {...gq, rounds};
+}
+/* Il punteggio "di default" (senza override esplicito) ora viene letto
+   dallo snapshot congelato nell'istanza della domanda, non più dalla config
+   corrente: cambiare la config a partita in corso non deve poter ricalcolare
+   domande già aperte. L'override esplicito per singola domanda
+   (adminSetQuestionScoring) resta intenzionalmente sopra allo snapshot,
+   perché è proprio lo strumento con cui l'admin corregge un punteggio dopo
+   il fatto. Il fallback alla config live resta solo per compatibilità con
+   domande aperte prima di questo pacchetto (nessuno snapshot salvato). */
 function scoringFor(round, idx){
   const key = qkey(round, idx);
   const override = state && state.scoringOverrides && state.scoringOverrides[key];
   if(override) return override;
+  const q = getQuestion(round, idx);
+  if(q && q.scoringSnapshot) return q.scoringSnapshot;
   const cfg = state && state.config;
   if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
   return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;

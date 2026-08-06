@@ -8,6 +8,19 @@ function openQuestionTimer(durationMs, cfg){
     ? {status:'idle', startedAt:null, durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
     : {status:'running', startedAt:Date.now(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
 }
+/* Apre una domanda scrivendo insieme, in un solo update() atomico, lo stato
+   (fase/indice/timer/ecc., passati in stateFields) e lo scoringSnapshot
+   congelato sull'istanza della nuova domanda corrente (PL-10): da qui in
+   avanti, una modifica successiva alla config di scoring non può più
+   alterare il punteggio già risolto per questa domanda. */
+async function openQuestionWithSnapshot(round, idx, stateFields){
+  const snapshot = computeEffectiveScoringForOpen(round);
+  const newGameQuestions = withScoringSnapshotApplied(gameQuestions, round, idx, snapshot);
+  await db.ref(DB_ROOT).update({
+    [statePath()]: {...state, ...stateFields},
+    [questionInstancesPath()]: newGameQuestions
+  });
+}
 /* Storico minimo + "annulla ultima azione": salva uno snapshot del path
    PRIMA della modifica, poi scrive la modifica stessa. 'path' === statePath()
    viene scritto in un'unica operazione insieme al nuovo 'history' (altrimenti
@@ -83,12 +96,17 @@ async function adminStartGame(){
   };
   // state e questionInstances sono rami separati (PL-09): scritti insieme in
   // un solo update() atomico, così non c'è mai un istante in cui l'uno è già
-  // aggiornato e l'altro no.
+  // aggiornato e l'altro no. La prima domanda (manche 1, indice 0) riceve già
+  // il suo scoringSnapshot (PL-10), calcolato su 'cfg' esplicitamente perché
+  // qui 'state' locale non riflette ancora la config appena scelta.
+  const initialGameQuestions = withScoringSnapshotApplied(
+    { rounds, final:null, tiebreak:null }, 1, 0, computeEffectiveScoringForOpen(1, cfg)
+  );
   let ok = true;
   try{
     await db.ref(DB_ROOT).update({
       [statePath()]: s,
-      [questionInstancesPath()]: { rounds, final:null, tiebreak:null }
+      [questionInstancesPath()]: initialGameQuestions
     });
   } catch(e){ ok = false; }
   if(!ok){
@@ -107,6 +125,7 @@ async function adminSaveSetup(gameName, patch){
   if(patch.scoring) nextConfig.scoring = {...state.config.scoring, ...patch.scoring};
   if(patch.tiebreakRule) nextConfig.tiebreakRule = {...state.config.tiebreakRule, ...patch.tiebreakRule};
   if(patch.lateJoin) nextConfig.lateJoin = {...state.config.lateJoin, ...patch.lateJoin};
+  nextConfig.version = (state.config.version || 0) + 1;
   const ok = await safeSet(statePath(), {...state, gameName, config:nextConfig}, true);
   if(!ok){
     showErrorBanner('Salvataggio impostazioni non riuscito: controlla la connessione e riprova.', ()=>adminSaveSetup(gameName, patch));
@@ -227,13 +246,13 @@ async function adminNextQuestion(){
     } else if(qNumber===list.length){
       await safeSet(statePath(), {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
     } else {
-      await safeSet(statePath(), {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await openQuestionWithSnapshot(round, idx+1, {qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])});
     }
   } else if(round==='final'){
     if(qNumber===list.length){
       await safeSet(statePath(), {...state, phase:'final_ready'}, true);
     } else {
-      await safeSet(statePath(), {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await openQuestionWithSnapshot('final', idx+1, {qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])});
     }
   } else if(round==='tiebreak'){
     await safeSet(statePath(), {...state, phase:'tiebreak_closed'}, true);
@@ -248,11 +267,11 @@ async function adminContinueFromCheckpoint(){
   const totalRounds = (state.config && state.config.rounds) || 2;
   if(cp.type==='mid'){
     const nextQ = getQuestion(cp.round, state.qIndex+1);
-    await safeSet(statePath(), {...state, qIndex:state.qIndex+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await openQuestionWithSnapshot(cp.round, state.qIndex+1, {qIndex:state.qIndex+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)});
   } else if(cp.type==='end' && cp.round < totalRounds){
     const nextRound = cp.round+1;
     const nextQ = getQuestion(nextRound, 0);
-    await safeSet(statePath(), {...state, round:nextRound, qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await openQuestionWithSnapshot(nextRound, 0, {round:nextRound, qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)});
   }
   await refresh();
 }
@@ -283,9 +302,11 @@ async function adminStartTiebreakQuestion(qIdx){
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
   const s = {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen)};
+  const gqWithTiebreak = {...gameQuestions, tiebreak: chosen};
+  const snapshot = computeEffectiveScoringForOpen('tiebreak');
   await db.ref(DB_ROOT).update({
     [statePath()]: s,
-    [questionInstancesPath()]: {...gameQuestions, tiebreak: chosen}
+    [questionInstancesPath()]: withScoringSnapshotApplied(gqWithTiebreak, 'tiebreak', 0, snapshot)
   });
   await refresh();
 }
@@ -315,9 +336,11 @@ async function adminContinueToFinal(){
   const drawn = drawQuestionsForGame('finale', finalQuestionCount);
   await markQuestionsUsed(drawn);
   const s = {...state, round:'final', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0])};
+  const gqWithFinal = {...gameQuestions, final:drawn};
+  const snapshot = computeEffectiveScoringForOpen('final');
   await db.ref(DB_ROOT).update({
     [statePath()]: s,
-    [questionInstancesPath()]: {...gameQuestions, final:drawn}
+    [questionInstancesPath()]: withScoringSnapshotApplied(gqWithFinal, 'final', 0, snapshot)
   });
   await refresh();
 }
