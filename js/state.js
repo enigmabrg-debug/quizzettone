@@ -61,6 +61,14 @@ function getList(round){
 }
 function getQuestion(round, idx){ return getList(round)[idx]; }
 function qkey(round, idx){ return round+'-'+idx; }
+/* Tempo autorevole condiviso (PL-11): Date.now() del solo client admin non è
+   affidabile se il suo orologio è sfasato. serverNow() lo corregge con
+   l'offset misurato da Firebase su '.info/serverTimeOffset' (vedi
+   startListening), così il countdown converge tra dispositivi anche con
+   orologi diversi. Usata solo nei punti critici per il timer/i timestamp di
+   risposta; il resto del codice (joinedAt, createdAt, audioCue, ecc.) resta
+   su Date.now(), nessuna riscrittura generale. */
+function serverNow(){ return Date.now() + serverTimeOffset; }
 
 /* ================== APP STATE (locale) ================== */
 let role = null;          // 'admin' | 'team'
@@ -78,6 +86,11 @@ let bootStatus = 'connecting'; // 'connecting' | 'ready' | 'timeout': stato del 
                                 // prima che arrivi il primissimo snapshot da Firebase (vedi FT-04)
 let bootTimeoutTimer = null;
 const BOOT_TIMEOUT_MS = 8000;
+let serverTimeOffset = 0; // differenza (ms) tra l'orologio del server Firebase e quello di questa
+                           // scheda, letta da '.info/serverTimeOffset' (PL-11): serverNow() la usa
+                           // ovunque il conto alla rovescia deve restare autorevole anche con
+                           // l'orologio locale sfasato.
+let displayHeartbeatTimer = null; // battito di presenza per il ruolo 'display' (PL-11, item 9)
 
 let state = null;         // stato di gioco condiviso
 let gameQuestions = null; // domande estratte per questa partita (ramo separato, PL-09): {rounds, final, tiebreak}
@@ -126,6 +139,13 @@ function defaultState(){
     gameId:null, // generato ad ogni avvio partita, usato come chiave in statsHistory/<gameId>
     testMode:false, // rehearsal pre-partita con squadre fittizie (isTest:true), mai attivo a config bloccata
     partyMode:'none', party:{bonus:null, malus:null, surprise:null},
+    // Fondamenta per una futura modalità a schermo condiviso (PL-11, scope
+    // ridotto da PROPOSTA_SCHERMO_CONDIVISO_completa.md): resolvedMode viene
+    // risolto una sola volta da resolvePresentationMode() all'avvio partita
+    // (adminStartGame), non ricalcolato a ogni render. fallbackActive è un
+    // interruttore per-domanda ("Mostra domanda sui telefoni"), azzerato
+    // ogni volta che si apre una nuova domanda.
+    presentation: {resolvedMode:null, fallbackActive:false},
     // Regole di gioco: vivono nello stato Firebase della partita invece di essere
     // valori hardcoded nel codice. L'admin le imposta nella Sala pre-partita
     // prima dello start; alcuni campi (finalScoring, scoreCarryover, tiebreakRule,
@@ -153,7 +173,12 @@ function defaultState(){
       // correzione silenziosa), scala linearmente da maxBonus a 0 entro
       // windowMs dall'apertura della domanda; si applica solo se la risposta
       // è corretta ed è calcolato una sola volta al momento dell'invio.
-      speedBonus: {enabled:false, maxBonus:0, windowMs:0}
+      speedBonus: {enabled:false, maxBonus:0, windowMs:0},
+      // 'team_devices' (oggi, default) | 'shared_screen' | 'hybrid' (PL-11):
+      // governa solo se lo sblocco delle risposte è immediato o manuale
+      // (vedi resolvePresentationMode/answerUnlockPolicyFor); nessuna vista
+      // Display dedicata è costruita in questo pacchetto.
+      displayMode: 'team_devices'
     }
   };
 }
@@ -174,6 +199,7 @@ function withDefaults(raw){
   merged.party = {...base.party, ...(raw.party||{})};
   merged.timer = {...base.timer, ...(raw.timer||{})};
   merged.history = {...base.history, ...(raw.history||{})};
+  merged.presentation = {...base.presentation, ...(raw.presentation||{})};
   // Migrazione del vecchio timer piatto (questionStartedAt/timerDuration) verso state.timer
   if(raw.questionStartedAt && !raw.timer){
     merged.timer = {status:'running', startedAt:raw.questionStartedAt, durationMs:raw.timerDuration||20000, pausedRemainingMs:null, closeReason:null, closedBy:null};
@@ -264,13 +290,19 @@ function startListening(){
     // e ripresa della rete va registrato di nuovo, altrimenti l'uscita non verrebbe
     // più rilevata la volta successiva.
     if(connected && role==='team' && teamId) armPresence(teamId);
+    if(connected && role==='display') armDisplayPresence();
     render();
+  });
+  db.ref('.info/serverTimeOffset').on('value', snap=>{
+    serverTimeOffset = snap.val() || 0;
   });
   startUiTick();
 }
 function stopListening(){
   db.ref(DB_ROOT).off('value');
   db.ref('.info/connected').off('value');
+  db.ref('.info/serverTimeOffset').off('value');
+  if(role==='display') disarmDisplayPresence();
   listening = false;
   if(uiTickTimer){ clearInterval(uiTickTimer); uiTickTimer = null; }
   if(bootTimeoutTimer){ clearTimeout(bootTimeoutTimer); bootTimeoutTimer = null; }
@@ -347,6 +379,26 @@ function disarmPresence(teamId){
 }
 function isTeamOnline(id){ return !!(presenceByTeam[id] && Object.keys(presenceByTeam[id]).length>0); }
 function teamDeviceCount(id){ return presenceByTeam[id] ? Object.keys(presenceByTeam[id]).length : 0; }
+/* PL-11 (item 9): stesso pattern di armPresence/disarmPresence sopra, ma per
+   un futuro ruolo Display, su presencePath('display', connId). In più tiene
+   un battito periodico (lastSeenAt), non solo connectedAt: una vista Display
+   futura potrà distinguere "connesso ma bloccato" da "davvero vivo". Nessuna
+   UI di questo pacchetto legge questi dati: solo la scrittura è costruita
+   qui, verificata dai test leggendo direttamente il ramo Firebase. */
+function armDisplayPresence(){
+  presenceConnId = presenceConnId || ('conn_' + Math.random().toString(36).slice(2,10));
+  const connRef = db.ref(DB_ROOT + '/' + presencePath('display', presenceConnId));
+  connRef.onDisconnect().remove();
+  const beat = ()=> connRef.set({connected:true, lastSeenAt: firebase.database.ServerValue.TIMESTAMP});
+  beat();
+  if(displayHeartbeatTimer) clearInterval(displayHeartbeatTimer);
+  displayHeartbeatTimer = setInterval(beat, 2500);
+}
+function disarmDisplayPresence(){
+  if(displayHeartbeatTimer){ clearInterval(displayHeartbeatTimer); displayHeartbeatTimer = null; }
+  if(!presenceConnId) return;
+  db.ref(DB_ROOT + '/' + presencePath('display', presenceConnId)).remove();
+}
 
 /* Codice breve per entrare in partita: generato una sola volta (dal primo
    admin che carica la pagina) e poi condiviso da tutti tramite lo stato
@@ -397,23 +449,53 @@ function computeEffectiveScoringForOpen(round, cfg){
   if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
   return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;
 }
-/* Ritorna una copia di gameQuestions con lo scoringSnapshot scritto sulla
-   domanda round/idx. Pura (nessuna scrittura Firebase qui): il chiamante in
-   actions.js decide quando e come persisterla. */
-function withScoringSnapshotApplied(gq, round, idx, snapshot){
+/* Ritorna una copia di gameQuestions con 'fields' fuso sulla domanda
+   round/idx (tiebreak/final/manche). Pura (nessuna scrittura Firebase qui):
+   il chiamante in actions.js decide quando e come persisterla. Fattorizzata
+   da PL-10 (era specifica dello scoringSnapshot) per essere riusata anche
+   dai timestamp di presentazione di PL-11 (presentedAt/inputUnlockedAt/
+   timerStartedAt), stesso identico bisogno: scrivere campi sull'istanza
+   della domanda corrente senza toccare teams/answers. */
+function applyQuestionInstanceFields(gq, round, idx, fields){
   if(round==='tiebreak'){
-    return {...gq, tiebreak: gq.tiebreak ? {...gq.tiebreak, scoringSnapshot: snapshot} : gq.tiebreak};
+    return {...gq, tiebreak: gq.tiebreak ? {...gq.tiebreak, ...fields} : gq.tiebreak};
   }
   if(round==='final'){
     const final = [...(gq.final||[])];
-    if(final[idx]) final[idx] = {...final[idx], scoringSnapshot: snapshot};
+    if(final[idx]) final[idx] = {...final[idx], ...fields};
     return {...gq, final};
   }
   const rounds = {...(gq.rounds||{})};
   const list = [...(rounds[round]||[])];
-  if(list[idx]) list[idx] = {...list[idx], scoringSnapshot: snapshot};
+  if(list[idx]) list[idx] = {...list[idx], ...fields};
   rounds[round] = list;
   return {...gq, rounds};
+}
+function withScoringSnapshotApplied(gq, round, idx, snapshot){
+  return applyQuestionInstanceFields(gq, round, idx, {scoringSnapshot: snapshot});
+}
+/* PL-11 (item 3): presentedAt/inputUnlockedAt/timerStartedAt sono tre
+   momenti distinti invece di un solo "timer partito", scritti sull'istanza
+   della domanda corrente (non su state.timer, che resta l'unica fonte di
+   verità per il conto alla rovescia live/pausa/ripresa, invariato). */
+function withPresentationTimestampsApplied(gq, round, idx, fields){
+  return applyQuestionInstanceFields(gq, round, idx, fields);
+}
+/* PL-11 (item 4): risolve UNA VOLTA sola, all'avvio partita, la modalità di
+   presentazione effettiva a partire da config.displayMode. Scritta su
+   state.presentation.resolvedMode da adminStartGame e mai più ricalcolata
+   nel corso della stessa partita (niente rivalutazione continua a ogni
+   render). */
+function resolvePresentationMode(cfg){
+  return (cfg && cfg.displayMode) || 'team_devices';
+}
+/* PL-11 (item 5): due sole politiche di sblocco risposte. 'immediate' è il
+   comportamento di sempre (lo sblocco coincide con la partenza del timer,
+   che sia automatica o manuale via config.timerStartMode); 'manual' è nuova,
+   default per shared_screen/hybrid: la domanda si apre bloccata finché
+   l'admin non preme esplicitamente "Apri risposte". */
+function answerUnlockPolicyFor(resolvedMode){
+  return resolvedMode==='team_devices' ? 'immediate' : 'manual';
 }
 /* Il punteggio "di default" (senza override esplicito) ora viene letto
    dallo snapshot congelato nell'istanza della domanda, non più dalla config

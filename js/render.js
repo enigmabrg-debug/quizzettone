@@ -16,7 +16,7 @@ function timeRemaining(){
   const t = state.timer;
   if(t.status==='paused') return t.pausedRemainingMs || 0;
   if(t.status!=='running' || !t.startedAt) return 0;
-  return Math.max(0, t.durationMs - (Date.now() - t.startedAt));
+  return Math.max(0, t.durationMs - (serverNow() - t.startedAt)); // PL-11: tempo autorevole condiviso
 }
 function circleTimer(remainingMs, total){
   const pct = Math.max(0, Math.min(1, remainingMs/total));
@@ -663,6 +663,25 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const remaining = active ? (timerIdle ? state.timer.durationMs : timeRemaining()) : 0;
   const expired = active && !timerIdle && remaining<=0 && !myAnswer;
   const showCorrectness = round!=='tiebreak' && !active && !!state.solutionRevealed;
+  // PL-11 (item 6): con sblocco manuale (schermo condiviso/ibrido) e input
+  // ancora bloccato, la domanda non va mostrata sul telefono — solo un
+  // rimando allo schermo condiviso — a meno che l'admin non abbia attivato
+  // il fallback per-domanda (item 7).
+  const resolvedMode = (state.presentation && state.presentation.resolvedMode) || 'team_devices';
+  const fallbackActive = !!(state.presentation && state.presentation.fallbackActive);
+  const sharedScreenLocked = timerIdle && answerUnlockPolicyFor(resolvedMode)==='manual' && !fallbackActive;
+  if(sharedScreenLocked){
+    const roundLabelLocked = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
+    return `
+      <div class="card stack">
+        <div class="qmeta">
+          <span class="pill gold">${roundLabelLocked}</span>
+          <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
+        </div>
+        <div class="status-banner">📺 Guarda lo schermo condiviso</div>
+      </div>
+    `;
+  }
 
   let optionsHtml = q.options.map((opt,i)=>{
     let cls = 'opt';
@@ -924,6 +943,11 @@ function renderSalaPrePartita(s, cfg){
         <option value="auto" ${cfg.timerStartMode==='auto'?'selected':''}>Automatico all'apertura della domanda</option>
         <option value="manual" ${cfg.timerStartMode==='manual'?'selected':''}>Manuale (parte solo quando clicchi "Avvia timer")</option>
       </select></label>
+      <label class="stack">Modalità di presentazione<select id="setupDisplayMode" ${s.setupLocked?'disabled':''}>
+        <option value="team_devices" ${(cfg.displayMode||'team_devices')==='team_devices'?'selected':''}>Solo dispositivi squadra (oggi)</option>
+        <option value="shared_screen" ${cfg.displayMode==='shared_screen'?'selected':''}>Schermo condiviso: le risposte restano bloccate finché non premi "Apri risposte"</option>
+        <option value="hybrid" ${cfg.displayMode==='hybrid'?'selected':''}>Ibrida: come schermo condiviso, sblocco sempre manuale</option>
+      </select></label>
 
       <button class="btn ghost small" id="btnToggleAdvancedSetup">${showAdvancedSetup?'▲ Nascondi impostazioni avanzate':'▼ Impostazioni avanzate'}</button>
       <div id="salaAdvancedSection" style="display:${showAdvancedSetup?'flex':'none'};flex-direction:column;gap:10px;">
@@ -1043,6 +1067,12 @@ function renderAdmin(){
     const answeredIdsForCount = activeTeams.filter(id=>answersByTeam[id] && answersByTeam[id][questionKey]);
     const missingIdsForCount = activeTeams.filter(id=>!answeredIdsForCount.includes(id));
     const offlineMissingCount = missingIdsForCount.filter(id=>!isTeamOnline(id)).length;
+    // PL-11: se lo sblocco delle risposte è manuale (schermo condiviso/ibrido),
+    // il pulsante idle è lo stesso btnStartTimer di sempre ma con un'etichetta
+    // diversa, più il fallback per-domanda "Mostra domanda sui telefoni".
+    const resolvedMode = (s.presentation && s.presentation.resolvedMode) || 'team_devices';
+    const manualUnlock = answerUnlockPolicyFor(resolvedMode) === 'manual';
+    const fallbackActive = !!(s.presentation && s.presentation.fallbackActive);
 
     controlPanel = `
       <div class="card stack">
@@ -1054,9 +1084,10 @@ function renderAdmin(){
           <span class="pill">${missingIdsForCount.length} mancanti</span>
           ${offlineMissingCount>0?`<span class="pill" style="color:var(--pink);">${offlineMissingCount} offline</span>`:''}
         </div>
-        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?'<div class="pill">In attesa di avvio</div>':''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
+        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?`<div class="pill">${manualUnlock?'Risposte bloccate: in attesa dello schermo condiviso':'In attesa di avvio'}</div>`:''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
         ${!closed?`<div class="row">
-          ${idle?`<button class="btn" id="btnStartTimer">▶ Avvia timer</button>`:''}
+          ${idle?`<button class="btn" id="btnStartTimer">${manualUnlock?'🔓 Apri risposte':'▶ Avvia timer'}</button>`:''}
+          ${idle && manualUnlock && !fallbackActive?`<button class="btn ghost small" id="btnActivateTeamFallback">Mostra domanda sui telefoni</button>`:''}
           ${!idle && s.timer.status==='running'?`<button class="btn secondary small" id="btnPauseTimer">⏸ Pausa</button>`:''}
           ${paused?`<button class="btn secondary small" id="btnResumeTimer">▶ Riprendi</button>`:''}
           ${!idle?`<button class="btn ghost small" id="btnTimerMinus5">-5s</button><button class="btn ghost small" id="btnTimerPlus5">+5s</button>`:''}
@@ -1629,7 +1660,7 @@ function renderAdminStandings(round, qualification){
    legata UNA SOLA VOLTA a 'document' (mai ricreato), quindi al momento del
    click controlla sempre il DOM live, indipendentemente da quante volte
    render() ha ricostruito i bottoni nel frattempo. */
-const DELEGATED_REGIA_BUTTON_IDS = ['btnCloseNow','btnReopenAnswers','btnCancelQuestion','btnStartTimer','btnPauseTimer','btnResumeTimer','btnTimerMinus5','btnTimerPlus5','btnRevealSolution','btnNext'];
+const DELEGATED_REGIA_BUTTON_IDS = ['btnCloseNow','btnReopenAnswers','btnCancelQuestion','btnStartTimer','btnActivateTeamFallback','btnPauseTimer','btnResumeTimer','btnTimerMinus5','btnTimerPlus5','btnRevealSolution','btnNext'];
 let delegatedRegiaHandlersBound = false;
 function onDelegatedRegiaClick(e){
   if(role!=='admin') return;
@@ -1640,6 +1671,7 @@ function onDelegatedRegiaClick(e){
     case 'btnReopenAnswers': adminReopenAnswers(); break;
     case 'btnCancelQuestion': if(confirm('Annullare questa domanda? Non assegnerà punti a nessuno.')) adminCancelQuestion(); break;
     case 'btnStartTimer': adminStartTimerManually(); break;
+    case 'btnActivateTeamFallback': adminActivateTeamFallback(); break;
     case 'btnPauseTimer': adminPauseTimer(); break;
     case 'btnResumeTimer': adminResumeTimer(); break;
     case 'btnTimerMinus5': adminAdjustTimer(-5000); break;
@@ -1691,7 +1723,8 @@ function attachAdminHandlers(){
       },
       tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
       lateJoin: { policy: byId('setupLateJoinPolicy').value },
-      timerStartMode: byId('setupTimerStartMode').value
+      timerStartMode: byId('setupTimerStartMode').value,
+      displayMode: byId('setupDisplayMode').value
     };
     // I campi avanzati esistono sempre nel DOM (sono solo nascosti via CSS),
     // ma li applichiamo al patch solo se la sezione è stata aperta: altrimenti

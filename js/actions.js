@@ -1,23 +1,46 @@
 /* ================== AZIONI ADMIN (scrivono su statePath()) ================== */
 // Costruisce il timer per una domanda appena aperta: parte da solo, a meno
-// che l'admin abbia scelto l'avvio manuale nelle impostazioni della partita.
-function openQuestionTimer(durationMs, cfg){
+// che l'admin abbia scelto l'avvio manuale nelle impostazioni della partita,
+// oppure (PL-11) la modalità di presentazione risolta per questa partita
+// richieda uno sblocco manuale delle risposte (shared_screen/hybrid): in
+// quel caso la domanda si apre sempre 'idle', indipendentemente da
+// timerStartMode, finché l'admin non preme "Apri risposte"
+// (adminStartTimerManually più sotto sblocca entrambe le cose insieme).
+function openQuestionTimer(durationMs, cfg, resolvedModeOverride){
   cfg = cfg || state.config;
-  const manual = cfg && cfg.timerStartMode === 'manual';
+  // resolvedModeOverride è usato solo da adminStartGame, l'unico punto in cui
+  // presentation.resolvedMode va risolto DA ZERO sulla nuova config invece
+  // che riusato da state.presentation (che a inizio funzione contiene ancora
+  // il valore della partita precedente, se ce n'è stata una).
+  const resolvedMode = resolvedModeOverride || (state && state.presentation && state.presentation.resolvedMode) || resolvePresentationMode(cfg);
+  const forcedIdle = answerUnlockPolicyFor(resolvedMode) === 'manual';
+  const manual = forcedIdle || (cfg && cfg.timerStartMode === 'manual');
   return manual
     ? {status:'idle', startedAt:null, durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
-    : {status:'running', startedAt:Date.now(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
+    : {status:'running', startedAt:serverNow(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
 }
 /* Apre una domanda scrivendo insieme, in un solo update() atomico, lo stato
    (fase/indice/timer/ecc., passati in stateFields) e lo scoringSnapshot
    congelato sull'istanza della nuova domanda corrente (PL-10): da qui in
    avanti, una modifica successiva alla config di scoring non può più
-   alterare il punteggio già risolto per questa domanda. */
+   alterare il punteggio già risolto per questa domanda. PL-11: stessa
+   scrittura atomica registra anche presentedAt (sempre) e, se il timer
+   costruito da stateFields.timer è già 'running' (sblocco immediato),
+   inputUnlockedAt/timerStartedAt allo stesso istante; azzera inoltre
+   presentation.fallbackActive, che riguarda solo la domanda precedente. */
 async function openQuestionWithSnapshot(round, idx, stateFields){
   const snapshot = computeEffectiveScoringForOpen(round);
-  const newGameQuestions = withScoringSnapshotApplied(gameQuestions, round, idx, snapshot);
+  let newGameQuestions = withScoringSnapshotApplied(gameQuestions, round, idx, snapshot);
+  const presentedAt = serverNow();
+  const tsFields = {presentedAt};
+  const timer = stateFields.timer;
+  if(timer && timer.status==='running'){
+    tsFields.inputUnlockedAt = presentedAt;
+    tsFields.timerStartedAt = presentedAt;
+  }
+  newGameQuestions = withPresentationTimestampsApplied(newGameQuestions, round, idx, tsFields);
   await db.ref(DB_ROOT).update({
-    [statePath()]: {...state, ...stateFields},
+    [statePath()]: {...state, ...stateFields, presentation: {...(state.presentation||{}), fallbackActive:false}},
     [questionInstancesPath()]: newGameQuestions
   });
 }
@@ -77,6 +100,10 @@ async function adminStartGame(){
     rounds[r] = drawn.slice(offset, offset+count);
     offset += count;
   }
+  // PL-11 (item 4): resolvedMode va risolto DA ZERO su questa cfg, non
+  // riusato da un'eventuale partita precedente (vedi nota in openQuestionTimer).
+  const resolvedMode = resolvePresentationMode(cfg);
+  const timer = openQuestionTimer(cfg.questionDurationMs, cfg, resolvedMode);
   // Riparte da defaultState() per azzerare i progressi della partita precedente,
   // ma preserva le regole/impostazioni scelte in lobby (config, nome partita,
   // Modalità Party) e blocca ulteriori modifiche alla configurazione.
@@ -91,16 +118,22 @@ async function adminStartGame(){
     partyMode: (state && state.partyMode) || 'none',
     party: (state && state.party) || defaultState().party,
     phase:'question', round:1, qIndex:0,
-    timer: openQuestionTimer(cfg.questionDurationMs, cfg),
+    timer,
+    presentation: {resolvedMode, fallbackActive:false},
     audioCue: audioCueForQuestion(drawn[0])
   };
   // state e questionInstances sono rami separati (PL-09): scritti insieme in
   // un solo update() atomico, così non c'è mai un istante in cui l'uno è già
   // aggiornato e l'altro no. La prima domanda (manche 1, indice 0) riceve già
   // il suo scoringSnapshot (PL-10), calcolato su 'cfg' esplicitamente perché
-  // qui 'state' locale non riflette ancora la config appena scelta.
-  const initialGameQuestions = withScoringSnapshotApplied(
-    { rounds, final:null, tiebreak:null }, 1, 0, computeEffectiveScoringForOpen(1, cfg)
+  // qui 'state' locale non riflette ancora la config appena scelta. PL-11:
+  // riceve anche presentedAt (sempre) e, se lo sblocco è immediato,
+  // inputUnlockedAt/timerStartedAt allo stesso istante.
+  const presentedAt = serverNow();
+  const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
+  const initialGameQuestions = withPresentationTimestampsApplied(
+    withScoringSnapshotApplied({ rounds, final:null, tiebreak:null }, 1, 0, computeEffectiveScoringForOpen(1, cfg)),
+    1, 0, tsFields
   );
   let ok = true;
   try{
@@ -151,7 +184,7 @@ async function closeAnswersTransactional(reason){
     if(!current.timer || current.timer.status !== 'running') return;
     if(reason==='expired'){
       const {startedAt, durationMs} = current.timer;
-      if(!startedAt || (Date.now()-startedAt) < durationMs) return; // non ancora scaduta davvero
+      if(!startedAt || (serverNow()-startedAt) < durationMs) return; // non ancora scaduta davvero
     }
     return {...current, phase:'closed', timer:{...current.timer, status:'closed', closeReason:reason, closedBy: reason==='expired' ? 'auto' : 'admin'}};
   });
@@ -164,7 +197,7 @@ async function adminReopenAnswers(){
   // "Riapre per un intervallo breve in caso di errore tecnico": non riprende
   // il tempo residuo di prima, apre una finestra breve fissa per correggere.
   if(state.phase !== 'closed') return;
-  await safeSet(statePath(), {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:Date.now(), durationMs:10000, closeReason:null, closedBy:null}}, true);
+  await safeSet(statePath(), {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:serverNow(), durationMs:10000, closeReason:null, closedBy:null}}, true);
   await refresh();
 }
 async function adminCancelQuestion(){
@@ -174,9 +207,34 @@ async function adminCancelQuestion(){
   const next = {...state, phase:'closed', cancelledQuestions, timer:{...state.timer, status:'closed', closeReason:'cancelled', closedBy:'admin'}};
   await withUndo('Domanda annullata', statePath(), state, next);
 }
+/* Sblocca l'input e fa partire il timer nello stesso istante (PL-11, item
+   5): serve sia al vecchio "▶ Avvia timer" (config.timerStartMode='manual')
+   sia al nuovo "🔓 Apri risposte" per lo schermo condiviso
+   (answerUnlockPolicyFor==='manual') — è lo stesso identico meccanismo,
+   forzato 'idle' all'apertura da openQuestionTimer in entrambi i casi, quindi
+   non serve una seconda azione dedicata. Scrive anche inputUnlockedAt/
+   timerStartedAt sull'istanza della domanda corrente, insieme allo stato,
+   in un solo update() atomico. */
 async function adminStartTimerManually(){
   if(state.phase!=='question' || state.timer.status!=='idle') return;
-  await safeSet(statePath(), {...state, timer:{...state.timer, status:'running', startedAt:Date.now()}}, true);
+  const now = serverNow();
+  const newGameQuestions = withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, {inputUnlockedAt:now, timerStartedAt:now});
+  await db.ref(DB_ROOT).update({
+    [statePath()]: {...state, timer:{...state.timer, status:'running', startedAt:now}},
+    [questionInstancesPath()]: newGameQuestions
+  });
+  await refresh();
+}
+/* PL-11 (item 7): fallback manuale per SOLO la domanda corrente ("Mostra
+   domanda sui telefoni"): se lo schermo condiviso non funziona, l'admin
+   sceglie di mostrare comunque la domanda sui telefoni delle squadre invece
+   di aspettare "Apri risposte". Nessun fallback automatico: è sempre e solo
+   una scelta esplicita dell'admin, e riguarda solo com'è mostrata la
+   domanda lato squadra (vedi renderTeamQuestion) — non sblocca da sola
+   l'input, che resta comunque governato da timer.status. */
+async function adminActivateTeamFallback(){
+  if(state.phase!=='question') return;
+  await safeSet(statePath(), {...state, presentation:{...(state.presentation||{}), fallbackActive:true}}, true);
   await refresh();
 }
 async function adminPauseTimer(){
@@ -187,7 +245,7 @@ async function adminPauseTimer(){
 async function adminResumeTimer(){
   if(state.phase!=='question' || state.timer.status!=='paused') return;
   const remaining = state.timer.pausedRemainingMs || 0;
-  await safeSet(statePath(), {...state, timer:{...state.timer, status:'running', startedAt: Date.now()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
+  await safeSet(statePath(), {...state, timer:{...state.timer, status:'running', startedAt: serverNow()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
   await refresh();
 }
 async function adminAdjustTimer(deltaMs){
@@ -196,7 +254,7 @@ async function adminAdjustTimer(deltaMs){
   if(t.status==='paused'){
     await safeSet(statePath(), {...state, timer:{...t, pausedRemainingMs:Math.max(0, (t.pausedRemainingMs||0)+deltaMs)}}, true);
   } else if(t.status==='running'){
-    const newDuration = Math.max(Date.now()-t.startedAt, t.durationMs+deltaMs);
+    const newDuration = Math.max(serverNow()-t.startedAt, t.durationMs+deltaMs);
     await safeSet(statePath(), {...state, timer:{...t, durationMs:newDuration}}, true);
   } else {
     return;
@@ -301,12 +359,18 @@ async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  const s = {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen)};
+  const timer = openQuestionTimer(state.config.questionDurationMs);
+  const s = {...state, round:'tiebreak', qIndex:0, phase:'question', timer, solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen), presentation:{...(state.presentation||{}), fallbackActive:false}};
   const gqWithTiebreak = {...gameQuestions, tiebreak: chosen};
   const snapshot = computeEffectiveScoringForOpen('tiebreak');
+  const presentedAt = serverNow();
+  const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
+  const newGameQuestions = withPresentationTimestampsApplied(
+    withScoringSnapshotApplied(gqWithTiebreak, 'tiebreak', 0, snapshot), 'tiebreak', 0, tsFields
+  );
   await db.ref(DB_ROOT).update({
     [statePath()]: s,
-    [questionInstancesPath()]: withScoringSnapshotApplied(gqWithTiebreak, 'tiebreak', 0, snapshot)
+    [questionInstancesPath()]: newGameQuestions
   });
   await refresh();
 }
@@ -335,12 +399,18 @@ async function adminContinueToFinal(){
   const finalQuestionCount = (state.config && state.config.finalQuestionCount) || 10;
   const drawn = drawQuestionsForGame('finale', finalQuestionCount);
   await markQuestionsUsed(drawn);
-  const s = {...state, round:'final', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0])};
+  const timer = openQuestionTimer(state.config.questionDurationMs);
+  const s = {...state, round:'final', qIndex:0, phase:'question', timer, solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0]), presentation:{...(state.presentation||{}), fallbackActive:false}};
   const gqWithFinal = {...gameQuestions, final:drawn};
   const snapshot = computeEffectiveScoringForOpen('final');
+  const presentedAt = serverNow();
+  const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
+  const newGameQuestions = withPresentationTimestampsApplied(
+    withScoringSnapshotApplied(gqWithFinal, 'final', 0, snapshot), 'final', 0, tsFields
+  );
   await db.ref(DB_ROOT).update({
     [statePath()]: s,
-    [questionInstancesPath()]: withScoringSnapshotApplied(gqWithFinal, 'final', 0, snapshot)
+    [questionInstancesPath()]: newGameQuestions
   });
   await refresh();
 }
@@ -475,7 +545,7 @@ async function adminRemoveTestTeams(){
    prova non arrivano mai in finale nell'uso previsto di questa modalità. */
 async function adminSubmitTestAnswer(id, round, idx, optionIndex){
   const key = qkey(round, idx);
-  const ts = Date.now();
+  const ts = serverNow();
   const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   try{
     await db.ref(DB_ROOT + '/' + answersPath(id)).child(key).transaction(current => current ? undefined : answer);
@@ -840,7 +910,7 @@ async function teamSubmitAnswer(round, idx, optionIndex){
   // ripetuto qui perché è la scrittura che conta davvero.
   if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return true;
   const key = qkey(round, idx);
-  const ts = Date.now();
+  const ts = serverNow();
   const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   let alreadyAnswered = false;
   let result;
