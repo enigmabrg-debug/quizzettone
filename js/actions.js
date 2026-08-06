@@ -430,11 +430,11 @@ async function adminRemoveTestTeams(){
    prova non arrivano mai in finale nell'uso previsto di questa modalità. */
 async function adminSubmitTestAnswer(id, round, idx, optionIndex){
   const key = qkey(round, idx);
-  const current = await safeGet('answers:'+id, true) || {};
-  if(current[key]) return;
   const ts = Date.now();
-  current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
-  await safeSet('answers:'+id, current, true);
+  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  try{
+    await db.ref(DB_ROOT + '/answers:' + id).child(key).transaction(current => current ? undefined : answer);
+  } catch(e){ console.error('invio risposta prova fallito', e); }
   await refresh();
 }
 // qkey => Set di id già "tentati" in questo giro di domanda, per non ritentare
@@ -695,20 +695,39 @@ async function restoreFromUrl(){
   }
   return false;
 }
+/* Invio atomico: una transaction() sul singolo nodo answers:<teamId>/<key>
+   (non più un read-then-write sull'intero oggetto answers:<teamId>) fa sì
+   che due tocchi ravvicinati, o due tab della stessa squadra che rispondono
+   quasi insieme, non possano mai produrre due scritture concorrenti sulla
+   stessa domanda: se il valore esiste già quando la transazione gira, la
+   callback ritorna undefined e l'SDK annulla la scrittura senza sovrascrivere
+   nulla (stesso pattern di closeAnswersTransactional). Ritorna true se, alla
+   fine, la risposta risulta salvata (da questa chiamata o da una precedente:
+   "già risposto" non è un errore), false solo per un fallimento vero. */
 async function teamSubmitAnswer(round, idx, optionIndex){
   // Le squadre eliminate sono spettatrici in finale: l'interfaccia non mostra
   // già i pulsanti di risposta (renderSpectatorFinal), ma il controllo va
   // ripetuto qui perché è la scrittura che conta davvero.
-  if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return;
+  if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return true;
   const key = qkey(round, idx);
-  const current = await safeGet('answers:'+teamId, true) || {};
-  if(current[key]) return; // già risposto
   const ts = Date.now();
-  current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
-  const ok = await safeSet('answers:'+teamId, current, true);
-  if(!ok){
+  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  let alreadyAnswered = false;
+  let result;
+  try{
+    result = await db.ref(DB_ROOT + '/answers:' + teamId).child(key).transaction(current => {
+      if(current){ alreadyAnswered = true; return; }
+      return answer;
+    });
+  } catch(e){
+    console.error('invio risposta fallito', e);
     showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex));
-    return;
+    return false;
+  }
+  if(!result.committed && !alreadyAnswered){
+    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex));
+    return false;
   }
   await refresh();
+  return true;
 }

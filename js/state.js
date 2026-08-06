@@ -70,6 +70,9 @@ let joined = false;
 let listening = false;
 let uiTickTimer = null;
 let standingsAutoPlayTimer = null; // locale: guida "rivelazione automatica" solo dal lato admin che l'ha avviata
+let pendingSubmitKey = null; // qkey della domanda per cui è in corso un invio risposta: blocca subito
+                              // i pulsanti (PL-06), anche attraverso i re-render del tick ogni 250ms,
+                              // finché la transazione non si risolve
 let connected = true;     // stato connessione Firebase (.info/connected)
 let bootStatus = 'connecting'; // 'connecting' | 'ready' | 'timeout': stato del primo caricamento,
                                 // prima che arrivi il primissimo snapshot da Firebase (vedi FT-04)

@@ -1,9 +1,10 @@
-// PL-03: when a critical Firebase write actually fails, the UI must show an
-// explicit error (with a working retry) instead of silently behaving as if
-// it had succeeded. The local emulator has no rules that would reject a
-// write (FT-02 is intentionally left alone this session), so failures are
-// simulated by monkey-patching db.ref(...).set() for a specific path to
-// reject once, then removed so the retry succeeds for real.
+// PL-03/PL-06: when a critical Firebase write actually fails, the UI must
+// show an explicit error (with a working retry) instead of silently
+// behaving as if it had succeeded. The local emulator has no rules that
+// would reject a write (FT-02 is intentionally left alone this session), so
+// failures are simulated by monkey-patching db.ref(...).set()/.transaction()
+// for a specific path to reject once, then removed so the retry succeeds
+// for real.
 const { test, expect } = require('@playwright/test');
 const { resetDatabase } = require('../helpers/emulator');
 
@@ -13,11 +14,14 @@ test.beforeEach(async ({ request }) => {
   await resetDatabase(request);
 });
 
-// Makes the first *actual* db.ref(path).set(...) call whose path contains
-// `pathSubstring` reject with a fake error. Reads on a matching path (e.g.
-// the safeGet() inside teamSubmitAnswer, which reads "answers:<id>" before
-// writing it) must NOT consume the failure -- only a real .set() call does,
-// checked at call time rather than at ref-creation time.
+// Makes the first *actual* db.ref(path).set(...)/.transaction(...) call
+// whose path contains `pathSubstring` reject with a fake error. Reads on a
+// matching path must NOT consume the failure -- only a real write call does,
+// checked at call time rather than at ref-creation time. Recurses through
+// .child(...) too: teamSubmitAnswer (PL-06) calls
+// db.ref('.../answers:<id>').child(key).transaction(...), so the write
+// actually happens on a ref derived via .child(), not the one db.ref(...)
+// returns directly.
 async function failNextWriteTo(page, pathSubstring) {
   await page.evaluate((substr) => {
     window.__writeFailed_ = window.__writeFailed_ || {};
@@ -25,9 +29,7 @@ async function failNextWriteTo(page, pathSubstring) {
     // global identifier in this page's scope, but (unlike `var`) it was
     // never installed as a `window` property, so it has to be referenced
     // directly here rather than as `window.db`.
-    const originalRef = db.ref.bind(db);
-    db.ref = (path) => {
-      const ref = originalRef(path);
+    function wrap(ref, path) {
       if (String(path).includes(substr)) {
         const originalSet = ref.set.bind(ref);
         ref.set = (...args) => {
@@ -37,9 +39,21 @@ async function failNextWriteTo(page, pathSubstring) {
           }
           return originalSet(...args);
         };
+        const originalTransaction = ref.transaction.bind(ref);
+        ref.transaction = (...args) => {
+          if (!window.__writeFailed_[substr]) {
+            window.__writeFailed_[substr] = true;
+            return Promise.reject(new Error('simulated write failure'));
+          }
+          return originalTransaction(...args);
+        };
       }
+      const originalChild = ref.child.bind(ref);
+      ref.child = (childPath) => wrap(originalChild(childPath), path + '/' + childPath);
       return ref;
-    };
+    }
+    const originalRef = db.ref.bind(db);
+    db.ref = (path) => wrap(originalRef(path), path);
   }, pathSubstring);
 }
 

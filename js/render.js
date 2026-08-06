@@ -617,6 +617,11 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   if(!q) return '<div class="card center">Un attimo...</div>';
   const key = qkey(round, idx);
   const myAnswer = answersByTeam[teamId] && answersByTeam[teamId][key];
+  // Bloccato subito al click (PL-06), non solo quando arriva l'eco della
+  // scrittura: sopravvive anche ai re-render del tick ogni 250ms mentre la
+  // transazione è ancora in corso, perché è pilotato da questo flag locale
+  // e non da una semplice mutazione del DOM.
+  const submitPending = active && pendingSubmitKey === key && !myAnswer;
   // Con l'avvio manuale del timer, la domanda è visibile ma non ancora
   // rispondibile finché l'host non preme "Avvia timer": senza questa
   // distinzione timeRemaining() (0 mentre status è 'idle') farebbe sembrare
@@ -633,14 +638,15 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
       if(i===q.correctIndex) cls += ' correct';
       else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
     }
-    const disabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0;
+    const disabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0 || submitPending;
     return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
       <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
     </button>`;
   }).join('');
 
   let banner = '';
-  if(myAnswer){
+  if(submitPending) banner = `<div class="status-banner">Invio in corso...</div>`;
+  else if(myAnswer){
     const bonusNote = myAnswer.speedBonus>0 ? ` (⚡ bonus velocità: +${myAnswer.speedBonus} se corretta)` : '';
     banner = `<div class="status-banner sent">✓ Risposta inviata${bonusNote}</div>`;
   }
@@ -691,7 +697,12 @@ function attachTeamOptionHandlers(){
       if(btn.disabled) return;
       const idx = parseInt(btn.getAttribute('data-idx'));
       const round = state.round, qIdx = state.qIndex;
+      const key = qkey(round, qIdx);
+      pendingSubmitKey = key; // blocca subito tutte le opzioni, anche prima che la transazione risponda
+      render();
       await teamSubmitAnswer(round, qIdx, idx);
+      if(pendingSubmitKey === key) pendingSubmitKey = null;
+      render();
     };
   });
 }
