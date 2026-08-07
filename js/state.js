@@ -164,7 +164,14 @@ function defaultState(){
       timerStartMode: 'auto', // 'auto' | 'manual': parte da solo o l'host lo avvia a comando
       scoring: {correct:1, wrong:0, noAnswer:0},
       finalScoring: null, // null = usa 'scoring' anche in finale
-      scoreCarryover: 'reset', // 'reset' | 'keep' | 'convert'
+      scoreCarryover: 'reset', // 'reset' | 'keep' | 'convert' (PL-16: letto davvero da totalScore())
+      // PL-16: credito iniziale per 'convert', in percentuale di
+      // config.scoring.correct, per posizione di qualificazione (1ª, 2ª,
+      // 3ª, ...); oltre l'ultima voce, 0%. Scala suggerita dal piano §4.3
+      // (+30%/+20%/+10% per le prime tre posizioni); non ancora modificabile
+      // dall'admin in Sala pre-partita (solo il default), coerente con lo
+      // stesso scope "tabella riservata" già scelto per dynamicScoring in PL-13.
+      finalistBonusTable: [30, 20, 10],
       tiebreakRule: {qualification:'prima_corretta', final:'oltranza'},
       lateJoin: {policy:'until_round1_end'}, // 'always' | 'until_round1_end' | 'blocked_after_start'
       checkpointMinQuestions: 4,
@@ -675,7 +682,30 @@ function qualificationScore(id){
   for(let r=1;r<=rounds;r++) sum += roundScore(id, r);
   return sum;
 }
-function totalScore(id){ return qualificationScore(id) + roundScore(id,'final'); }
+/* PL-16: scoreCarryover era configurabile in Sala pre-partita ma non veniva
+   mai letto da nessuna funzione di scoring — il comportamento era sempre
+   equivalente a 'keep'. Si applica SOLO alle squadre finaliste (state.
+   finalists), e solo quando lo sono già diventate: prima che i finalisti
+   siano rivelati, state.finalists è null e questa funzione si comporta
+   esattamente come prima (qualificationScore + roundScore('final'), quel
+   secondo termine è comunque 0 finché la finale non è iniziata). */
+function totalScore(id){
+  const isFinalist = !!(state && state.finalists && state.finalists.includes(id));
+  if(isFinalist){
+    const carryover = (state.config && state.config.scoreCarryover) || 'keep';
+    const finalPart = roundScore(id, 'final');
+    if(carryover==='reset') return finalPart;
+    if(carryover==='convert'){
+      const rank = state.finalists.indexOf(id); // 0-based: già ordinato per qualificationScore da adminRevealFinalists
+      const table = (state.config && state.config.finalistBonusTable) || [];
+      const percent = table[rank] || 0;
+      const sc = (state.config && state.config.scoring) || DEFAULT_SCORING;
+      const credit = Math.round((sc.correct||0) * percent / 100);
+      return credit + finalPart;
+    }
+  }
+  return qualificationScore(id) + roundScore(id,'final');
+}
 /* PL-15: fascia di rischio/rimonta in base alla POSIZIONE consolidata
    (totalScore, la stessa classifica già mostrata nel pannello di regia) tra
    le squadre attive per il round, congelata al momento dell'apertura della

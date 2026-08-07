@@ -448,7 +448,12 @@ async function adminContinueToFinal(){
 }
 async function adminRevealWinner(){
   const finalists = state.finalists || [];
-  const scores = finalists.map(id=>({id, score: roundScore(id,'final')})).sort((a,b)=>b.score-a.score);
+  // PL-16: totalScore() (non il solo roundScore('final')) applica davvero
+  // scoreCarryover — 'reset' li rende equivalenti (comportamento invariato
+  // per le partite già esistenti che usano il default), ma 'keep'/'convert'
+  // richiedono che anche la decisione del VINCITORE, non solo la classifica
+  // mostrata, tenga conto del punteggio di qualificazione o del credito.
+  const scores = finalists.map(id=>({id, score: totalScore(id)})).sort((a,b)=>b.score-a.score);
   const topScore = scores.length ? scores[0].score : 0;
   const tiedTop = scores.filter(s=>s.score===topScore);
   if(tiedTop.length>1){
