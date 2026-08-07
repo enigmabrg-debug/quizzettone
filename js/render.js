@@ -725,6 +725,22 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const speedBonusPill = (active && state.config && state.config.speedBonus && state.config.speedBonus.enabled)
     ? `<span class="pill">⚡ Bonus velocità attivo</span>` : '';
 
+  // PL-17: trasparenza sulla fascia congelata (PL-15) PRIMA di rispondere,
+  // mai scoperta solo a cose fatte — stesso principio di scoringPill sopra.
+  // Solo per il profilo dinamico/personalizzato, e solo quando la fascia è
+  // già stata calcolata (openQuestionWithSnapshot/adminStartGame ecc.).
+  let riskPill = '', comebackPill = '';
+  if(active && round!=='tiebreak'){
+    const profile = state.config && state.config.scoringProfile;
+    const band = (profile && profile!=='classico' && q.leaderboardBands) ? q.leaderboardBands[teamId] : null;
+    if(band){
+      riskPill = `<span class="pill" style="color:var(--pink);">⚠ Rischio errore ×${band.errorMultiplier.toFixed(2)}</span>`;
+      if(band.comebackBonusPercent>0){
+        comebackPill = `<span class="pill" style="color:var(--green);">📈 Bonus rimonta +${band.comebackBonusPercent}%</span>`;
+      }
+    }
+  }
+
   return `
     <div class="card stack">
       <div class="qmeta">
@@ -734,6 +750,8 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         ${active ? `<span class="pill">✓ ${answeredCount}/${activeIds.length} risposto</span>` : ''}
         ${scoringPill}
         ${speedBonusPill}
+        ${riskPill}
+        ${comebackPill}
       </div>
       ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timer.durationMs)}</div>` : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
