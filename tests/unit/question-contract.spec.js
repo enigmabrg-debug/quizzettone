@@ -53,3 +53,18 @@ test('gli enum del contratto sono quelli dichiarati dal piano (item 15)', () => 
   assert.deepEqual(ANSWER_POLICIES, ['definitiva','modificabile']);
   assert.deepEqual(DIFFICULTIES, ['facile','media','difficile']);
 });
+
+// PL-19 (domanda fotografica)
+test('withQuestionDefaults: imageUrl è null di default su una domanda legacy, preservato se già presente', () => {
+  assert.equal(withQuestionDefaults({id:'q4'}).imageUrl, null);
+  assert.equal(withQuestionDefaults({id:'q5', imageUrl:'https://example.com/a.jpg'}).imageUrl, 'https://example.com/a.jpg');
+});
+
+// PL-19 (vero/falso): una domanda con esattamente 2 opzioni resta valida
+// col contratto — nessun campo extra richiesto, il motore a scelta multipla
+// esistente non fa distinzioni sul numero di opzioni.
+test('withQuestionDefaults applica il contratto anche a una domanda con solo 2 opzioni (Vero/Falso)', () => {
+  const vf = withQuestionDefaults({id:'q6', question:'La Terra è piatta?', options:['Vero','Falso'], correctIndex:1, answerType:'vero_falso'});
+  assert.equal(vf.options.length, 2);
+  assert.equal(vf.answerType, 'vero_falso');
+});

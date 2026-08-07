@@ -300,6 +300,16 @@ async function adminReplayCurrentAudio(){
   if(cue) await safeSet(statePath(), {...state, audioCue:cue}, true);
   await refresh();
 }
+/* PL-19: segnala su Firebase un errore REALE di caricamento del file audio
+   (non il blocco autoplay del browser, gestito solo localmente), così le
+   squadre — che non riproducono l'audio in prima persona, ma ne vedono lo
+   stato nella loro vista domanda — sanno che quella domanda non ha audio
+   disponibile. Il controllo sul nonce evita di segnalare come "fallito" un
+   cue vecchio se nel frattempo ne è già arrivato uno nuovo. */
+async function reportAudioLoadFailure(nonce){
+  if(!state.audioCue || state.audioCue.nonce !== nonce) return;
+  await safeSet(statePath(), {...state, audioCue:{...state.audioCue, loadFailed:true}}, true);
+}
 async function adminStopAudio(){
   const cue = state.audioCue;
   if(!cue) return;

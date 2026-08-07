@@ -74,7 +74,8 @@ function withQuestionDefaults(q){
     answerPolicy: q.answerPolicy || 'definitiva',
     difficulty: q.difficulty || 'media',
     presentation: q.presentation || {mode: 'inherit'},
-    sharedScreenRequirement: !!q.sharedScreenRequirement
+    sharedScreenRequirement: !!q.sharedScreenRequirement,
+    imageUrl: q.imageUrl != null ? q.imageUrl : null // PL-19: domanda fotografica
   };
 }
 /* Le domande giocate in una partita vivono in state.gameQuestions (pescate dal
@@ -928,7 +929,7 @@ async function addQuestion(q){
   const id = newQuestionId();
   const entry = withQuestionDefaults({
     id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex,
-    adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, lastUsedAt:null,
+    adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, imageUrl:q.imageUrl||null, lastUsedAt:null,
     contentType:q.contentType, answerType:q.answerType, tolerance:q.tolerance,
     answerPolicy:q.answerPolicy, difficulty:q.difficulty
   });

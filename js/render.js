@@ -11,6 +11,19 @@ function escapeHtml(str){
 function teamNameHtml(id){
   return escapeHtml(teams[id] ? teams[id].name : '—');
 }
+/* PL-19 (domanda fotografica): unico punto da cui si stampa l'immagine di
+   una domanda, su Team/Admin/Display. onerror nasconde l'<img> rotta e
+   mostra un messaggio di fallback esplicito invece di lasciare un'icona
+   di immagine rotta silenziosa — sia l'admin sia le squadre devono capire
+   subito che il file non è disponibile (link scaduto, file rimosso),
+   coerente col resto del gioco ("mai una correzione nascosta"). */
+function questionImageHtml(q, maxHeight){
+  if(!q || !q.imageUrl) return '';
+  return `<div class="question-image-wrap">
+    <img src="${escapeHtml(q.imageUrl)}" style="max-width:100%;max-height:${maxHeight||'320px'};border-radius:8px;display:block;margin:0 auto;" onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+    <p class="note" style="display:none;color:var(--pink);">⚠ Immagine non disponibile (link scaduto o file rimosso).</p>
+  </div>`;
+}
 function timeRemaining(){
   if(!state || !state.timer) return 0;
   const t = state.timer;
@@ -241,6 +254,17 @@ function playPendingAudioCueIfAny(){
   if(!el) return;
   if(cue.action==='stop'){ el.pause(); return; } // uno stop va sempre onorato, anche se il cue è "vecchio"
   if(Date.now() - cue.triggeredAt > AUDIO_CUE_STALE_MS) return; // scheda appena aperta a metà domanda: non sparare audio vecchio
+  // PL-19 (consolidamento audio): un vero errore di caricamento (file
+  // rimosso, URL scaduto, CORS) è diverso dal blocco autoplay del browser
+  // già gestito sotto — qui l'admin (solo lui, per non far scrivere sia
+  // admin sia Display in corsa) lo segnala su Firebase, così anche le
+  // squadre (che non riproducono l'audio in prima persona, ma ne vedono lo
+  // stato) sanno che quella domanda non ha audio disponibile invece di
+  // restare in attesa di qualcosa che non arriverà mai.
+  el.onerror = ()=>{
+    console.warn('audio non disponibile', cue.url);
+    if(role==='admin') reportAudioLoadFailure(cue.nonce);
+  };
   const seekAndPlay = ()=>{
     try{ el.currentTime = cue.startAt||0; }catch(e){}
     el.play().catch(err=>console.warn('audio bloccato dal browser', err));
@@ -741,6 +765,18 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
     }
   }
 
+  // PL-19 (consolidamento audio, "gestione errori lato squadra"): l'audio
+  // vero e proprio parte solo su admin/Display, ma la squadra vede comunque
+  // lo stato — incluso un fallback esplicito se il file non è disponibile,
+  // invece di restare in attesa di un audio che non arriverà mai.
+  let audioStatusPill = '';
+  if(active && q.audioUrl && role==='team'){
+    const cueFailed = state.audioCue && state.audioCue.loadFailed;
+    audioStatusPill = cueFailed
+      ? `<span class="pill" style="color:var(--pink);">⚠ Audio non disponibile</span>`
+      : `<span class="pill">🎵 Audio in riproduzione sullo schermo condiviso</span>`;
+  }
+
   return `
     <div class="card stack">
       <div class="qmeta">
@@ -752,9 +788,11 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         ${speedBonusPill}
         ${riskPill}
         ${comebackPill}
+        ${audioStatusPill}
       </div>
       ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timer.durationMs)}</div>` : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
+      ${questionImageHtml(q)}
       <div class="options">${optionsHtml}</div>
       ${banner}
     </div>
@@ -1318,6 +1356,7 @@ function renderAdmin(){
           ${!idle?`<button class="btn ghost small" id="btnTimerMinus5">-5s</button><button class="btn ghost small" id="btnTimerPlus5">+5s</button>`:''}
         </div>`:''}
         <div class="qtext">${escapeHtml(q.question)}</div>
+        ${questionImageHtml(q)}
         <div class="options">
           ${q.options.map((opt,i)=>`<div class="opt ${i===q.correctIndex?'correct':''}" style="cursor:default;">
             <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>${i===q.correctIndex?' ✓':''}
@@ -1363,7 +1402,7 @@ function renderAdmin(){
       controlPanel += `
         <div class="card stack" style="opacity:.8;">
           <div class="eyebrow">Prossima domanda · solo tu la vedi</div>
-          <div class="qmeta"><span class="pill">${escapeHtml(nextQ.category)}</span></div>
+          <div class="qmeta"><span class="pill">${escapeHtml(nextQ.category)}</span>${nextQ.imageUrl?'<span class="pill">📷 immagine</span>':''}</div>
           <div class="qtext" style="font-size:16px;">${escapeHtml(nextQ.question)}</div>
         </div>`;
     }
@@ -1783,6 +1822,8 @@ function renderQuestionManager(){
               <span class="pill" style="font-size:11px;">${escapeHtml(answerTypeLabel)}</span>
               <span class="pill" style="font-size:11px;">${escapeHtml(difficultyLabel)}</span>
               ${q.answerPolicy==='modificabile' ? `<span class="pill" style="font-size:11px;">Modificabile</span>` : ''}
+              ${q.imageUrl ? `<span class="pill" style="font-size:11px;">📷</span>` : ''}
+              ${q.audioUrl ? `<span class="pill" style="font-size:11px;">🎵</span>` : ''}
             </div>
           </div>
           <button class="btn danger small" data-delete-question="${q.id}">Elimina</button>
@@ -1808,22 +1849,6 @@ function renderQuestionManager(){
         </select>
         <select id="qmCategory">${CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select>
       </div>
-      <input type="text" id="qmQuestion" placeholder="Testo della domanda">
-      <input type="text" id="qmOpt0" placeholder="Opzione A">
-      <input type="text" id="qmOpt1" placeholder="Opzione B">
-      <input type="text" id="qmOpt2" placeholder="Opzione C">
-      <input type="text" id="qmOpt3" placeholder="Opzione D">
-      <select id="qmCorrect">
-        <option value="0">Corretta: A</option>
-        <option value="1">Corretta: B</option>
-        <option value="2">Corretta: C</option>
-        <option value="3">Corretta: D</option>
-      </select>
-      <input type="text" id="qmNote" placeholder="Nota per l'admin (facoltativa, es. autore canzone)">
-      <input type="file" id="qmAudioFile" accept="audio/*">
-      <p class="note">Audio facoltativo (es. la canzone da indovinare): parte da solo quando la domanda diventa quella corrente.</p>
-      <div class="divider"></div>
-      <div class="eyebrow">Contratto della domanda</div>
       <div class="row">
         <label class="stack">Tipo di contenuto<select id="qmContentType">
           <option value="testo">Testo</option>
@@ -1839,7 +1864,28 @@ function renderQuestionManager(){
           <option value="testo_libero">Testo libero</option>
         </select></label>
       </div>
-      <p class="note">Solo "Scelta multipla" è giocabile oggi: le altre tipologie si possono già dichiarare e salvare, ma il motore di gioco arriverà in un aggiornamento successivo.</p>
+      <p class="note">"Scelta multipla" e "Vero/Falso" sono giocabili oggi (Vero/Falso riusa lo stesso motore, solo con 2 opzioni fisse); "Ordinamento"/"Numero"/"Testo libero" si possono già dichiarare e salvare, ma il motore di gioco arriverà in un aggiornamento successivo.</p>
+      <input type="text" id="qmQuestion" placeholder="Testo della domanda">
+      <input type="text" id="qmOpt0" placeholder="Opzione A">
+      <input type="text" id="qmOpt1" placeholder="Opzione B">
+      <div id="qmOpt23Wrap" class="stack">
+        <input type="text" id="qmOpt2" placeholder="Opzione C">
+        <input type="text" id="qmOpt3" placeholder="Opzione D">
+      </div>
+      <select id="qmCorrect">
+        <option value="0">Corretta: A</option>
+        <option value="1">Corretta: B</option>
+        <option value="2" id="qmCorrectOptC">Corretta: C</option>
+        <option value="3" id="qmCorrectOptD">Corretta: D</option>
+      </select>
+      <p id="qmVeroFalsoHint" class="note" style="display:none;color:var(--pink);">⚠ Vero/Falso: la probabilità casuale è del 50%. Valuta un malus più alto per questa domanda (usa "Punteggio per questa domanda" quando la apri in regia).</p>
+      <input type="text" id="qmNote" placeholder="Nota per l'admin (facoltativa, es. autore canzone)">
+      <label class="stack" id="qmImageWrap" style="display:none;">Immagine<input type="file" id="qmImageFile" accept="image/*"></label>
+      <img id="qmImagePreview" style="display:none;max-width:100%;max-height:180px;border-radius:8px;">
+      <input type="file" id="qmAudioFile" accept="audio/*">
+      <p class="note">Audio facoltativo (es. la canzone da indovinare): parte da solo quando la domanda diventa quella corrente.</p>
+      <div class="divider"></div>
+      <div class="eyebrow">Contratto della domanda</div>
       <div class="row">
         <label class="stack">Difficoltà<select id="qmDifficulty">
           <option value="facile">Facile</option>
@@ -2057,17 +2103,55 @@ function attachAdminHandlers(){
     const noAnswer = parseInt(byId('qsNoAnswer').value, 10) || 0;
     adminSetQuestionScoring(state.round, state.qIndex, {correct, wrong, noAnswer});
   };
+  // PL-19: Vero/Falso riusa il motore a scelta multipla esistente con
+  // esattamente 2 opzioni — nessun nuovo motore, solo un preset del form.
+  // Cambiare il tipo di risposta mostra/nasconde i campi C/D, precompila
+  // "Vero"/"Falso" (solo se ancora vuoti, per non cancellare testo scritto
+  // a mano se l'admin torna indietro), e avvisa del malus da valutare.
+  if(byId('qmAnswerType')) byId('qmAnswerType').onchange = ()=>{
+    const isVeroFalso = byId('qmAnswerType').value === 'vero_falso';
+    byId('qmOpt23Wrap').style.display = isVeroFalso ? 'none' : 'flex';
+    byId('qmCorrectOptC').disabled = isVeroFalso;
+    byId('qmCorrectOptD').disabled = isVeroFalso;
+    byId('qmVeroFalsoHint').style.display = isVeroFalso ? 'block' : 'none';
+    if(isVeroFalso){
+      if(!byId('qmOpt0').value.trim()) byId('qmOpt0').value = 'Vero';
+      if(!byId('qmOpt1').value.trim()) byId('qmOpt1').value = 'Falso';
+    }
+  };
+  // PL-19: anteprima immagine locale (prima ancora dell'upload) quando il
+  // tipo di contenuto è "Immagine" — la validazione vera e propria (tipo
+  // MIME, dimensione) resta lato uploadImageFile, qui è solo UI.
+  if(byId('qmContentType')) byId('qmContentType').onchange = ()=>{
+    byId('qmImageWrap').style.display = byId('qmContentType').value === 'immagine' ? 'flex' : 'none';
+  };
+  if(byId('qmImageFile')) byId('qmImageFile').onchange = ()=>{
+    const file = byId('qmImageFile').files[0];
+    const preview = byId('qmImagePreview');
+    if(file){ preview.src = URL.createObjectURL(file); preview.style.display = 'block'; }
+    else { preview.style.display = 'none'; }
+  };
   if(byId('btnAddQuestion')) byId('btnAddQuestion').onclick = async ()=>{
     const pool = byId('qmPool').value;
     const category = byId('qmCategory').value;
     const question = byId('qmQuestion').value.trim();
-    const opts = [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim(), byId('qmOpt2').value.trim(), byId('qmOpt3').value.trim()];
+    const answerType = byId('qmAnswerType').value;
+    const isVeroFalso = answerType === 'vero_falso';
+    const opts = isVeroFalso
+      ? [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim()]
+      : [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim(), byId('qmOpt2').value.trim(), byId('qmOpt3').value.trim()];
     const correctIndex = parseInt(byId('qmCorrect').value, 10);
     const note = byId('qmNote').value.trim();
     const audioFile = byId('qmAudioFile').files[0];
+    const imageFile = byId('qmImageFile').files[0];
     const msg = byId('qmAddMsg');
     if(!question || opts.some(o=>!o)){
-      msg.textContent = 'Compila la domanda e tutte e 4 le opzioni.';
+      msg.textContent = isVeroFalso ? 'Compila la domanda e le due opzioni (Vero/Falso).' : 'Compila la domanda e tutte e 4 le opzioni.';
+      msg.style.color = 'var(--pink)';
+      return;
+    }
+    if(isVeroFalso && correctIndex>1){
+      msg.textContent = 'Una domanda Vero/Falso ha solo 2 opzioni: scegli A o B come corretta.';
       msg.style.color = 'var(--pink)';
       return;
     }
@@ -2077,13 +2161,18 @@ function attachAdminHandlers(){
       try{ audioUrl = await uploadAudioFile(audioFile, 'question-audio'); }
       catch(e){ msg.textContent = 'Upload audio fallito: ' + e.message; msg.style.color = 'var(--pink)'; return; }
     }
+    let imageUrl = null;
+    if(imageFile){
+      msg.textContent = 'Caricamento immagine...'; msg.style.color = '';
+      try{ imageUrl = await uploadImageFile(imageFile, 'question-images'); }
+      catch(e){ msg.textContent = 'Upload immagine fallito: ' + e.message; msg.style.color = 'var(--pink)'; return; }
+    }
     const contentType = byId('qmContentType').value;
-    const answerType = byId('qmAnswerType').value;
     const difficulty = byId('qmDifficulty').value;
     const answerPolicy = byId('qmAnswerPolicy').value;
     const toleranceRaw = byId('qmTolerance').value.trim();
     const tolerance = toleranceRaw ? parseFloat(toleranceRaw) : null;
-    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl, contentType, answerType, difficulty, answerPolicy, tolerance});
+    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl, imageUrl, contentType, answerType, difficulty, answerPolicy, tolerance});
     // Rileggere il DOM invece di riusare 'msg': scrivere su Firebase fa
     // arrivare l'eco del proprio stesso ascoltatore mentre siamo ancora
     // dentro l'await, e render() (chiamato da quell'eco) ricostruisce
@@ -2092,6 +2181,10 @@ function attachAdminHandlers(){
     const freshMsg = byId('qmAddMsg');
     if(freshMsg){ freshMsg.textContent = 'Domanda aggiunta!'; freshMsg.style.color = 'var(--green)'; }
     ['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote','qmTolerance'].forEach(id=>{ const el = byId(id); if(el) el.value=''; });
+    const freshImagePreview = byId('qmImagePreview');
+    if(freshImagePreview) freshImagePreview.style.display = 'none';
+    const freshImageFile = byId('qmImageFile');
+    if(freshImageFile) freshImageFile.value = '';
     const freshAudioFile = byId('qmAudioFile');
     if(freshAudioFile) freshAudioFile.value = '';
   };

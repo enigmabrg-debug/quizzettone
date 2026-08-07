@@ -64,6 +64,24 @@ async function uploadAudioFile(file, folder){
   return await ref.getDownloadURL();
 }
 
+// PL-19 (domanda fotografica): stesso pattern di uploadAudioFile (PL-08),
+// stesso limite di dimensione (una foto scattata da telefono resta ben
+// sotto gli 8MB nella grande maggioranza dei casi).
+const MAX_IMAGE_FILE_SIZE_BYTES = 8 * 1024 * 1024;
+async function uploadImageFile(file, folder){
+  if(!file.type || !file.type.startsWith('image/')){
+    throw new Error('Il file deve essere un\'immagine (tipo rilevato: ' + (file.type || 'sconosciuto') + ').');
+  }
+  if(file.size > MAX_IMAGE_FILE_SIZE_BYTES){
+    throw new Error('File troppo grande (' + Math.round(file.size/1024/1024) + 'MB): il limite è ' + Math.round(MAX_IMAGE_FILE_SIZE_BYTES/1024/1024) + 'MB.');
+  }
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = 'quizzettone-images/' + folder + '/' + Date.now() + '_' + safeName;
+  const ref = storage.ref(path);
+  await ref.put(file);
+  return await ref.getDownloadURL();
+}
+
 async function safeGet(key, shared){
   try{
     const snap = await db.ref(DB_ROOT + '/' + key).once('value');
