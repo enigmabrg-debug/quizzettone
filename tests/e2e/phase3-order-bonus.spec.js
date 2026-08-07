@@ -4,7 +4,8 @@
 // già coperto da tests/unit/scoring.spec.js; questo file verifica il
 // percorso end-to-end reale: tre squadre rispondono in ordine noto tramite
 // l'interfaccia vera, la domanda si chiude, e i punti finali rispecchiano
-// la tabella bonus configurata.
+// la tabella bonus configurata (più, da PL-15, il bonus rimonta uniforme
+// che tutte e tre ricevono essendo ancora in pari merito a inizio partita).
 const { test, expect } = require('@playwright/test');
 const { resetDatabase } = require('../helpers/emulator');
 
@@ -76,9 +77,14 @@ test('con profilo dinamico, tre squadre corrette in ordine noto ricevono il bonu
     return admin.evaluate((id) => teamPointsForQuestion(id, 1, 0), teamId);
   };
 
-  expect(await pointsFor('Squadra Prima')).toBe(125);  // 100 + 25%
-  expect(await pointsFor('Squadra Seconda')).toBe(120); // 100 + 20%
-  expect(await pointsFor('Squadra Terza')).toBe(115);   // 100 + 15%
+  // Con PL-15, a inizio partita tutte e tre le squadre sono ancora in pari
+  // merito a 0 punti: cadono quindi nella STESSA fascia di classifica
+  // congelata (26-50%, +2% di bonus rimonta, numerazione competitiva —
+  // vedi tests/unit/leaderboard-bands.spec.js), che si somma al bonus
+  // d'ordine di questo pacchetto. 100 + bonus d'ordine + 2% uniforme.
+  expect(await pointsFor('Squadra Prima')).toBe(127);  // 100 + 25% + 2%
+  expect(await pointsFor('Squadra Seconda')).toBe(122); // 100 + 20% + 2%
+  expect(await pointsFor('Squadra Terza')).toBe(117);   // 100 + 15% + 2%
 
   for (const t of Object.values(teams)) await t.ctx.close();
   await adminCtx.close();

@@ -28,6 +28,18 @@ function openQuestionTimer(durationMs, cfg, resolvedModeOverride){
    costruito da stateFields.timer è già 'running' (sblocco immediato),
    inputUnlockedAt/timerStartedAt allo stesso istante; azzera inoltre
    presentation.fallbackActive, che riguarda solo la domanda precedente. */
+/* PL-15: se il profilo attivo usa davvero le fasce (dinamico/personalizzato),
+   congela la classifica (totalScore) delle squadre attive per questo round
+   nell'istante in cui la domanda si apre, scrivendola su leaderboardBands.
+   Per il profilo classico non fa nulla (nessun dato inutile da portarsi
+   dietro). Condivisa da tutti i punti che aprono una domanda. */
+function withLeaderboardBandsIfDynamic(gq, round, idx, cfg){
+  cfg = cfg || state.config;
+  const profile = cfg && cfg.scoringProfile;
+  if(!profile || profile==='classico') return gq;
+  const bands = computeFrozenLeaderboardBands(activeTeamsForRound(round));
+  return applyQuestionInstanceFields(gq, round, idx, {leaderboardBands: bands});
+}
 async function openQuestionWithSnapshot(round, idx, stateFields){
   const snapshot = computeEffectiveScoringForOpen(round);
   let newGameQuestions = withScoringSnapshotApplied(gameQuestions, round, idx, snapshot);
@@ -39,6 +51,7 @@ async function openQuestionWithSnapshot(round, idx, stateFields){
     tsFields.timerStartedAt = presentedAt;
   }
   newGameQuestions = withPresentationTimestampsApplied(newGameQuestions, round, idx, tsFields);
+  newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, round, idx);
   await db.ref(DB_ROOT).update({
     [statePath()]: {...state, ...stateFields, presentation: {...(state.presentation||{}), fallbackActive:false}},
     [questionInstancesPath()]: newGameQuestions
@@ -131,10 +144,11 @@ async function adminStartGame(){
   // inputUnlockedAt/timerStartedAt allo stesso istante.
   const presentedAt = serverNow();
   const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
-  const initialGameQuestions = withPresentationTimestampsApplied(
+  let initialGameQuestions = withPresentationTimestampsApplied(
     withScoringSnapshotApplied({ rounds, final:null, tiebreak:null }, 1, 0, computeEffectiveScoringForOpen(1, cfg)),
     1, 0, tsFields
   );
+  initialGameQuestions = withLeaderboardBandsIfDynamic(initialGameQuestions, 1, 0, cfg);
   let ok = true;
   try{
     await db.ref(DB_ROOT).update({
@@ -381,9 +395,10 @@ async function adminStartTiebreakQuestion(qIdx){
   const snapshot = computeEffectiveScoringForOpen('tiebreak');
   const presentedAt = serverNow();
   const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
-  const newGameQuestions = withPresentationTimestampsApplied(
+  let newGameQuestions = withPresentationTimestampsApplied(
     withScoringSnapshotApplied(gqWithTiebreak, 'tiebreak', 0, snapshot), 'tiebreak', 0, tsFields
   );
+  newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, 'tiebreak', 0);
   await db.ref(DB_ROOT).update({
     [statePath()]: s,
     [questionInstancesPath()]: newGameQuestions
@@ -421,9 +436,10 @@ async function adminContinueToFinal(){
   const snapshot = computeEffectiveScoringForOpen('final');
   const presentedAt = serverNow();
   const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
-  const newGameQuestions = withPresentationTimestampsApplied(
+  let newGameQuestions = withPresentationTimestampsApplied(
     withScoringSnapshotApplied(gqWithFinal, 'final', 0, snapshot), 'final', 0, tsFields
   );
+  newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, 'final', 0);
   await db.ref(DB_ROOT).update({
     [statePath()]: s,
     [questionInstancesPath()]: newGameQuestions

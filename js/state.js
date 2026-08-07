@@ -548,23 +548,44 @@ function scoringFor(round, idx){
   if(round==='final' && cfg && cfg.finalScoring) return cfg.finalScoring;
   return (cfg && cfg.scoring) || scoringDefaults || DEFAULT_SCORING;
 }
-/* PL-14: il profilo 'dinamico'/'personalizzato' sostituisce il bonus
-   velocità lineare (submit-time, profilo classico) con un bonus per ORDINE
-   di arrivo tra le sole risposte corrette, che richiede di conoscere tutte
-   le risposte e quindi va letto da orderBonusAssignments — calcolato alla
-   chiusura della domanda da ensureOrderBonusComputed/
-   computeOrderBonusAssignments, non al submit. Serve quindi anche il
-   teamId, che il profilo classico non usa (il suo bonus arriva già
-   calcolato dentro 'speedBonus', persistito sulla risposta stessa). */
+/* PL-14/PL-15: il profilo 'dinamico'/'personalizzato' sostituisce il bonus
+   velocità lineare (submit-time, profilo classico) con:
+   - un bonus per ORDINE di arrivo tra le sole risposte corrette, letto da
+     orderBonusAssignments (PL-14, calcolato alla chiusura da
+     ensureOrderBonusComputed, non al submit: richiede di conoscere tutte
+     le risposte);
+   - una penalità/adattiva bonus rimonta basata sulla fascia di classifica
+     congelata all'apertura della domanda, letta da leaderboardBands
+     (PL-15, computeFrozenLeaderboardBands, scritta dagli stessi punti che
+     aprono la domanda — vedi openQuestionWithSnapshot in js/actions.js).
+   Serve quindi anche il teamId, che il profilo classico non usa (il suo
+   bonus arriva già calcolato dentro 'speedBonus', persistito sulla
+   risposta stessa). */
 function pointsForAnswer(round, idx, optionIndex, speedBonus, teamId){
   const q = getQuestion(round, idx);
   if(!q) return 0;
   const sc = scoringFor(round, idx);
-  if(optionIndex !== q.correctIndex) return sc.wrong;
   const profile = state && state.config && state.config.scoringProfile;
-  if(profile && profile!=='classico'){
+  const dynamic = profile && profile!=='classico';
+  const band = dynamic && q.leaderboardBands && teamId ? q.leaderboardBands[teamId] : null;
+  if(optionIndex !== q.correctIndex){
+    // PL-15: penalità adattiva sostituisce interamente sc.wrong (non si
+    // sommano) per i profili dinamico/personalizzato, quando la fascia
+    // congelata all'apertura è disponibile per questa squadra; altrimenti
+    // (fascia non ancora calcolata, o squadra non attiva a quel momento)
+    // resta il malus fisso di sempre.
+    if(band){
+      const rate = (state.config.dynamicScoring && state.config.dynamicScoring.wrongPenaltyRate) || 0;
+      return -Math.round(sc.correct * rate * band.errorMultiplier);
+    }
+    return sc.wrong;
+  }
+  if(dynamic){
     const orderBonusPercent = (q.orderBonusAssignments && teamId && q.orderBonusAssignments[teamId]) || 0;
-    return sc.correct + Math.round(sc.correct * orderBonusPercent / 100);
+    const comebackBonusPercent = band ? band.comebackBonusPercent : 0;
+    return sc.correct
+      + Math.round(sc.correct * orderBonusPercent / 100)
+      + Math.round(sc.correct * comebackBonusPercent / 100);
   }
   return sc.correct + (speedBonus||0);
 }
@@ -655,6 +676,38 @@ function qualificationScore(id){
   return sum;
 }
 function totalScore(id){ return qualificationScore(id) + roundScore(id,'final'); }
+/* PL-15: fascia di rischio/rimonta in base alla POSIZIONE consolidata
+   (totalScore, la stessa classifica già mostrata nel pannello di regia) tra
+   le squadre attive per il round, congelata al momento dell'apertura della
+   domanda — non ricalcolata più tardi, anche se il punteggio delle altre
+   squadre cambia nel frattempo mentre si risponde (coerente con lo
+   scoringSnapshot di PL-10, stesso principio). 'ids' è l'elenco delle
+   squadre attive per il round, passato dal chiamante (che ha accesso ad
+   activeTeamsForRound, in js/render.js): tenerlo come parametro invece di
+   richiamarlo da qui mantiene questa funzione pura e testabile in
+   isolamento, senza dipendere da js/render.js essendo caricato. Pura:
+   nessuna scrittura Firebase qui, la fa il chiamante (vedi
+   openQuestionWithSnapshot in js/actions.js). */
+function computeFrozenLeaderboardBands(ids){
+  const bands = (state && state.config && state.config.dynamicScoring && state.config.dynamicScoring.penaltyBands) || [];
+  if(!ids || !ids.length || !bands.length) return {};
+  const ranked = [...ids].map(id=>({id, score: totalScore(id)})).sort((a,b)=>b.score-a.score);
+  const n = ranked.length;
+  const result = {};
+  // Numerazione competitiva sul punteggio, stesso principio di
+  // computeOrderBonusAssignments: squadre a pari punti condividono la
+  // stessa posizione (e quindi la stessa fascia), non vengono divise in
+  // ordine arbitrario. Rilevante soprattutto a inizio partita, quando più
+  // squadre possono essere ancora a pari merito a 0 punti.
+  let rank = 0, lastScore = null;
+  ranked.forEach((entry, i)=>{
+    if(lastScore === null || entry.score !== lastScore){ rank = i; lastScore = entry.score; }
+    const percentile = ((rank+1) / n) * 100; // 1° posto = percentile più basso (fascia di testa)
+    const band = bands.find(b => percentile <= b.maxPercentile) || bands[bands.length-1];
+    result[entry.id] = {errorMultiplier: band.errorMultiplier, comebackBonusPercent: band.comebackBonusPercent};
+  });
+  return result;
+}
 
 /* Spareggio: 'prima_corretta' e 'corretta_veloce' collassano nello stesso
    calcolo con una sola domanda di spareggio (chi risponde correttamente per
@@ -959,6 +1012,7 @@ if(typeof module !== 'undefined' && module.exports){
     computeEffectiveScoringForOpen, withScoringSnapshotApplied, applyQuestionInstanceFields,
     scoringFor, pointsForAnswer, computeSpeedBonusAtSubmission,
     computeOrderBonusAssignments, teamPointsForQuestion,
+    computeFrozenLeaderboardBands, totalScore, qualificationScore, roundScore,
     resolvePresentationMode, answerUnlockPolicyFor,
     __setTestState: (s)=>{ state = s; },
     __setTestGameQuestions: (gq)=>{ gameQuestions = gq; },
