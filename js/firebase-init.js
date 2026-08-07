@@ -22,9 +22,61 @@ if(new URLSearchParams(location.search).get('emulator') === '1'){
 }
 const DB_ROOT = 'quizzettone'; // tutti i dati del gioco vivono sotto questo "nodo" del database
 
+/* ================== PERCORSI DI SESSIONE (PL-09) ==================
+   Prima tutto viveva in un unico nodo piatto con chiavi a prefisso stringa
+   (es. 'teaminfo:'+id, 'answers:'+id): comodo da scrivere ma impossibile da
+   separare per ramo o da ascoltare parzialmente. Questi helper centralizzano
+   la costruzione dei percorsi così un domani cambiare schema significa
+   toccare solo questo blocco, non ogni singola chiamata sparsa nel codice.
+   SESSION_ID è fisso ('current'): un solo evento dal vivo alla volta, niente
+   multi-sessione vera in questo pacchetto -- resta un possibile passo
+   successivo, non necessario oggi. */
+const SESSION_ID = 'current';
+function sessionPath(sub){ return 'sessions/' + SESSION_ID + (sub ? '/' + sub : ''); }
+function statePath(){ return sessionPath('state'); }
+function stateHistoryPath(){ return sessionPath('state/history'); }
+function questionInstancesPath(){ return sessionPath('questionInstances'); }
+function teamPath(id){ return sessionPath('teams' + (id ? '/' + id : '')); }
+function teamNamePath(key){ return sessionPath('teamNames' + (key ? '/' + key : '')); }
+function answersPath(id){ return sessionPath('answers' + (id ? '/' + id : '')); }
+function scoreLedgerPath(id){ return sessionPath('scoreLedger' + (id ? '/' + id : '')); }
+function presencePath(id, connId){ return sessionPath('presence' + (id ? '/' + id + (connId ? '/' + connId : '') : '')); }
+function questionBankPath(id){ return 'questionBank' + (id ? '/' + id : ''); }
+function soundEffectPath(id){ return 'soundEffects' + (id ? '/' + id : ''); }
+function presetPath(id){ return 'presets' + (id ? '/' + id : ''); } // PL-12: config salvate, globali come questionBank/soundEffects
+
+const MAX_AUDIO_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB: file più grandi rallentano troppo un caricamento da telefono in serata
+
 async function uploadAudioFile(file, folder){
+  // Validato qui, non nell'attributo accept="audio/*" dell'<input>: quello è
+  // solo un suggerimento per il selettore di file del sistema operativo, non
+  // impedisce di scegliere un file diverso o troppo grande.
+  if(!file.type || !file.type.startsWith('audio/')){
+    throw new Error('Il file deve essere un audio (tipo rilevato: ' + (file.type || 'sconosciuto') + ').');
+  }
+  if(file.size > MAX_AUDIO_FILE_SIZE_BYTES){
+    throw new Error('File troppo grande (' + Math.round(file.size/1024/1024) + 'MB): il limite è ' + Math.round(MAX_AUDIO_FILE_SIZE_BYTES/1024/1024) + 'MB.');
+  }
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = 'quizzettone-audio/' + folder + '/' + Date.now() + '_' + safeName;
+  const ref = storage.ref(path);
+  await ref.put(file);
+  return await ref.getDownloadURL();
+}
+
+// PL-19 (domanda fotografica): stesso pattern di uploadAudioFile (PL-08),
+// stesso limite di dimensione (una foto scattata da telefono resta ben
+// sotto gli 8MB nella grande maggioranza dei casi).
+const MAX_IMAGE_FILE_SIZE_BYTES = 8 * 1024 * 1024;
+async function uploadImageFile(file, folder){
+  if(!file.type || !file.type.startsWith('image/')){
+    throw new Error('Il file deve essere un\'immagine (tipo rilevato: ' + (file.type || 'sconosciuto') + ').');
+  }
+  if(file.size > MAX_IMAGE_FILE_SIZE_BYTES){
+    throw new Error('File troppo grande (' + Math.round(file.size/1024/1024) + 'MB): il limite è ' + Math.round(MAX_IMAGE_FILE_SIZE_BYTES/1024/1024) + 'MB.');
+  }
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = 'quizzettone-images/' + folder + '/' + Date.now() + '_' + safeName;
   const ref = storage.ref(path);
   await ref.put(file);
   return await ref.getDownloadURL();
@@ -44,10 +96,13 @@ async function safeSet(key, value, shared){
 async function safeDelete(key, shared){
   try{ await db.ref(DB_ROOT + '/' + key).remove(); }catch(e){}
 }
-async function safeList(prefix, shared){
+/* Elenca le chiavi figlie di un percorso (PL-09): prima faceva uno scan
+   dell'intero DB_ROOT filtrando per prefisso stringa, utile quando tutto
+   viveva in un nodo piatto; con rami reali basta guardare i figli diretti
+   del percorso richiesto. */
+async function safeList(path, shared){
   try{
-    const snap = await db.ref(DB_ROOT).once('value');
-    const all = snap.val() || {};
-    return Object.keys(all).filter(k => k.startsWith(prefix));
-  } catch(e){ console.error('storage list failed', prefix, e); return []; }
+    const snap = await db.ref(DB_ROOT + '/' + path).once('value');
+    return Object.keys(snap.val() || {});
+  } catch(e){ console.error('storage list failed', path, e); return []; }
 }

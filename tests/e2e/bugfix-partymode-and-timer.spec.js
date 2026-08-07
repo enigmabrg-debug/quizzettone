@@ -36,6 +36,7 @@ test('a revealed Party Mode card shows on the team screen too, not just Display'
 
   await admin.click('#btnPartyNormale');
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toBeVisible();
 
   await admin.click('#btnMarkBonus');
@@ -99,6 +100,7 @@ test('"Avvio timer" is visible in the essential setup section without opening ad
   await expect(admin.locator('.team-tag', { hasText: 'Team Manuale' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   // Manual mode: the question is open but the timer must NOT be running yet.
   await expect(admin.locator('#btnStartTimer')).toBeVisible();
   await expect(admin.locator('.pill', { hasText: 'In attesa di avvio' })).toBeVisible();

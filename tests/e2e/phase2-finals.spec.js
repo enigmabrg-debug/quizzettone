@@ -47,6 +47,23 @@ test('eliminated team sees spectator status, not answer buttons, and cannot subm
   const res = await request.put(EMULATOR_ROOT, { data: root });
   if (!res.ok()) throw new Error('seed failed: ' + res.status());
 
+  // Come nell'uso reale, l'admin carica la pagina per primo: è lui a far
+  // partire la migrazione one-shot dal vecchio schema piatto (PL-09) verso
+  // sessions/current/..., prima che una squadra provi a recuperare la sua
+  // identità da lì. Bootstrap-only: si chiude subito dopo, il resto del test
+  // apre i suoi context come prima.
+  const bootstrapCtx = await browser.newContext();
+  const bootstrap = await bootstrapCtx.newPage();
+  await bootstrap.goto(BASE + '&role=admin');
+  await bootstrap.fill('#adminPinInput', '2468');
+  await bootstrap.click('#btnPinConfirm');
+  // Questo game è già in fase 'question' (non 'lobby'), quindi non c'è una
+  // lista squadre da controllare qui: basta attendere che il pannello di
+  // regia della domanda finale sia visibile, segno che 'state' è stato letto
+  // correttamente dal ramo migrato.
+  await expect(bootstrap.locator('.pill', { hasText: 'FINALE' })).toBeVisible();
+  await bootstrapCtx.close();
+
   const f1Ctx = await browser.newContext();
   const f1 = await f1Ctx.newPage();
   await f1.goto(BASE + '&role=team&id=team_f1');
@@ -72,7 +89,7 @@ test('eliminated team sees spectator status, not answer buttons, and cannot subm
   // server-side even if something tried to call it directly.
   const rejected = await e1.evaluate(async () => {
     await teamSubmitAnswer('final', 0, 1);
-    const snap = await db.ref("quizzettone/answers:team_e1").once('value');
+    const snap = await db.ref('quizzettone/' + answersPath('team_e1')).once('value');
     return snap.val();
   });
   expect(rejected).toBeNull();
@@ -156,4 +173,78 @@ test('a tied final score routes into the same tiebreak flow as qualification tie
   await expect(admin.locator('.winner-name', { hasText: winnerName })).toBeVisible();
 
   await adminCtx.close();
+});
+
+// PL-16: scoreCarryover era configurabile ma mai letto da nessuna funzione
+// di scoring. Questo test copre il percorso reale end-to-end per "Azzera":
+// una squadra domina la qualificazione, l'altra non risponde affatto, ma in
+// finale è quest'ultima a rispondere correttamente — con "Azzera" deve
+// essere lei a vincere (il vantaggio di qualificazione va davvero a zero),
+// non la squadra che aveva dominato la qualificazione. Le altre due
+// modalità ("Mantieni"/"Vantaggio") sono coperte a fondo, formula per
+// formula, da tests/unit/final-carryover.spec.js.
+test('scoreCarryover "Azzera": la finale si decide solo sul rendimento in finale, non sulla qualificazione', async ({ browser }) => {
+  test.setTimeout(60_000);
+  const adminCtx = await browser.newContext();
+  const admin = await adminCtx.newPage();
+  await admin.goto(BASE + '&role=admin');
+  await admin.fill('#adminPinInput', '2468');
+  await admin.click('#btnPinConfirm');
+  await expect(admin.locator('#setupGameName')).toBeVisible();
+
+  await admin.fill('#setupRounds', '1');
+  await admin.fill('#setupQuestionsPerRound', '1');
+  await admin.fill('#setupFinalistCount', '2');
+  await admin.fill('#setupFinalQuestionCount', '1');
+  await admin.click('#btnToggleAdvancedSetup');
+  await admin.selectOption('#setupScoreCarryover', 'reset');
+  await admin.click('#btnSaveSetup');
+  await admin.waitForTimeout(400);
+
+  const dominantCtx = await browser.newContext();
+  const dominant = await dominantCtx.newPage();
+  await dominant.goto(BASE);
+  await dominant.click('#btnTeam');
+  await dominant.fill('#teamNameInput', 'Squadra Dominante');
+  await dominant.click('#btnJoin');
+  await expect(admin.locator('.team-tag', { hasText: 'Squadra Dominante' })).toBeVisible();
+
+  const comebackCtx = await browser.newContext();
+  const comeback = await comebackCtx.newPage();
+  await comeback.goto(BASE);
+  await comeback.click('#btnTeam');
+  await comeback.fill('#teamNameInput', 'Squadra Rimonta');
+  await comeback.click('#btnJoin');
+  await expect(admin.locator('.team-tag', { hasText: 'Squadra Rimonta' })).toBeVisible();
+
+  await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
+  await expect(admin.locator('.qmeta').first()).toContainText('Domanda 1/1');
+
+  // Qualificazione: solo "Squadra Dominante" risponde, e risponde giusto.
+  const correctIdx1 = await admin.evaluate(() => getQuestion(1, 0).correctIndex);
+  await dominant.locator('.opt').nth(correctIdx1).click();
+  await admin.click('#btnCloseNow');
+  await admin.click('#btnNext'); // fine dell'unica manche -> con 1 sola manche va dritto a "Fine qualificazione"
+  await expect(admin.locator('#btnRevealFinalists')).toBeVisible();
+  await admin.click('#btnRevealFinalists');
+  await expect(admin.locator('h3:has-text("Finaliste svelate")')).toBeVisible();
+  await admin.click('#btnGoFinal');
+  await expect(admin.locator('.qmeta').first()).toContainText('FINALE');
+
+  // Finale: stavolta risponde solo "Squadra Rimonta", e risponde giusto.
+  const correctIdx2 = await admin.evaluate(() => getQuestion('final', 0).correctIndex);
+  await comeback.locator('.opt').nth(correctIdx2).click();
+  await admin.click('#btnCloseNow');
+  await admin.click('#btnNext'); // fine finale -> "Finale conclusa"
+  await admin.click('#btnRevealWinner');
+
+  await expect(admin.locator('text=Campioni del Quizzettone')).toBeVisible();
+  // "Azzera": vince chi ha risposto meglio in FINALE, non chi dominava la
+  // qualificazione — l'opposto di quel che sarebbe successo con "Mantieni".
+  await expect(admin.locator('.winner-name', { hasText: 'Squadra Rimonta' })).toBeVisible();
+
+  await adminCtx.close();
+  await dominantCtx.close();
+  await comebackCtx.close();
 });

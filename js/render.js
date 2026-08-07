@@ -4,12 +4,32 @@ function letter(i){ return ['A','B','C','D'][i]; }
 function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+/* Unico punto da cui si stampa il nome di una squadra in HTML: centralizza
+   l'escaping così un nuovo punto di rendering non può dimenticarlo (era
+   successo in rankRows() e altrove, lasciando un XSS reale sulle schermate
+   di classifica viste da tutti). */
+function teamNameHtml(id){
+  return escapeHtml(teams[id] ? teams[id].name : '—');
+}
+/* PL-19 (domanda fotografica): unico punto da cui si stampa l'immagine di
+   una domanda, su Team/Admin/Display. onerror nasconde l'<img> rotta e
+   mostra un messaggio di fallback esplicito invece di lasciare un'icona
+   di immagine rotta silenziosa — sia l'admin sia le squadre devono capire
+   subito che il file non è disponibile (link scaduto, file rimosso),
+   coerente col resto del gioco ("mai una correzione nascosta"). */
+function questionImageHtml(q, maxHeight){
+  if(!q || !q.imageUrl) return '';
+  return `<div class="question-image-wrap">
+    <img src="${escapeHtml(q.imageUrl)}" style="max-width:100%;max-height:${maxHeight||'320px'};border-radius:8px;display:block;margin:0 auto;" onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+    <p class="note" style="display:none;color:var(--pink);">⚠ Immagine non disponibile (link scaduto o file rimosso).</p>
+  </div>`;
+}
 function timeRemaining(){
   if(!state || !state.timer) return 0;
   const t = state.timer;
   if(t.status==='paused') return t.pausedRemainingMs || 0;
   if(t.status!=='running' || !t.startedAt) return 0;
-  return Math.max(0, t.durationMs - (Date.now() - t.startedAt));
+  return Math.max(0, t.durationMs - (serverNow() - t.startedAt)); // PL-11: tempo autorevole condiviso
 }
 function circleTimer(remainingMs, total){
   const pct = Math.max(0, Math.min(1, remainingMs/total));
@@ -28,7 +48,7 @@ function rankRows(idsWithScores){
   return idsWithScores.map((r,i)=>`
     <div class="rank-row ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
       <div class="rank-num">${i+1}</div>
-      <div class="rank-name">${teams[r.id] ? teams[r.id].name : '—'}</div>
+      <div class="rank-name">${teamNameHtml(r.id)}</div>
       <div class="rank-score">${r.score} pt</div>
     </div>`).join('');
 }
@@ -63,6 +83,120 @@ function showConfirmModal(message, confirmLabel, onConfirm){
   document.body.appendChild(overlay);
   document.getElementById('confirmModalYes').onclick = ()=>{ overlay.remove(); onConfirm(); };
   document.getElementById('confirmModalNo').onclick = ()=>{ overlay.remove(); };
+}
+
+/* Banner di errore per un'operazione Firebase fallita (FT-05): appeso a
+   document.body come showConfirmModal, così non sparisce al prossimo
+   render(). onRetry è opzionale: se assente il banner ha solo "Chiudi". */
+function showErrorBanner(message, onRetry){
+  const existing = document.getElementById('errorBannerOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'errorBannerOverlay';
+  overlay.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:1001;display:flex;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:420px;border-color:rgba(255,77,109,.4);">
+      <p style="color:var(--pink);font-weight:700;margin:0;">${escapeHtml(message)}</p>
+      <div class="row">
+        ${onRetry ? `<button class="btn danger" id="errorBannerRetry">Riprova</button>` : ''}
+        <button class="btn ghost" id="errorBannerClose">Chiudi</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('errorBannerClose').onclick = ()=> overlay.remove();
+  if(onRetry) document.getElementById('errorBannerRetry').onclick = ()=>{ overlay.remove(); onRetry(); };
+}
+
+/* Reset partita a due passaggi (FT-01, versione "checklist di backup manuale"
+   al posto di un secondo progetto Firebase separato — vedi PL-05 nel piano):
+   Step 1 costringe l'admin a spuntare esplicitamente che ha pensato al
+   backup PRIMA di poter proseguire; Step 2 è l'ultima conferma esplicita,
+   che è l'unico punto che richiama davvero onConfirm(). Un reset non può
+   più partire da un solo click distratto. */
+function showResetChecklistModal(onConfirm){
+  const existing = document.getElementById('resetChecklistOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'resetChecklistOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  document.body.appendChild(overlay);
+
+  const items = [
+    'Ho salvato o annotato il podio/le statistiche della serata, se mi servono.',
+    'Nessuna squadra deve ancora vedere un risultato non ancora rivelato.',
+    "Sono sicuro/a: squadre, risposte e punteggi verranno cancellati. L'azione non è annullabile con \"Annulla ultima azione\"."
+  ];
+
+  function renderStep1(){
+    overlay.innerHTML = `
+      <div class="card stack" style="max-width:420px;margin:20px;">
+        <h3>Prima di azzerare la partita</h3>
+        <div class="stack">
+          ${items.map((label,i)=>`
+            <label class="row" style="align-items:flex-start;gap:10px;">
+              <input type="checkbox" id="resetCheck${i}" style="margin-top:3px;">
+              <span>${escapeHtml(label)}</span>
+            </label>`).join('')}
+        </div>
+        <div class="row">
+          <button class="btn danger" id="resetContinue" disabled>Continua</button>
+          <button class="btn ghost" id="resetCancel1">Annulla</button>
+        </div>
+      </div>`;
+    const checkboxes = items.map((_,i)=>document.getElementById('resetCheck'+i));
+    const continueBtn = document.getElementById('resetContinue');
+    const updateContinueEnabled = ()=>{ continueBtn.disabled = !checkboxes.every(cb=>cb.checked); };
+    checkboxes.forEach(cb=> cb.onchange = updateContinueEnabled);
+    continueBtn.onclick = ()=>{ if(!continueBtn.disabled) renderStep2(); };
+    document.getElementById('resetCancel1').onclick = ()=> overlay.remove();
+  }
+  function renderStep2(){
+    overlay.innerHTML = `
+      <div class="card stack" style="max-width:420px;margin:20px;">
+        <h3>Conferma definitiva</h3>
+        <p>Questo azzera davvero squadre, risposte e punteggi. Procedere?</p>
+        <div class="row">
+          <button class="btn danger" id="resetConfirmFinal">Reset definitivo</button>
+          <button class="btn ghost" id="resetCancel2">Annulla</button>
+        </div>
+      </div>`;
+    document.getElementById('resetConfirmFinal').onclick = ()=>{ overlay.remove(); onConfirm(); };
+    document.getElementById('resetCancel2').onclick = ()=> overlay.remove();
+  }
+  renderStep1();
+}
+
+/* Rinomina squadra da Admin (PL-07): un modale semplice invece di
+   window.prompt(), coerente con lo stile del resto dell'app (niente dialog
+   nativi del browser). */
+function showRenameTeamModal(currentName, onRename){
+  const existing = document.getElementById('renameTeamOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'renameTeamOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:360px;margin:20px;">
+      <h3>Rinomina squadra</h3>
+      <input type="text" id="renameTeamInput" maxlength="24">
+      <div class="row">
+        <button class="btn" id="renameTeamConfirm">Rinomina</button>
+        <button class="btn ghost" id="renameTeamCancel">Annulla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const input = document.getElementById('renameTeamInput');
+  input.value = currentName;
+  input.focus();
+  input.select();
+  const confirmRename = ()=>{
+    const val = input.value.trim();
+    overlay.remove();
+    if(val && val!==currentName) onRename(val);
+  };
+  document.getElementById('renameTeamConfirm').onclick = confirmRename;
+  document.getElementById('renameTeamCancel').onclick = ()=> overlay.remove();
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmRename(); });
 }
 
 /* Codice breve + QR per entrare in partita: il QR punta a ?role=team, che
@@ -120,6 +254,17 @@ function playPendingAudioCueIfAny(){
   if(!el) return;
   if(cue.action==='stop'){ el.pause(); return; } // uno stop va sempre onorato, anche se il cue è "vecchio"
   if(Date.now() - cue.triggeredAt > AUDIO_CUE_STALE_MS) return; // scheda appena aperta a metà domanda: non sparare audio vecchio
+  // PL-19 (consolidamento audio): un vero errore di caricamento (file
+  // rimosso, URL scaduto, CORS) è diverso dal blocco autoplay del browser
+  // già gestito sotto — qui l'admin (solo lui, per non far scrivere sia
+  // admin sia Display in corsa) lo segnala su Firebase, così anche le
+  // squadre (che non riproducono l'audio in prima persona, ma ne vedono lo
+  // stato) sanno che quella domanda non ha audio disponibile invece di
+  // restare in attesa di qualcosa che non arriverà mai.
+  el.onerror = ()=>{
+    console.warn('audio non disponibile', cue.url);
+    if(role==='admin') reportAudioLoadFailure(cue.nonce);
+  };
   const seekAndPlay = ()=>{
     try{ el.currentTime = cue.startAt||0; }catch(e){}
     el.play().catch(err=>console.warn('audio bloccato dal browser', err));
@@ -284,13 +429,17 @@ function renderTeamJoin(){
   input.focus();
   const doJoin = async ()=>{
     if(!input.value.trim()) return;
+    const attemptedName = input.value;
     role='team';
     try{
-      await teamJoin(input.value);
+      await teamJoin(attemptedName);
     } catch(e){
       if(e.message === 'LATE_JOIN_BLOCKED'){
         role = null;
         document.getElementById('joinError').style.display = 'block';
+      } else if(e.message === 'JOIN_FAILED'){
+        role = null;
+        showErrorBanner('Impossibile entrare in partita: controlla la connessione e riprova.', ()=>{ input.value = attemptedName; doJoin(); });
       } else {
         throw e;
       }
@@ -300,9 +449,44 @@ function renderTeamJoin(){
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') doJoin(); });
 }
 
+/* Schermata di avvio: mostrata al posto di una pagina bianca finché il primo
+   snapshot da Firebase non è arrivato. 'timeout' compare se non arriva nulla
+   entro BOOT_TIMEOUT_MS (vedi startListening in state.js) o se il listener
+   fallisce esplicitamente (es. regole Firebase che negano la lettura). */
+function renderBootScreen(){
+  const app = document.getElementById('app');
+  if(!app) return;
+  app.className = '';
+  if(bootStatus === 'timeout'){
+    app.innerHTML = `
+      <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+        <div class="eyebrow">Party Quiz</div>
+        <h1 class="brand">QUIZZETTONE</h1>
+      </div>
+      <div class="card center stack" style="margin-top:20px;">
+        <h3>Connessione non riuscita</h3>
+        <p class="muted">Non riesco a raggiungere il server dopo qualche secondo di attesa. Controlla la connessione e riprova.</p>
+        <button class="btn" id="btnBootRetry">Riprova</button>
+      </div>
+    `;
+    const btn = document.getElementById('btnBootRetry');
+    if(btn) btn.onclick = retryBoot;
+    return;
+  }
+  app.innerHTML = `
+    <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
+      <div class="eyebrow">Party Quiz</div>
+      <h1 class="brand">QUIZZETTONE</h1>
+    </div>
+    <div class="card center stack" style="margin-top:20px;">
+      <p class="muted">Connessione in corso...</p>
+    </div>
+  `;
+}
+
 /* ================== RENDER PRINCIPALE ================== */
 function render(){
-  if(!state) return; // il primo snapshot da Firebase non è ancora arrivato
+  if(!state) return renderBootScreen(); // il primo snapshot da Firebase non è ancora arrivato
   if(role==='team' && joined) return renderTeam();
   if(role==='admin') return renderAdmin();
   if(role==='display') return renderDisplay();
@@ -331,7 +515,7 @@ function renderTeam(){
     body = `
       <div class="card center stack">
         <div class="eyebrow">Sei dentro!</div>
-        <h2>${teamName}</h2>
+        <h2>${escapeHtml(teamName)}</h2>
         <p class="muted">In attesa che l'admin avvii la Manche 1...</p>
         <button class="btn ${ready?'':'secondary'}" id="btnTeamReady">${ready?'✓ Siamo pronti':'Siamo pronti'}</button>
       </div>`;
@@ -396,13 +580,13 @@ function renderTeam(){
         <div class="eyebrow">Verdetto</div>
         <h2>Siete eliminati, godetevi la finale 🍿</h2>
         <div class="divider"></div>
-        <p class="muted">In finale: ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
+        <p class="muted">In finale: ${s.finalists.map(id=>teamNameHtml(id)).join(' 🆚 ')}</p>
       </div>`;
     } else {
       body = `<div class="card center stack final-glow">
         <div class="eyebrow pill gold">Verdetto</div>
         <h2>Siete in finale! 🏆</h2>
-        <p class="muted">Contro: ${s.finalists.filter(id=>id!==teamId).map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+        <p class="muted">Contro: ${s.finalists.filter(id=>id!==teamId).map(id=>teamNameHtml(id)).join(', ')}</p>
       </div>`;
     }
   }
@@ -417,18 +601,18 @@ function renderTeam(){
     if(s.winner===teamId){
       body = `<div class="winner-card">
         <div class="eyebrow pill gold">Campioni</div>
-        <div class="winner-name">${teamName}</div>
+        <div class="winner-name">${escapeHtml(teamName)}</div>
         <p>Campioni del Quizzettone! 🏆🎉</p>
       </div>`;
     } else if(isFinalist){
       body = `<div class="card center stack">
         <div class="eyebrow">Finale</div>
         <h2>Secondo posto, ma che partita! 🥈</h2>
-        <p class="muted">Vince ${teams[s.winner]?teams[s.winner].name:'—'}</p>
+        <p class="muted">Vince ${teamNameHtml(s.winner)}</p>
       </div>`;
     } else {
       body = `<div class="card center stack">
-        <h2>🏆 ${teams[s.winner]?teams[s.winner].name:'—'} è campione del Quizzettone!</h2>
+        <h2>🏆 ${teamNameHtml(s.winner)} è campione del Quizzettone!</h2>
       </div>`;
     }
   }
@@ -436,7 +620,7 @@ function renderTeam(){
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
-      <div class="eyebrow">Quizzettone · ${teamName} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
+      <div class="eyebrow">Quizzettone · ${escapeHtml(teamName)} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
       ${connectionBadge()}
     </div>
     ${body}
@@ -472,7 +656,7 @@ function renderSpectatorFinal(s){
     }
     return `<div class="card stack" style="padding:12px;">
       <div class="row" style="align-items:center;justify-content:space-between;">
-        <b>${teams[id]?teams[id].name:'—'}</b>
+        <b>${teamNameHtml(id)}</b>
         <span class="pill ${ans?'gold':''}">${statusLabel}</span>
       </div>
       ${answerHtml}
@@ -490,6 +674,11 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   if(!q) return '<div class="card center">Un attimo...</div>';
   const key = qkey(round, idx);
   const myAnswer = answersByTeam[teamId] && answersByTeam[teamId][key];
+  // Bloccato subito al click (PL-06), non solo quando arriva l'eco della
+  // scrittura: sopravvive anche ai re-render del tick ogni 250ms mentre la
+  // transazione è ancora in corso, perché è pilotato da questo flag locale
+  // e non da una semplice mutazione del DOM.
+  const submitPending = active && pendingSubmitKey === key && !myAnswer;
   // Con l'avvio manuale del timer, la domanda è visibile ma non ancora
   // rispondibile finché l'host non preme "Avvia timer": senza questa
   // distinzione timeRemaining() (0 mentre status è 'idle') farebbe sembrare
@@ -498,6 +687,25 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const remaining = active ? (timerIdle ? state.timer.durationMs : timeRemaining()) : 0;
   const expired = active && !timerIdle && remaining<=0 && !myAnswer;
   const showCorrectness = round!=='tiebreak' && !active && !!state.solutionRevealed;
+  // PL-11 (item 6): con sblocco manuale (schermo condiviso/ibrido) e input
+  // ancora bloccato, la domanda non va mostrata sul telefono — solo un
+  // rimando allo schermo condiviso — a meno che l'admin non abbia attivato
+  // il fallback per-domanda (item 7).
+  const resolvedMode = (state.presentation && state.presentation.resolvedMode) || 'team_devices';
+  const fallbackActive = !!(state.presentation && state.presentation.fallbackActive);
+  const sharedScreenLocked = timerIdle && answerUnlockPolicyFor(resolvedMode)==='manual' && !fallbackActive;
+  if(sharedScreenLocked){
+    const roundLabelLocked = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
+    return `
+      <div class="card stack">
+        <div class="qmeta">
+          <span class="pill gold">${roundLabelLocked}</span>
+          <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
+        </div>
+        <div class="status-banner">📺 Guarda lo schermo condiviso</div>
+      </div>
+    `;
+  }
 
   let optionsHtml = q.options.map((opt,i)=>{
     let cls = 'opt';
@@ -506,14 +714,15 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
       if(i===q.correctIndex) cls += ' correct';
       else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
     }
-    const disabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0;
+    const disabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0 || submitPending;
     return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
       <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
     </button>`;
   }).join('');
 
   let banner = '';
-  if(myAnswer){
+  if(submitPending) banner = `<div class="status-banner">Invio in corso...</div>`;
+  else if(myAnswer){
     const bonusNote = myAnswer.speedBonus>0 ? ` (⚡ bonus velocità: +${myAnswer.speedBonus} se corretta)` : '';
     banner = `<div class="status-banner sent">✓ Risposta inviata${bonusNote}</div>`;
   }
@@ -540,6 +749,34 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const speedBonusPill = (active && state.config && state.config.speedBonus && state.config.speedBonus.enabled)
     ? `<span class="pill">⚡ Bonus velocità attivo</span>` : '';
 
+  // PL-17: trasparenza sulla fascia congelata (PL-15) PRIMA di rispondere,
+  // mai scoperta solo a cose fatte — stesso principio di scoringPill sopra.
+  // Solo per il profilo dinamico/personalizzato, e solo quando la fascia è
+  // già stata calcolata (openQuestionWithSnapshot/adminStartGame ecc.).
+  let riskPill = '', comebackPill = '';
+  if(active && round!=='tiebreak'){
+    const profile = state.config && state.config.scoringProfile;
+    const band = (profile && profile!=='classico' && q.leaderboardBands) ? q.leaderboardBands[teamId] : null;
+    if(band){
+      riskPill = `<span class="pill" style="color:var(--pink);">⚠ Rischio errore ×${band.errorMultiplier.toFixed(2)}</span>`;
+      if(band.comebackBonusPercent>0){
+        comebackPill = `<span class="pill" style="color:var(--green);">📈 Bonus rimonta +${band.comebackBonusPercent}%</span>`;
+      }
+    }
+  }
+
+  // PL-19 (consolidamento audio, "gestione errori lato squadra"): l'audio
+  // vero e proprio parte solo su admin/Display, ma la squadra vede comunque
+  // lo stato — incluso un fallback esplicito se il file non è disponibile,
+  // invece di restare in attesa di un audio che non arriverà mai.
+  let audioStatusPill = '';
+  if(active && q.audioUrl && role==='team'){
+    const cueFailed = state.audioCue && state.audioCue.loadFailed;
+    audioStatusPill = cueFailed
+      ? `<span class="pill" style="color:var(--pink);">⚠ Audio non disponibile</span>`
+      : `<span class="pill">🎵 Audio in riproduzione sullo schermo condiviso</span>`;
+  }
+
   return `
     <div class="card stack">
       <div class="qmeta">
@@ -549,9 +786,13 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         ${active ? `<span class="pill">✓ ${answeredCount}/${activeIds.length} risposto</span>` : ''}
         ${scoringPill}
         ${speedBonusPill}
+        ${riskPill}
+        ${comebackPill}
+        ${audioStatusPill}
       </div>
       ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timer.durationMs)}</div>` : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
+      ${questionImageHtml(q)}
       <div class="options">${optionsHtml}</div>
       ${banner}
     </div>
@@ -564,7 +805,12 @@ function attachTeamOptionHandlers(){
       if(btn.disabled) return;
       const idx = parseInt(btn.getAttribute('data-idx'));
       const round = state.round, qIdx = state.qIndex;
+      const key = qkey(round, qIdx);
+      pendingSubmitKey = key; // blocca subito tutte le opzioni, anche prima che la transazione risponda
+      render();
       await teamSubmitAnswer(round, qIdx, idx);
+      if(pendingSubmitKey === key) pendingSubmitKey = null;
+      render();
     };
   });
 }
@@ -578,7 +824,7 @@ function renderEndRoundStandings(round, mode){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score: roundScore(id,round)})).sort((a,b)=>b.score-a.score);
   if(mode==='complete') return `<div class="divider"></div><h3 class="center">Classifica Manche ${round}</h3>${rankRows(ranked)}`;
-  if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div></div>`).join('')}`;
+  if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teamNameHtml(r.id)}</div></div>`).join('')}`;
   return '';
 }
 
@@ -707,6 +953,189 @@ function renderPreGameChecklist(){
 }
 
 /* ================== SALA PRE-PARTITA (configurazione essenziale + avanzata) ================== */
+/* PL-12 (item 13): 4 preset dichiarati dal piano (§4.1) — "Personalizzata" non
+   ha un bottone dedicato: è già lo stato di default del form (tutti i campi
+   liberamente modificabili), coerente con "nessun nuovo motore, solo default
+   diversi". "Tutti contro tutti" ("nessuna squadra eliminata nell'ultima
+   manche") riusa il ramo già esistente in adminRevealFinalists
+   (ranked.length<=finalistCount ⇒ nessuno escluso) impostando un
+   finalistCount molto alto, invece di introdurre un nuovo motore di gioco. */
+const BUILTIN_CONFIG_PRESETS = [
+  {id:'classica', label:'Serata classica', values:{rounds:2, questionsPerRound:15, finalistCount:2, finalQuestionCount:10, scoreCarryover:'reset'}},
+  {id:'rapida', label:'Partita rapida', values:{rounds:1, questionsPerRound:10, finalistCount:2, finalQuestionCount:5, scoreCarryover:'reset'}},
+  {id:'tutti_contro_tutti', label:'Tutti contro tutti', values:{rounds:2, questionsPerRound:15, finalistCount:999, finalQuestionCount:10, scoreCarryover:'keep'}}
+];
+/* Scrive i valori di un preset (built-in o salvato) direttamente sui campi
+   del form, senza un render() completo: stesso principio già usato per
+   btnToggleAdvancedSetup, per non perdere altre modifiche non ancora
+   salvate. Accetta sia i valori parziali dei preset built-in sia un intero
+   "patch" salvato da adminSaveConfigPreset (stessa forma, superset di campi). */
+function applyPresetValuesToForm(values){
+  const byId = id=>document.getElementById(id);
+  const hasAdvanced = values.scoreCarryover || (values.tiebreakRule && values.tiebreakRule.final) ||
+    values.answerVisibilityForEliminated || values.blockDuplicateQuestions!=null || values.speedBonus ||
+    ('finalScoring' in values) || values.scoringProfile;
+  if(hasAdvanced && !showAdvancedSetup){
+    showAdvancedSetup = true;
+    byId('salaAdvancedSection').style.display = 'flex';
+    byId('btnToggleAdvancedSetup').textContent = '▲ Nascondi impostazioni avanzate';
+  }
+  if(values.rounds!=null) byId('setupRounds').value = values.rounds;
+  // I preset built-in dichiarano un numero semplice (una sola manche di
+  // riferimento); i preset salvati da adminSaveConfigPreset portano invece
+  // l'array già espanso per manche (stessa forma del patch di
+  // adminSaveSetup, es. [7,7,7]) — il form ha un solo campo "domande per
+  // manche", quindi si legge sempre il primo valore.
+  if(values.questionsPerRound!=null){
+    const qpr = Array.isArray(values.questionsPerRound) ? values.questionsPerRound[0] : values.questionsPerRound;
+    byId('setupQuestionsPerRound').value = qpr;
+  }
+  if(values.finalistCount!=null) byId('setupFinalistCount').value = values.finalistCount;
+  if(values.finalQuestionCount!=null) byId('setupFinalQuestionCount').value = values.finalQuestionCount;
+  if(values.questionDurationMs!=null) byId('setupQuestionDuration').value = Math.round(values.questionDurationMs/1000);
+  if(values.scoring){
+    byId('setupScoringCorrect').value = values.scoring.correct;
+    byId('setupScoringWrong').value = values.scoring.wrong;
+    byId('setupScoringNoAnswer').value = values.scoring.noAnswer;
+  }
+  if(values.timerStartMode) byId('setupTimerStartMode').value = values.timerStartMode;
+  if(values.displayMode) byId('setupDisplayMode').value = values.displayMode;
+  if(values.scoringProfile) byId('setupScoringProfile').value = values.scoringProfile;
+  if(values.tiebreakRule){
+    if(values.tiebreakRule.qualification) byId('setupTiebreakQualification').value = values.tiebreakRule.qualification;
+    if(values.tiebreakRule.final) byId('setupTiebreakFinal').value = values.tiebreakRule.final;
+  }
+  if(values.lateJoin && values.lateJoin.policy) byId('setupLateJoinPolicy').value = values.lateJoin.policy;
+  if(values.scoreCarryover) byId('setupScoreCarryover').value = values.scoreCarryover;
+  if(values.answerVisibilityForEliminated) byId('setupAnswerVisibility').value = values.answerVisibilityForEliminated;
+  if(values.blockDuplicateQuestions!=null) byId('setupBlockDuplicates').checked = values.blockDuplicateQuestions;
+  if(values.speedBonus){
+    byId('setupSpeedBonusEnabled').checked = values.speedBonus.enabled;
+    byId('setupSpeedBonusMax').value = values.speedBonus.maxBonus;
+    byId('setupSpeedBonusWindow').value = Math.round((values.speedBonus.windowMs||0)/1000);
+  }
+  if('finalScoring' in values){
+    byId('setupFinalScoringEnabled').checked = !!values.finalScoring;
+    if(values.finalScoring){
+      byId('setupFinalScoringCorrect').value = values.finalScoring.correct;
+      byId('setupFinalScoringWrong').value = values.finalScoring.wrong;
+      byId('setupFinalScoringNoAnswer').value = values.finalScoring.noAnswer;
+    }
+  }
+}
+/* Raccoglie il patch dallo stato ATTUALE del form (stessa forma passata ad
+   adminSaveSetup). Fattorizzata da dentro l'handler di btnSaveSetup così può
+   essere riusata anche per "Salva come preset". includeAdvancedAlways=true
+   (usato solo dal salvataggio preset) legge sempre i campi avanzati, anche a
+   sezione chiusa: un preset è un'istantanea a sé stante, non ha uno stato
+   "già salvato" da preservare come invece succede nel salvataggio normale
+   (dove il comportamento originale — non toccare i campi avanzati se la
+   sezione non è mai stata aperta in questa sessione — resta invariato). */
+function collectSetupPatchFromForm(includeAdvancedAlways){
+  const byId = id=>document.getElementById(id);
+  const intVal = id => parseInt(byId(id).value, 10);
+  const rounds = intVal('setupRounds') || 1;
+  const perRound = intVal('setupQuestionsPerRound') || 1;
+  const patch = {
+    rounds,
+    questionsPerRound: Array(rounds).fill(perRound),
+    finalistCount: intVal('setupFinalistCount') || 1,
+    finalQuestionCount: intVal('setupFinalQuestionCount') || 0,
+    questionDurationMs: (intVal('setupQuestionDuration') || 20) * 1000,
+    scoring: {
+      correct: intVal('setupScoringCorrect') || 0,
+      wrong: intVal('setupScoringWrong') || 0,
+      noAnswer: intVal('setupScoringNoAnswer') || 0
+    },
+    tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
+    lateJoin: { policy: byId('setupLateJoinPolicy').value },
+    timerStartMode: byId('setupTimerStartMode').value,
+    displayMode: byId('setupDisplayMode').value
+  };
+  if(includeAdvancedAlways || showAdvancedSetup){
+    patch.scoringProfile = byId('setupScoringProfile').value;
+    patch.finalScoring = byId('setupFinalScoringEnabled').checked ? {
+      correct: intVal('setupFinalScoringCorrect') || 0,
+      wrong: intVal('setupFinalScoringWrong') || 0,
+      noAnswer: intVal('setupFinalScoringNoAnswer') || 0
+    } : null;
+    patch.scoreCarryover = byId('setupScoreCarryover').value;
+    patch.tiebreakRule.final = byId('setupTiebreakFinal').value;
+    patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
+    patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
+    patch.speedBonus = {
+      enabled: byId('setupSpeedBonusEnabled').checked,
+      maxBonus: intVal('setupSpeedBonusMax') || 0,
+      windowMs: (intVal('setupSpeedBonusWindow') || 0) * 1000
+    };
+  }
+  return patch;
+}
+/* Modale generico per nominare un preset da salvare (PL-12), stesso stile di
+   showRenameTeamModal: niente window.prompt nativo. */
+function showSavePresetModal(onSave){
+  const existing = document.getElementById('savePresetOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'savePresetOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:360px;margin:20px;">
+      <h3>Salva preset</h3>
+      <input type="text" id="savePresetInput" maxlength="40" placeholder="Nome del preset">
+      <div class="row">
+        <button class="btn" id="savePresetConfirm">Salva</button>
+        <button class="btn ghost" id="savePresetCancel">Annulla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const input = document.getElementById('savePresetInput');
+  input.focus();
+  const confirmSave = ()=>{
+    const val = input.value.trim();
+    overlay.remove();
+    if(val) onSave(val);
+  };
+  document.getElementById('savePresetConfirm').onclick = confirmSave;
+  document.getElementById('savePresetCancel').onclick = ()=> overlay.remove();
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmSave(); });
+}
+/* Riepilogo testuale prima dello start (PL-12, item 12): l'ultimo momento
+   utile per accorgersi di una regola sbagliata prima che la config si blocchi
+   (setupLocked). Solo lettura, nessun campo modificabile qui: per correggere
+   si annulla e si torna al form. */
+function showStartSummaryModal(cfg, onConfirm){
+  const existing = document.getElementById('startSummaryOverlay');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'startSummaryOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
+  const displayModeLabels = {team_devices:'solo dispositivi squadra', shared_screen:'schermo condiviso', hybrid:'ibrida'};
+  const carryoverLabels = {reset:'azzerati', keep:'mantenuti', convert:'convertiti'};
+  const profileLabels = {classico:'Classico', dinamico:'Dinamico (in arrivo, calcolo identico a Classico per ora)', personalizzato:'Personalizzato (in arrivo, calcolo identico a Classico per ora)'};
+  const lines = [
+    `${cfg.rounds} manche di qualificazione da ${cfg.questionsPerRound[0]||0} domande`,
+    `Finale: ${cfg.finalistCount} finalisti, ${cfg.finalQuestionCount} domande`,
+    `Punteggio: corretta +${cfg.scoring.correct}, sbagliata ${cfg.scoring.wrong}, non data ${cfg.scoring.noAnswer} (profilo: ${profileLabels[cfg.scoringProfile]||cfg.scoringProfile||'Classico'})`,
+    `Timer: ${Math.round(cfg.questionDurationMs/1000)}s, avvio ${cfg.timerStartMode==='manual'?'manuale':'automatico'}`,
+    `Presentazione: ${displayModeLabels[cfg.displayMode]||cfg.displayMode}`,
+    `Punti in ingresso finale: ${carryoverLabels[cfg.scoreCarryover]||cfg.scoreCarryover}`
+  ];
+  overlay.innerHTML = `
+    <div class="card stack" style="max-width:420px;margin:20px;">
+      <h3>Riepilogo partita</h3>
+      <ul style="margin:0;padding-left:18px;">
+        ${lines.map(l=>`<li>${escapeHtml(l)}</li>`).join('')}
+      </ul>
+      <div class="row">
+        <button class="btn" id="startSummaryConfirm">Avvia Manche 1</button>
+        <button class="btn ghost" id="startSummaryCancel">Annulla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('startSummaryConfirm').onclick = ()=>{ overlay.remove(); onConfirm(); };
+  document.getElementById('startSummaryCancel').onclick = ()=> overlay.remove();
+}
 function renderSalaPrePartita(s, cfg){
   const questionsPerRound = cfg.questionsPerRound[0] || 15;
   const tieOptions = [
@@ -732,6 +1161,24 @@ function renderSalaPrePartita(s, cfg){
       ${renderJoinCodeBlock(s.joinCode)}
       ${renderPreGameChecklist()}
       <div class="divider"></div>
+      ${!s.setupLocked ? `
+      <div class="eyebrow">Preset di partita</div>
+      <div class="row">
+        ${BUILTIN_CONFIG_PRESETS.map(p=>`<button class="btn ghost small" data-builtin-preset="${p.id}">${escapeHtml(p.label)}</button>`).join('')}
+      </div>
+      ${Object.keys(presets).length ? `<div class="stack">
+        ${Object.keys(presets).map(id=>{
+          const p = presets[id];
+          return `<div class="row" style="align-items:center;">
+            <span style="flex:1;">${escapeHtml(p.name)}</span>
+            <button class="btn ghost small" data-load-preset="${id}">Carica</button>
+            <button class="btn ghost small" data-delete-preset="${id}">Elimina</button>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+      <button class="btn ghost small" id="btnSaveAsPreset">💾 Salva impostazioni attuali come preset</button>
+      <div class="divider"></div>
+      ` : ''}
       <label class="stack">Nome partita<input type="text" id="setupGameName" value="${escapeHtml(s.gameName)}" ${s.setupLocked?'disabled':''}></label>
       <div class="row">
         <label class="stack">Manche di qualificazione<input type="text" inputmode="numeric" id="setupRounds" value="${cfg.rounds}" ${s.setupLocked?'disabled':''}></label>
@@ -753,10 +1200,21 @@ function renderSalaPrePartita(s, cfg){
         <option value="auto" ${cfg.timerStartMode==='auto'?'selected':''}>Automatico all'apertura della domanda</option>
         <option value="manual" ${cfg.timerStartMode==='manual'?'selected':''}>Manuale (parte solo quando clicchi "Avvia timer")</option>
       </select></label>
+      <label class="stack">Modalità di presentazione<select id="setupDisplayMode" ${s.setupLocked?'disabled':''}>
+        <option value="team_devices" ${(cfg.displayMode||'team_devices')==='team_devices'?'selected':''}>Solo dispositivi squadra (oggi)</option>
+        <option value="shared_screen" ${cfg.displayMode==='shared_screen'?'selected':''}>Schermo condiviso: le risposte restano bloccate finché non premi "Apri risposte"</option>
+        <option value="hybrid" ${cfg.displayMode==='hybrid'?'selected':''}>Ibrida: come schermo condiviso, sblocco sempre manuale</option>
+      </select></label>
 
       <button class="btn ghost small" id="btnToggleAdvancedSetup">${showAdvancedSetup?'▲ Nascondi impostazioni avanzate':'▼ Impostazioni avanzate'}</button>
       <div id="salaAdvancedSection" style="display:${showAdvancedSetup?'flex':'none'};flex-direction:column;gap:10px;">
         <div class="divider"></div>
+        <label class="stack">Profilo di scoring<select id="setupScoringProfile" ${s.setupLocked?'disabled':''}>
+          <option value="classico" ${(cfg.scoringProfile||'classico')==='classico'?'selected':''}>Classico (punteggio fisso, come oggi)</option>
+          <option value="dinamico" ${cfg.scoringProfile==='dinamico'?'selected':''}>Dinamico (bonus ordine + penalità a fascia — in arrivo)</option>
+          <option value="personalizzato" ${cfg.scoringProfile==='personalizzato'?'selected':''}>Personalizzato (in arrivo)</option>
+        </select></label>
+        <p class="muted" style="font-size:12px;">"Dinamico" e "Personalizzato" sono selezionabili e salvati, ma il calcolo dei punti resta identico a "Classico" finché i meccanismi (bonus ordine, penalità a fascia, bonus rimonta) non saranno collegati in un aggiornamento successivo.</p>
         <label class="row" style="align-items:center;"><input type="checkbox" id="setupFinalScoringEnabled" ${finalScoringEnabled?'checked':''} ${s.setupLocked?'disabled':''}> Punteggi diversi in finale</label>
         <div class="row">
           <label class="stack">Finale: corretta<input type="text" inputmode="numeric" id="setupFinalScoringCorrect" value="${fs.correct}" ${s.setupLocked?'disabled':''}></label>
@@ -828,12 +1286,13 @@ function renderAdmin(){
           const online = isTeamOnline(id);
           const devices = teamDeviceCount(id);
           return `<div class="team-tag">
-            <span style="color:${online?'var(--green)':'var(--pink)'};">●</span> ${teams[id].name}
+            <span style="color:${online?'var(--green)':'var(--pink)'};">●</span> ${teamNameHtml(id)}
             ${devices>1?` <span class="pill">${devices} dispositivi</span>`:''}
             ${teams[id].ready?' <span class="pill gold">Pronta</span>':''}
             ${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}
             ${teams[id].isTest?' <span class="pill">PROVA</span>':''}
-            <button class="btn ghost small" data-remove-team="${id}" style="margin-left:auto;">✕</button>
+            <button class="btn ghost small" data-rename-team="${id}" style="margin-left:auto;">✎</button>
+            <button class="btn ghost small" data-remove-team="${id}">✕</button>
           </div>`;
         }).join('') || '<p class="muted">Nessuna squadra ancora...</p>'}</div>
         <button class="btn" id="btnStart" ${teamIds.length<1?'disabled':''}>Avvia Manche 1</button>
@@ -871,6 +1330,12 @@ function renderAdmin(){
     const answeredIdsForCount = activeTeams.filter(id=>answersByTeam[id] && answersByTeam[id][questionKey]);
     const missingIdsForCount = activeTeams.filter(id=>!answeredIdsForCount.includes(id));
     const offlineMissingCount = missingIdsForCount.filter(id=>!isTeamOnline(id)).length;
+    // PL-11: se lo sblocco delle risposte è manuale (schermo condiviso/ibrido),
+    // il pulsante idle è lo stesso btnStartTimer di sempre ma con un'etichetta
+    // diversa, più il fallback per-domanda "Mostra domanda sui telefoni".
+    const resolvedMode = (s.presentation && s.presentation.resolvedMode) || 'team_devices';
+    const manualUnlock = answerUnlockPolicyFor(resolvedMode) === 'manual';
+    const fallbackActive = !!(s.presentation && s.presentation.fallbackActive);
 
     controlPanel = `
       <div class="card stack">
@@ -882,14 +1347,16 @@ function renderAdmin(){
           <span class="pill">${missingIdsForCount.length} mancanti</span>
           ${offlineMissingCount>0?`<span class="pill" style="color:var(--pink);">${offlineMissingCount} offline</span>`:''}
         </div>
-        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?'<div class="pill">In attesa di avvio</div>':''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
+        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?`<div class="pill">${manualUnlock?'Risposte bloccate: in attesa dello schermo condiviso':'In attesa di avvio'}</div>`:''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
         ${!closed?`<div class="row">
-          ${idle?`<button class="btn" id="btnStartTimer">▶ Avvia timer</button>`:''}
+          ${idle?`<button class="btn" id="btnStartTimer">${manualUnlock?'🔓 Apri risposte':'▶ Avvia timer'}</button>`:''}
+          ${idle && manualUnlock && !fallbackActive?`<button class="btn ghost small" id="btnActivateTeamFallback">Mostra domanda sui telefoni</button>`:''}
           ${!idle && s.timer.status==='running'?`<button class="btn secondary small" id="btnPauseTimer">⏸ Pausa</button>`:''}
           ${paused?`<button class="btn secondary small" id="btnResumeTimer">▶ Riprendi</button>`:''}
           ${!idle?`<button class="btn ghost small" id="btnTimerMinus5">-5s</button><button class="btn ghost small" id="btnTimerPlus5">+5s</button>`:''}
         </div>`:''}
         <div class="qtext">${escapeHtml(q.question)}</div>
+        ${questionImageHtml(q)}
         <div class="options">
           ${q.options.map((opt,i)=>`<div class="opt ${i===q.correctIndex?'correct':''}" style="cursor:default;">
             <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>${i===q.correctIndex?' ✓':''}
@@ -935,7 +1402,7 @@ function renderAdmin(){
       controlPanel += `
         <div class="card stack" style="opacity:.8;">
           <div class="eyebrow">Prossima domanda · solo tu la vedi</div>
-          <div class="qmeta"><span class="pill">${escapeHtml(nextQ.category)}</span></div>
+          <div class="qmeta"><span class="pill">${escapeHtml(nextQ.category)}</span>${nextQ.imageUrl?'<span class="pill">📷 immagine</span>':''}</div>
           <div class="qtext" style="font-size:16px;">${escapeHtml(nextQ.question)}</div>
         </div>`;
     }
@@ -951,7 +1418,7 @@ function renderAdmin(){
           const answerTxt = ans ? letter(ans.optionIndex)+') '+escapeHtml(q.options[ans.optionIndex]) : '—';
           const pts = closed ? teamPointsForQuestion(id, round, idx) : '—';
           return `<tr>
-            <td>${teams[id]?teams[id].name:'—'}</td>
+            <td>${teamNameHtml(id)}</td>
             <td>${status}</td>
             <td>${answerTxt}</td>
             <td>${pts} ${closed?`<button class="btn ghost small" data-adjust="-1" data-team="${id}">−</button><button class="btn ghost small" data-adjust="1" data-team="${id}">+</button>`:''}</td>
@@ -1001,7 +1468,7 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Spareggio necessario</h3>
-        <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+        <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teamNameHtml(id)).join(', ')}</p>
         <p class="muted">Scegli una domanda dal pool finale da usare come spareggio:</p>
         <div class="stack">
           ${(s.tiebreak.candidateQuestions||[]).map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. [${escapeHtml(q.category)}] ${escapeHtml(q.question.slice(0,50))}...</button>`).join('') || '<p class="muted">Nessuna domanda disponibile nel pool finale.</p>'}
@@ -1017,14 +1484,14 @@ function renderAdmin(){
         <h3>Risultato spareggio</h3>
         <p class="qtext">${escapeHtml(q.question)}</p>
         <p class="muted">Corretta: ${letter(q.correctIndex)}) ${escapeHtml(q.options[q.correctIndex])}</p>
-        ${autoWinnerId ? `<p class="muted">Il sistema suggerisce <b>${teams[autoWinnerId]?teams[autoWinnerId].name:'—'}</b> in base alla regola di spareggio scelta: conferma o scegli un'altra squadra.</p>` : ''}
+        ${autoWinnerId ? `<p class="muted">Il sistema suggerisce <b>${teamNameHtml(autoWinnerId)}</b> in base alla regola di spareggio scelta: conferma o scegli un'altra squadra.</p>` : ''}
         <div class="stack">
           ${tb.candidates.map(id=>{
             const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', tb.qIndex)];
             const correct = ans && ans.optionIndex===q.correctIndex;
             const suggested = autoWinnerId===id;
             return `<div class="row" style="align-items:center;">
-              <div>${teams[id]?teams[id].name:'—'} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
+              <div>${teamNameHtml(id)} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
               <button class="btn small ${suggested?'':'secondary'}" data-assign-winner="${id}">${assignLabel}</button>
             </div>`;
           }).join('')}
@@ -1035,8 +1502,8 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Finaliste svelate</h3>
-        <p>🏆 ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
-        <p class="muted">Eliminate: ${(s.eliminated||[]).map(id=>teams[id]?teams[id].name:'—').join(', ') || 'nessuna'}</p>
+        <p>🏆 ${s.finalists.map(id=>teamNameHtml(id)).join(' 🆚 ')}</p>
+        <p class="muted">Eliminate: ${(s.eliminated||[]).map(id=>teamNameHtml(id)).join(', ') || 'nessuna'}</p>
         <button class="btn" id="btnGoFinal">Inizia la Finale</button>
       </div>`;
   }
@@ -1045,7 +1512,7 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Finale conclusa</h3>
-        ${scores.map(r=>`<div class="rank-row"><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div><div class="rank-score">${r.score} pt</div></div>`).join('')}
+        ${scores.map(r=>`<div class="rank-row"><div class="rank-name">${teamNameHtml(r.id)}</div><div class="rank-score">${r.score} pt</div></div>`).join('')}
         <button class="btn" id="btnRevealWinner">Svela vincitore</button>
       </div>`;
   }
@@ -1053,8 +1520,8 @@ function renderAdmin(){
     controlPanel = `
       <div class="winner-card">
         <div class="eyebrow pill gold">Campioni del Quizzettone</div>
-        <div class="winner-name">${teams[s.winner]?teams[s.winner].name:'—'}</div>
-        ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teams[r.id]?teams[r.id].name:'—'}: ${r.score} pt</p>`).join('')}
+        <div class="winner-name">${teamNameHtml(s.winner)}</div>
+        ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teamNameHtml(r.id)}: ${r.score} pt</p>`).join('')}
       </div>
       ${renderFinalStatsBlock()}
       <div class="card stack">
@@ -1070,7 +1537,7 @@ function renderAdmin(){
       <h3>Classifica generale (solo admin)</h3>
       <table><thead><tr><th>Squadra</th>${standingsRoundNums.map(r=>`<th>Manche ${r}</th>`).join('')}<th>Finale</th><th>Totale</th></tr></thead><tbody>
       ${teamIds.map(id=>`<tr>
-        <td>${teams[id].name}</td>
+        <td>${teamNameHtml(id)}</td>
         ${standingsRoundNums.map(r=>`<td>${roundScore(id,r)}</td>`).join('')}
         <td>${state.finalists && state.finalists.includes(id) ? roundScore(id,'final') : '—'}</td>
         <td><b>${totalScore(id)}</b></td>
@@ -1343,14 +1810,25 @@ function renderQuestionManager(){
     const cats = byPoolCategory[pool] || {};
     const catNames = Object.keys(cats).sort();
     const details = catNames.map(c=>{
-      const items = cats[c].map(q=>`
+      const items = cats[c].map(q=>{
+        const difficultyLabel = {facile:'Facile', media:'Media', difficile:'Difficile'}[q.difficulty] || q.difficulty;
+        const answerTypeLabel = {scelta:'Scelta multipla', vero_falso:'Vero/Falso', ordinamento:'Ordinamento', numero:'Numero', testo_libero:'Testo libero'}[q.answerType] || q.answerType;
+        return `
         <div class="row" style="align-items:center;">
           <div style="flex:3;">
             <div style="font-weight:600;">${escapeHtml(q.question)}</div>
             <div class="muted" style="font-size:12px;">${q.options.map((o,i)=>(i===q.correctIndex?'✓ ':'')+escapeHtml(o)).join(' · ')}</div>
+            <div style="margin-top:4px;">
+              <span class="pill" style="font-size:11px;">${escapeHtml(answerTypeLabel)}</span>
+              <span class="pill" style="font-size:11px;">${escapeHtml(difficultyLabel)}</span>
+              ${q.answerPolicy==='modificabile' ? `<span class="pill" style="font-size:11px;">Modificabile</span>` : ''}
+              ${q.imageUrl ? `<span class="pill" style="font-size:11px;">📷</span>` : ''}
+              ${q.audioUrl ? `<span class="pill" style="font-size:11px;">🎵</span>` : ''}
+            </div>
           </div>
           <button class="btn danger small" data-delete-question="${q.id}">Elimina</button>
-        </div>`).join('');
+        </div>`;
+      }).join('');
       return `<details><summary>${escapeHtml(c)} (${cats[c].length})</summary>${items}</details>`;
     }).join('') || '<p class="muted">Vuoto.</p>';
     return `<div class="stack"><h3>${pool==='manche'?'Manche':'Finale'}</h3>${details}</div>`;
@@ -1371,20 +1849,55 @@ function renderQuestionManager(){
         </select>
         <select id="qmCategory">${CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select>
       </div>
+      <div class="row">
+        <label class="stack">Tipo di contenuto<select id="qmContentType">
+          <option value="testo">Testo</option>
+          <option value="immagine">Immagine</option>
+          <option value="audio">Audio</option>
+          <option value="video">Video</option>
+        </select></label>
+        <label class="stack">Tipo di risposta<select id="qmAnswerType">
+          <option value="scelta">Scelta multipla</option>
+          <option value="vero_falso">Vero/Falso</option>
+          <option value="ordinamento">Ordinamento</option>
+          <option value="numero">Numero</option>
+          <option value="testo_libero">Testo libero</option>
+        </select></label>
+      </div>
+      <p class="note">"Scelta multipla" e "Vero/Falso" sono giocabili oggi (Vero/Falso riusa lo stesso motore, solo con 2 opzioni fisse); "Ordinamento"/"Numero"/"Testo libero" si possono già dichiarare e salvare, ma il motore di gioco arriverà in un aggiornamento successivo.</p>
       <input type="text" id="qmQuestion" placeholder="Testo della domanda">
       <input type="text" id="qmOpt0" placeholder="Opzione A">
       <input type="text" id="qmOpt1" placeholder="Opzione B">
-      <input type="text" id="qmOpt2" placeholder="Opzione C">
-      <input type="text" id="qmOpt3" placeholder="Opzione D">
+      <div id="qmOpt23Wrap" class="stack">
+        <input type="text" id="qmOpt2" placeholder="Opzione C">
+        <input type="text" id="qmOpt3" placeholder="Opzione D">
+      </div>
       <select id="qmCorrect">
         <option value="0">Corretta: A</option>
         <option value="1">Corretta: B</option>
-        <option value="2">Corretta: C</option>
-        <option value="3">Corretta: D</option>
+        <option value="2" id="qmCorrectOptC">Corretta: C</option>
+        <option value="3" id="qmCorrectOptD">Corretta: D</option>
       </select>
+      <p id="qmVeroFalsoHint" class="note" style="display:none;color:var(--pink);">⚠ Vero/Falso: la probabilità casuale è del 50%. Valuta un malus più alto per questa domanda (usa "Punteggio per questa domanda" quando la apri in regia).</p>
       <input type="text" id="qmNote" placeholder="Nota per l'admin (facoltativa, es. autore canzone)">
+      <label class="stack" id="qmImageWrap" style="display:none;">Immagine<input type="file" id="qmImageFile" accept="image/*"></label>
+      <img id="qmImagePreview" style="display:none;max-width:100%;max-height:180px;border-radius:8px;">
       <input type="file" id="qmAudioFile" accept="audio/*">
       <p class="note">Audio facoltativo (es. la canzone da indovinare): parte da solo quando la domanda diventa quella corrente.</p>
+      <div class="divider"></div>
+      <div class="eyebrow">Contratto della domanda</div>
+      <div class="row">
+        <label class="stack">Difficoltà<select id="qmDifficulty">
+          <option value="facile">Facile</option>
+          <option value="media" selected>Media</option>
+          <option value="difficile">Difficile</option>
+        </select></label>
+        <label class="stack">Politica di risposta<select id="qmAnswerPolicy">
+          <option value="definitiva">Definitiva</option>
+          <option value="modificabile">Modificabile fino alla chiusura</option>
+        </select></label>
+      </div>
+      <label class="stack">Tolleranza (solo per "Numero", facoltativa)<input type="text" inputmode="decimal" id="qmTolerance" placeholder="es. 5"></label>
       <button class="btn" id="btnAddQuestion">Aggiungi al mazzo</button>
       <div id="qmAddMsg" class="note"></div>
     </div>
@@ -1457,7 +1970,7 @@ function renderAdminStandings(round, qualification){
    legata UNA SOLA VOLTA a 'document' (mai ricreato), quindi al momento del
    click controlla sempre il DOM live, indipendentemente da quante volte
    render() ha ricostruito i bottoni nel frattempo. */
-const DELEGATED_REGIA_BUTTON_IDS = ['btnCloseNow','btnReopenAnswers','btnCancelQuestion','btnStartTimer','btnPauseTimer','btnResumeTimer','btnTimerMinus5','btnTimerPlus5','btnRevealSolution','btnNext'];
+const DELEGATED_REGIA_BUTTON_IDS = ['btnCloseNow','btnReopenAnswers','btnCancelQuestion','btnStartTimer','btnActivateTeamFallback','btnPauseTimer','btnResumeTimer','btnTimerMinus5','btnTimerPlus5','btnRevealSolution','btnNext'];
 let delegatedRegiaHandlersBound = false;
 function onDelegatedRegiaClick(e){
   if(role!=='admin') return;
@@ -1468,6 +1981,7 @@ function onDelegatedRegiaClick(e){
     case 'btnReopenAnswers': adminReopenAnswers(); break;
     case 'btnCancelQuestion': if(confirm('Annullare questa domanda? Non assegnerà punti a nessuno.')) adminCancelQuestion(); break;
     case 'btnStartTimer': adminStartTimerManually(); break;
+    case 'btnActivateTeamFallback': adminActivateTeamFallback(); break;
     case 'btnPauseTimer': adminPauseTimer(); break;
     case 'btnResumeTimer': adminResumeTimer(); break;
     case 'btnTimerMinus5': adminAdjustTimer(-5000); break;
@@ -1485,7 +1999,7 @@ function bindDelegatedRegiaHandlersOnce(){
 function attachAdminHandlers(){
   const byId = id=>document.getElementById(id);
   bindDelegatedRegiaHandlersOnce();
-  if(byId('btnStart')) byId('btnStart').onclick = adminStartGame;
+  if(byId('btnStart')) byId('btnStart').onclick = ()=> showStartSummaryModal(state.config, adminStartGame);
   if(byId('btnToggleTestMode')) byId('btnToggleTestMode').onclick = adminToggleTestMode;
   if(byId('btnAddTestTeams')) byId('btnAddTestTeams').onclick = ()=>adminAddTestTeams(4);
   if(byId('btnRemoveTestTeams')) byId('btnRemoveTestTeams').onclick = adminRemoveTestTeams;
@@ -1499,49 +2013,31 @@ function attachAdminHandlers(){
     byId('btnToggleAdvancedSetup').textContent = showAdvancedSetup ? '▲ Nascondi impostazioni avanzate' : '▼ Impostazioni avanzate';
   };
   if(byId('btnSaveSetup')) byId('btnSaveSetup').onclick = async ()=>{
-    const intVal = id => parseInt(byId(id).value, 10);
-    const rounds = intVal('setupRounds') || 1;
-    const perRound = intVal('setupQuestionsPerRound') || 1;
     const gameName = byId('setupGameName').value.trim() || 'Quizzettone';
-    // I campi "avanzati" esistono nel DOM solo quando la sezione è aperta: se è
-    // chiusa non tocchiamo quelle chiavi di config, per non azzerare a sua
-    // insaputa un'impostazione avanzata salvata in precedenza.
-    const patch = {
-      rounds,
-      questionsPerRound: Array(rounds).fill(perRound),
-      finalistCount: intVal('setupFinalistCount') || 1,
-      finalQuestionCount: intVal('setupFinalQuestionCount') || 0,
-      questionDurationMs: (intVal('setupQuestionDuration') || 20) * 1000,
-      scoring: {
-        correct: intVal('setupScoringCorrect') || 0,
-        wrong: intVal('setupScoringWrong') || 0,
-        noAnswer: intVal('setupScoringNoAnswer') || 0
-      },
-      tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
-      lateJoin: { policy: byId('setupLateJoinPolicy').value },
-      timerStartMode: byId('setupTimerStartMode').value
-    };
-    // I campi avanzati esistono sempre nel DOM (sono solo nascosti via CSS),
-    // ma li applichiamo al patch solo se la sezione è stata aperta: altrimenti
-    // conterrebbero ancora i valori dell'ultimo render pieno, non le scelte
-    // dell'admin per QUESTA partita.
-    if(showAdvancedSetup){
-      patch.finalScoring = byId('setupFinalScoringEnabled').checked ? {
-        correct: intVal('setupFinalScoringCorrect') || 0,
-        wrong: intVal('setupFinalScoringWrong') || 0,
-        noAnswer: intVal('setupFinalScoringNoAnswer') || 0
-      } : null;
-      patch.scoreCarryover = byId('setupScoreCarryover').value;
-      patch.tiebreakRule.final = byId('setupTiebreakFinal').value;
-      patch.answerVisibilityForEliminated = byId('setupAnswerVisibility').value;
-      patch.blockDuplicateQuestions = byId('setupBlockDuplicates').checked;
-      patch.speedBonus = {
-        enabled: byId('setupSpeedBonusEnabled').checked,
-        maxBonus: intVal('setupSpeedBonusMax') || 0,
-        windowMs: (intVal('setupSpeedBonusWindow') || 0) * 1000
-      };
-    }
+    const patch = collectSetupPatchFromForm(false);
     await adminSaveSetup(gameName, patch);
+  };
+  document.querySelectorAll('[data-builtin-preset]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const preset = BUILTIN_CONFIG_PRESETS.find(p=>p.id===btn.getAttribute('data-builtin-preset'));
+      if(preset) applyPresetValuesToForm(preset.values);
+    };
+  });
+  document.querySelectorAll('[data-load-preset]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const p = presets[btn.getAttribute('data-load-preset')];
+      if(p && p.config) applyPresetValuesToForm(p.config);
+    };
+  });
+  document.querySelectorAll('[data-delete-preset]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-delete-preset');
+      const name = presets[id] ? presets[id].name : 'questo preset';
+      showConfirmModal('Eliminare il preset "'+name+'"?', 'Elimina preset', ()=>adminDeleteConfigPreset(id));
+    };
+  });
+  if(byId('btnSaveAsPreset')) byId('btnSaveAsPreset').onclick = ()=>{
+    showSavePresetModal(name => adminSaveConfigPreset(name, collectSetupPatchFromForm(true)));
   };
   if(byId('btnContinue')) byId('btnContinue').onclick = adminContinueFromCheckpoint;
   if(byId('btnModePause')) byId('btnModePause').onclick = ()=>adminSetCheckpointMode('pause');
@@ -1552,15 +2048,20 @@ function attachAdminHandlers(){
   if(byId('btnRevealFinalists')) byId('btnRevealFinalists').onclick = adminRevealFinalists;
   if(byId('btnGoFinal')) byId('btnGoFinal').onclick = adminContinueToFinal;
   if(byId('btnRevealWinner')) byId('btnRevealWinner').onclick = adminRevealWinner;
-  if(byId('btnReset')) byId('btnReset').onclick = ()=>{
-    showConfirmModal('Azzerare tutta la partita? Squadre, risposte e punteggi andranno persi. Questa azione non è annullabile con "Annulla ultima azione".', 'Azzera partita', adminResetGame);
-  };
+  if(byId('btnReset')) byId('btnReset').onclick = ()=> showResetChecklistModal(adminResetGame);
   if(byId('btnUndoLast')) byId('btnUndoLast').onclick = adminUndoLast;
   document.querySelectorAll('[data-remove-team]').forEach(btn=>{
     btn.onclick = ()=>{
       const id = btn.getAttribute('data-remove-team');
       const name = teams[id] ? teams[id].name : 'questa squadra';
       showConfirmModal('Rimuovere '+name+' dalla partita?', 'Rimuovi squadra', ()=>adminRemoveTeam(id));
+    };
+  });
+  document.querySelectorAll('[data-rename-team]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.getAttribute('data-rename-team');
+      const name = teams[id] ? teams[id].name : '';
+      showRenameTeamModal(name, newName => adminRenameTeam(id, newName));
     };
   });
   if(byId('btnToggleStandings')) byId('btnToggleStandings').onclick = adminToggleStandings;
@@ -1602,17 +2103,55 @@ function attachAdminHandlers(){
     const noAnswer = parseInt(byId('qsNoAnswer').value, 10) || 0;
     adminSetQuestionScoring(state.round, state.qIndex, {correct, wrong, noAnswer});
   };
+  // PL-19: Vero/Falso riusa il motore a scelta multipla esistente con
+  // esattamente 2 opzioni — nessun nuovo motore, solo un preset del form.
+  // Cambiare il tipo di risposta mostra/nasconde i campi C/D, precompila
+  // "Vero"/"Falso" (solo se ancora vuoti, per non cancellare testo scritto
+  // a mano se l'admin torna indietro), e avvisa del malus da valutare.
+  if(byId('qmAnswerType')) byId('qmAnswerType').onchange = ()=>{
+    const isVeroFalso = byId('qmAnswerType').value === 'vero_falso';
+    byId('qmOpt23Wrap').style.display = isVeroFalso ? 'none' : 'flex';
+    byId('qmCorrectOptC').disabled = isVeroFalso;
+    byId('qmCorrectOptD').disabled = isVeroFalso;
+    byId('qmVeroFalsoHint').style.display = isVeroFalso ? 'block' : 'none';
+    if(isVeroFalso){
+      if(!byId('qmOpt0').value.trim()) byId('qmOpt0').value = 'Vero';
+      if(!byId('qmOpt1').value.trim()) byId('qmOpt1').value = 'Falso';
+    }
+  };
+  // PL-19: anteprima immagine locale (prima ancora dell'upload) quando il
+  // tipo di contenuto è "Immagine" — la validazione vera e propria (tipo
+  // MIME, dimensione) resta lato uploadImageFile, qui è solo UI.
+  if(byId('qmContentType')) byId('qmContentType').onchange = ()=>{
+    byId('qmImageWrap').style.display = byId('qmContentType').value === 'immagine' ? 'flex' : 'none';
+  };
+  if(byId('qmImageFile')) byId('qmImageFile').onchange = ()=>{
+    const file = byId('qmImageFile').files[0];
+    const preview = byId('qmImagePreview');
+    if(file){ preview.src = URL.createObjectURL(file); preview.style.display = 'block'; }
+    else { preview.style.display = 'none'; }
+  };
   if(byId('btnAddQuestion')) byId('btnAddQuestion').onclick = async ()=>{
     const pool = byId('qmPool').value;
     const category = byId('qmCategory').value;
     const question = byId('qmQuestion').value.trim();
-    const opts = [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim(), byId('qmOpt2').value.trim(), byId('qmOpt3').value.trim()];
+    const answerType = byId('qmAnswerType').value;
+    const isVeroFalso = answerType === 'vero_falso';
+    const opts = isVeroFalso
+      ? [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim()]
+      : [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim(), byId('qmOpt2').value.trim(), byId('qmOpt3').value.trim()];
     const correctIndex = parseInt(byId('qmCorrect').value, 10);
     const note = byId('qmNote').value.trim();
     const audioFile = byId('qmAudioFile').files[0];
+    const imageFile = byId('qmImageFile').files[0];
     const msg = byId('qmAddMsg');
     if(!question || opts.some(o=>!o)){
-      msg.textContent = 'Compila la domanda e tutte e 4 le opzioni.';
+      msg.textContent = isVeroFalso ? 'Compila la domanda e le due opzioni (Vero/Falso).' : 'Compila la domanda e tutte e 4 le opzioni.';
+      msg.style.color = 'var(--pink)';
+      return;
+    }
+    if(isVeroFalso && correctIndex>1){
+      msg.textContent = 'Una domanda Vero/Falso ha solo 2 opzioni: scegli A o B come corretta.';
       msg.style.color = 'var(--pink)';
       return;
     }
@@ -1622,11 +2161,32 @@ function attachAdminHandlers(){
       try{ audioUrl = await uploadAudioFile(audioFile, 'question-audio'); }
       catch(e){ msg.textContent = 'Upload audio fallito: ' + e.message; msg.style.color = 'var(--pink)'; return; }
     }
-    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl});
-    msg.textContent = 'Domanda aggiunta!';
-    msg.style.color = 'var(--green)';
-    ['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote'].forEach(id=>byId(id).value='');
-    byId('qmAudioFile').value = '';
+    let imageUrl = null;
+    if(imageFile){
+      msg.textContent = 'Caricamento immagine...'; msg.style.color = '';
+      try{ imageUrl = await uploadImageFile(imageFile, 'question-images'); }
+      catch(e){ msg.textContent = 'Upload immagine fallito: ' + e.message; msg.style.color = 'var(--pink)'; return; }
+    }
+    const contentType = byId('qmContentType').value;
+    const difficulty = byId('qmDifficulty').value;
+    const answerPolicy = byId('qmAnswerPolicy').value;
+    const toleranceRaw = byId('qmTolerance').value.trim();
+    const tolerance = toleranceRaw ? parseFloat(toleranceRaw) : null;
+    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl, imageUrl, contentType, answerType, difficulty, answerPolicy, tolerance});
+    // Rileggere il DOM invece di riusare 'msg': scrivere su Firebase fa
+    // arrivare l'eco del proprio stesso ascoltatore mentre siamo ancora
+    // dentro l'await, e render() (chiamato da quell'eco) ricostruisce
+    // #app da zero — il nodo catturato prima dell'await può già essere
+    // stato staccato dal documento, rendendo .textContent un no-op silenzioso.
+    const freshMsg = byId('qmAddMsg');
+    if(freshMsg){ freshMsg.textContent = 'Domanda aggiunta!'; freshMsg.style.color = 'var(--green)'; }
+    ['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote','qmTolerance'].forEach(id=>{ const el = byId(id); if(el) el.value=''; });
+    const freshImagePreview = byId('qmImagePreview');
+    if(freshImagePreview) freshImagePreview.style.display = 'none';
+    const freshImageFile = byId('qmImageFile');
+    if(freshImageFile) freshImageFile.value = '';
+    const freshAudioFile = byId('qmAudioFile');
+    if(freshAudioFile) freshAudioFile.value = '';
   };
   if(byId('btnBulkImport')) byId('btnBulkImport').onclick = async ()=>{
     const text = byId('qmBulkText').value;
@@ -1668,7 +2228,7 @@ function attachAdminHandlers(){
   document.querySelectorAll('[data-play-effect]').forEach(btn=>{
     btn.onclick = ()=>{
       const fx = soundEffects[btn.getAttribute('data-play-effect')];
-      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+      if(fx) safeSet(statePath(), {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
     };
   });
   document.querySelectorAll('[data-delete-effect]').forEach(btn=>{

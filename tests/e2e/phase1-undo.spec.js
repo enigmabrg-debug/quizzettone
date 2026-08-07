@@ -29,6 +29,7 @@ test('undo restores points after a manual adjustment, and only once', async ({ b
   await expect(admin.locator('.team-tag', { hasText: 'Team Undo' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toBeVisible();
 
   // No undo button before any undoable action has happened yet.
@@ -93,7 +94,11 @@ test('removing a team requires confirming through the modal', async ({ browser }
   await teamCtx.close();
 });
 
-test('reset requires confirming through the modal, not the native browser dialog', async ({ browser }) => {
+// PL-05: reset is a two-step checklist (not a plain confirm, and not the
+// native browser dialog) -- "Continua" stays disabled until every backup
+// checkbox is ticked, and the actual reset only fires after the separate
+// final confirmation.
+test('reset requires a completed backup checklist plus a final confirmation, not the native browser dialog', async ({ browser }) => {
   const adminCtx = await browser.newContext();
   const admin = await adminCtx.newPage();
   let nativeDialogSeen = false;
@@ -104,11 +109,62 @@ test('reset requires confirming through the modal, not the native browser dialog
   await admin.click('#btnPinConfirm');
 
   await admin.click('#btnReset');
-  await expect(admin.locator('#confirmModalOverlay')).toBeVisible();
+  await expect(admin.locator('#resetChecklistOverlay')).toBeVisible();
   expect(nativeDialogSeen).toBe(false);
 
-  await admin.click('#confirmModalNo');
-  await expect(admin.locator('#confirmModalOverlay')).toHaveCount(0);
+  const continueBtn = admin.locator('#resetContinue');
+  await expect(continueBtn).toBeDisabled();
+
+  // Cancelling at step 1 closes the modal without resetting anything.
+  await admin.click('#resetCancel1');
+  await expect(admin.locator('#resetChecklistOverlay')).toHaveCount(0);
+
+  // Re-open: ticking only some boxes still leaves "Continua" disabled.
+  await admin.click('#btnReset');
+  await admin.check('#resetCheck0');
+  await admin.check('#resetCheck1');
+  await expect(continueBtn).toBeDisabled();
+  await admin.check('#resetCheck2');
+  await expect(continueBtn).toBeEnabled();
+
+  await continueBtn.click();
+  await expect(admin.locator('#resetChecklistOverlay')).toContainText('Conferma definitiva');
+
+  // Cancelling at step 2 still doesn't reset.
+  await admin.click('#resetCancel2');
+  await expect(admin.locator('#resetChecklistOverlay')).toHaveCount(0);
+  await expect(admin.locator('#setupGameName')).toBeVisible();
 
   await adminCtx.close();
+});
+
+test('reset only actually clears teams after both checklist steps are completed', async ({ browser }) => {
+  const adminCtx = await browser.newContext();
+  const admin = await adminCtx.newPage();
+  await admin.goto(BASE + '&role=admin');
+  await admin.fill('#adminPinInput', '2468');
+  await admin.click('#btnPinConfirm');
+
+  const teamCtx = await browser.newContext();
+  const team = await teamCtx.newPage();
+  await team.goto(BASE);
+  await team.click('#btnTeam');
+  await team.fill('#teamNameInput', 'Squadra Da Cancellare');
+  await team.click('#btnJoin');
+  await expect(admin.locator('.team-tag', { hasText: 'Squadra Da Cancellare' })).toBeVisible();
+
+  await admin.click('#btnReset');
+  await admin.check('#resetCheck0');
+  await admin.check('#resetCheck1');
+  await admin.check('#resetCheck2');
+  // Still not reset yet -- only step 1 was completed.
+  await expect(admin.locator('.team-tag', { hasText: 'Squadra Da Cancellare' })).toBeVisible();
+
+  await admin.click('#resetContinue');
+  await admin.click('#resetConfirmFinal');
+
+  await expect(admin.locator('.team-tag', { hasText: 'Squadra Da Cancellare' })).toHaveCount(0);
+
+  await adminCtx.close();
+  await teamCtx.close();
 });
