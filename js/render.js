@@ -1771,14 +1771,23 @@ function renderQuestionManager(){
     const cats = byPoolCategory[pool] || {};
     const catNames = Object.keys(cats).sort();
     const details = catNames.map(c=>{
-      const items = cats[c].map(q=>`
+      const items = cats[c].map(q=>{
+        const difficultyLabel = {facile:'Facile', media:'Media', difficile:'Difficile'}[q.difficulty] || q.difficulty;
+        const answerTypeLabel = {scelta:'Scelta multipla', vero_falso:'Vero/Falso', ordinamento:'Ordinamento', numero:'Numero', testo_libero:'Testo libero'}[q.answerType] || q.answerType;
+        return `
         <div class="row" style="align-items:center;">
           <div style="flex:3;">
             <div style="font-weight:600;">${escapeHtml(q.question)}</div>
             <div class="muted" style="font-size:12px;">${q.options.map((o,i)=>(i===q.correctIndex?'✓ ':'')+escapeHtml(o)).join(' · ')}</div>
+            <div style="margin-top:4px;">
+              <span class="pill" style="font-size:11px;">${escapeHtml(answerTypeLabel)}</span>
+              <span class="pill" style="font-size:11px;">${escapeHtml(difficultyLabel)}</span>
+              ${q.answerPolicy==='modificabile' ? `<span class="pill" style="font-size:11px;">Modificabile</span>` : ''}
+            </div>
           </div>
           <button class="btn danger small" data-delete-question="${q.id}">Elimina</button>
-        </div>`).join('');
+        </div>`;
+      }).join('');
       return `<details><summary>${escapeHtml(c)} (${cats[c].length})</summary>${items}</details>`;
     }).join('') || '<p class="muted">Vuoto.</p>';
     return `<div class="stack"><h3>${pool==='manche'?'Manche':'Finale'}</h3>${details}</div>`;
@@ -1813,6 +1822,36 @@ function renderQuestionManager(){
       <input type="text" id="qmNote" placeholder="Nota per l'admin (facoltativa, es. autore canzone)">
       <input type="file" id="qmAudioFile" accept="audio/*">
       <p class="note">Audio facoltativo (es. la canzone da indovinare): parte da solo quando la domanda diventa quella corrente.</p>
+      <div class="divider"></div>
+      <div class="eyebrow">Contratto della domanda</div>
+      <div class="row">
+        <label class="stack">Tipo di contenuto<select id="qmContentType">
+          <option value="testo">Testo</option>
+          <option value="immagine">Immagine</option>
+          <option value="audio">Audio</option>
+          <option value="video">Video</option>
+        </select></label>
+        <label class="stack">Tipo di risposta<select id="qmAnswerType">
+          <option value="scelta">Scelta multipla</option>
+          <option value="vero_falso">Vero/Falso</option>
+          <option value="ordinamento">Ordinamento</option>
+          <option value="numero">Numero</option>
+          <option value="testo_libero">Testo libero</option>
+        </select></label>
+      </div>
+      <p class="note">Solo "Scelta multipla" è giocabile oggi: le altre tipologie si possono già dichiarare e salvare, ma il motore di gioco arriverà in un aggiornamento successivo.</p>
+      <div class="row">
+        <label class="stack">Difficoltà<select id="qmDifficulty">
+          <option value="facile">Facile</option>
+          <option value="media" selected>Media</option>
+          <option value="difficile">Difficile</option>
+        </select></label>
+        <label class="stack">Politica di risposta<select id="qmAnswerPolicy">
+          <option value="definitiva">Definitiva</option>
+          <option value="modificabile">Modificabile fino alla chiusura</option>
+        </select></label>
+      </div>
+      <label class="stack">Tolleranza (solo per "Numero", facoltativa)<input type="text" inputmode="decimal" id="qmTolerance" placeholder="es. 5"></label>
       <button class="btn" id="btnAddQuestion">Aggiungi al mazzo</button>
       <div id="qmAddMsg" class="note"></div>
     </div>
@@ -2038,11 +2077,23 @@ function attachAdminHandlers(){
       try{ audioUrl = await uploadAudioFile(audioFile, 'question-audio'); }
       catch(e){ msg.textContent = 'Upload audio fallito: ' + e.message; msg.style.color = 'var(--pink)'; return; }
     }
-    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl});
-    msg.textContent = 'Domanda aggiunta!';
-    msg.style.color = 'var(--green)';
-    ['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote'].forEach(id=>byId(id).value='');
-    byId('qmAudioFile').value = '';
+    const contentType = byId('qmContentType').value;
+    const answerType = byId('qmAnswerType').value;
+    const difficulty = byId('qmDifficulty').value;
+    const answerPolicy = byId('qmAnswerPolicy').value;
+    const toleranceRaw = byId('qmTolerance').value.trim();
+    const tolerance = toleranceRaw ? parseFloat(toleranceRaw) : null;
+    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl, contentType, answerType, difficulty, answerPolicy, tolerance});
+    // Rileggere il DOM invece di riusare 'msg': scrivere su Firebase fa
+    // arrivare l'eco del proprio stesso ascoltatore mentre siamo ancora
+    // dentro l'await, e render() (chiamato da quell'eco) ricostruisce
+    // #app da zero — il nodo catturato prima dell'await può già essere
+    // stato staccato dal documento, rendendo .textContent un no-op silenzioso.
+    const freshMsg = byId('qmAddMsg');
+    if(freshMsg){ freshMsg.textContent = 'Domanda aggiunta!'; freshMsg.style.color = 'var(--green)'; }
+    ['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote','qmTolerance'].forEach(id=>{ const el = byId(id); if(el) el.value=''; });
+    const freshAudioFile = byId('qmAudioFile');
+    if(freshAudioFile) freshAudioFile.value = '';
   };
   if(byId('btnBulkImport')) byId('btnBulkImport').onclick = async ()=>{
     const text = byId('qmBulkText').value;

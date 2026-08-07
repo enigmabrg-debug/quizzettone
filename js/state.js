@@ -47,6 +47,36 @@ const QF = [
 ];
 const DEFAULT_SCORING = {correct:1, wrong:0, noAnswer:0};
 const CATEGORIES =["Geografia","Storia","Matematica","Musica","Scienze","Cinema","Sport","Serie TV","Tecnologia","Videogiochi","Filosofia","Arte","Letteratura","Attualità e Società","Natura e Animali","Mitologia","Food e Bevande","Moda e Costume","Fumetti e Anime","Cartoni Animati e Disney","Curiosità e Record"];
+/* PL-18 (item 15): contratto comune della domanda. */
+const CONTENT_TYPES = ['testo','immagine','audio','video'];
+const ANSWER_TYPES = ['scelta','vero_falso','ordinamento','numero','testo_libero'];
+const ANSWER_POLICIES = ['definitiva','modificabile'];
+const DIFFICULTIES = ['facile','media','difficile'];
+/* Applicata in lettura (non richiede una migrazione manuale delle domande
+   già salvate, incluse le seed Q1/Q2/QF sotto): oggi solo answerType:'scelta'
+   ha davvero un motore di gioco (le altre 4 opzioni sono dichiarabili e
+   validate dal question manager, ma non ancora giocabili — arriveranno con
+   PL-19/20/21). presentation/sharedScreenRequirement sono i due campi
+   riservati da PL-11 per un futuro motore di presentazione/schermo
+   condiviso: qui diventano campi reali, modificabili dal question manager,
+   ma nessun ramo di codice li legge ancora per cambiare comportamento
+   (nessun nuovo motore in questo pacchetto). Nota: fonde 'q' PRIMA di
+   applicare i default con '||', non uno spread the-defaults-poi-q — uno
+   spread con q.campo===undefined sovrascriverebbe silenziosamente il
+   default con undefined. */
+function withQuestionDefaults(q){
+  if(!q) return q;
+  return {
+    ...q,
+    contentType: q.contentType || 'testo',
+    answerType: q.answerType || 'scelta',
+    tolerance: q.tolerance != null ? q.tolerance : null,
+    answerPolicy: q.answerPolicy || 'definitiva',
+    difficulty: q.difficulty || 'media',
+    presentation: q.presentation || {mode: 'inherit'},
+    sharedScreenRequirement: !!q.sharedScreenRequirement
+  };
+}
 /* Le domande giocate in una partita vivono in state.gameQuestions (pescate dal
    mazzo Firebase all'avvio di ogni fase). Q1/Q2/QF restano solo come mazzo
    "di partenza" con cui popolare il database la prima volta che l'app parte
@@ -59,7 +89,7 @@ function getList(round){
   if(gq.rounds && gq.rounds[round]) return gq.rounds[round];
   return [];
 }
-function getQuestion(round, idx){ return getList(round)[idx]; }
+function getQuestion(round, idx){ return withQuestionDefaults(getList(round)[idx]); }
 function qkey(round, idx){ return round+'-'+idx; }
 /* Tempo autorevole condiviso (PL-11): Date.now() del solo client admin non è
    affidabile se il suo orologio è sfasato. serverNow() lo corregge con
@@ -292,7 +322,11 @@ function startListening(){
     answersByTeam = session.answers || {};
     overridesByTeam = session.scoreLedger || {};
     presenceByTeam = session.presence || {};
-    questionBank = all.questionBank || {};
+    // PL-18: applica il contratto comune in lettura, così le domande
+    // salvate prima di questo pacchetto restano valide senza migrazione.
+    const rawQuestionBank = all.questionBank || {};
+    questionBank = {};
+    Object.keys(rawQuestionBank).forEach(id=>{ questionBank[id] = withQuestionDefaults(rawQuestionBank[id]); });
     soundEffects = all.soundEffects || {};
     presets = all.presets || {};
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
@@ -892,7 +926,12 @@ function newQuestionId(){ return 'q_' + Math.random().toString(36).slice(2,10); 
 
 async function addQuestion(q){
   const id = newQuestionId();
-  const entry = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, lastUsedAt:null};
+  const entry = withQuestionDefaults({
+    id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex,
+    adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, lastUsedAt:null,
+    contentType:q.contentType, answerType:q.answerType, tolerance:q.tolerance,
+    answerPolicy:q.answerPolicy, difficulty:q.difficulty
+  });
   await safeSet(questionBankPath(id), entry, true);
   return id;
 }
@@ -917,7 +956,7 @@ async function bulkAddQuestions(list){
   const updates = {};
   list.forEach(q=>{
     const id = newQuestionId();
-    updates[questionBankPath(id)] = {id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null};
+    updates[questionBankPath(id)] = withQuestionDefaults({id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null});
   });
   await db.ref(DB_ROOT).update(updates);
 }
@@ -943,7 +982,7 @@ async function ensureSeedQuestions(){
   const updates = {};
   const seed = (list, pool)=> list.forEach(q=>{
     const id = newQuestionId();
-    updates[questionBankPath(id)] = {id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:null, lastUsedAt:null};
+    updates[questionBankPath(id)] = withQuestionDefaults({id, pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote||null, audioUrl:null, lastUsedAt:null});
   });
   seed(Q1, 'manche'); seed(Q2, 'manche'); seed(QF, 'finale');
   await db.ref(DB_ROOT).update(updates);
@@ -1043,6 +1082,7 @@ if(typeof module !== 'undefined' && module.exports){
     scoringFor, pointsForAnswer, computeSpeedBonusAtSubmission,
     computeOrderBonusAssignments, teamPointsForQuestion,
     computeFrozenLeaderboardBands, totalScore, qualificationScore, roundScore,
+    withQuestionDefaults, CONTENT_TYPES, ANSWER_TYPES, ANSWER_POLICIES, DIFFICULTIES,
     resolvePresentationMode, answerUnlockPolicyFor,
     __setTestState: (s)=>{ state = s; },
     __setTestGameQuestions: (gq)=>{ gameQuestions = gq; },
