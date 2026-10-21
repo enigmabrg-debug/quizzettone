@@ -6,7 +6,7 @@ function openQuestionTimer(durationMs, cfg){
   const manual = cfg && cfg.timerStartMode === 'manual';
   return manual
     ? {status:'idle', startedAt:null, durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
-    : {status:'running', startedAt:Date.now(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
+    : {status:'running', startedAt:serverNow(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
 }
 /* Storico minimo + "annulla ultima azione": salva uno snapshot del path
    PRIMA della modifica, poi scrive la modifica stessa. 'path' === 'state'
@@ -109,7 +109,7 @@ async function closeAnswersTransactional(reason){
     if(!current.timer || current.timer.status !== 'running') return;
     if(reason==='expired'){
       const {startedAt, durationMs} = current.timer;
-      if(!startedAt || (Date.now()-startedAt) < durationMs) return; // non ancora scaduta davvero
+      if(!startedAt || (serverNow()-startedAt) < durationMs) return; // non ancora scaduta davvero
     }
     return {...current, phase:'closed', timer:{...current.timer, status:'closed', closeReason:reason, closedBy: reason==='expired' ? 'auto' : 'admin'}};
   });
@@ -122,7 +122,7 @@ async function adminReopenAnswers(){
   // "Riapre per un intervallo breve in caso di errore tecnico": non riprende
   // il tempo residuo di prima, apre una finestra breve fissa per correggere.
   if(state.phase !== 'closed') return;
-  await safeSet('state', {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:Date.now(), durationMs:10000, closeReason:null, closedBy:null}}, true);
+  await safeSet('state', {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:serverNow(), durationMs:10000, closeReason:null, closedBy:null}}, true);
   await refresh();
 }
 async function adminCancelQuestion(){
@@ -134,7 +134,7 @@ async function adminCancelQuestion(){
 }
 async function adminStartTimerManually(){
   if(state.phase!=='question' || state.timer.status!=='idle') return;
-  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt:Date.now()}}, true);
+  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt:serverNow()}}, true);
   await refresh();
 }
 async function adminPauseTimer(){
@@ -145,7 +145,7 @@ async function adminPauseTimer(){
 async function adminResumeTimer(){
   if(state.phase!=='question' || state.timer.status!=='paused') return;
   const remaining = state.timer.pausedRemainingMs || 0;
-  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt: Date.now()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
+  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt: serverNow()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
   await refresh();
 }
 async function adminAdjustTimer(deltaMs){
@@ -154,7 +154,7 @@ async function adminAdjustTimer(deltaMs){
   if(t.status==='paused'){
     await safeSet('state', {...state, timer:{...t, pausedRemainingMs:Math.max(0, (t.pausedRemainingMs||0)+deltaMs)}}, true);
   } else if(t.status==='running'){
-    const newDuration = Math.max(Date.now()-t.startedAt, t.durationMs+deltaMs);
+    const newDuration = Math.max(serverNow()-t.startedAt, t.durationMs+deltaMs);
     await safeSet('state', {...state, timer:{...t, durationMs:newDuration}}, true);
   } else {
     return;
@@ -175,13 +175,13 @@ async function adminStopAudio(){
   if(!cue) return;
   const el = document.getElementById('gameAudioEl');
   const pos = el ? el.currentTime : 0;
-  await safeSet('state', {...state, audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await safeSet('state', {...state, audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:serverNow(), nonce:Math.random().toString(36).slice(2)}}, true);
   await refresh();
 }
 async function adminResumeAudio(fromStart){
   const cue = state.audioCue;
   if(!cue) return;
-  await safeSet('state', {...state, audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await safeSet('state', {...state, audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:serverNow(), nonce:Math.random().toString(36).slice(2)}}, true);
   await refresh();
 }
 async function adminAdjustPoints(id, round, idx, delta){
@@ -245,9 +245,10 @@ async function adminRevealFinalists(){
   const cutoffScore = ranked[finalistCount-1].score;
   const tiedAtCutoff = ranked.filter(r=>r.score===cutoffScore);
   const aboveCutoff = ranked.filter(r=>r.score>cutoffScore);
-  if(tiedAtCutoff.length>1 && aboveCutoff.length<finalistCount){
-    // il taglio cade su un pari merito: chi è sopra il taglio è già qualificato,
-    // gli spareggianti si giocano i posti rimasti
+  if(aboveCutoff.length + tiedAtCutoff.length > finalistCount){
+    // il taglio cade su un pari merito con più squadre che posti: chi è sopra
+    // il taglio è già qualificato, gli spareggianti si giocano i posti rimasti
+    // (se i pari merito entrano tutti nei posti disponibili, nessuno spareggio)
     const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
     await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar: aboveCutoff.map(r=>r.id), candidates: tiedAtCutoff.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
   } else {
@@ -258,6 +259,12 @@ async function adminRevealFinalists(){
 async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
   await markQuestionsUsed([chosen]);
+  // Ogni spareggio usa la chiave risposta 'tiebreak-0': le risposte di uno
+  // spareggio precedente nella stessa partita (es. qualificazione, poi finale)
+  // vanno tolte, altrimenti risulterebbero già date.
+  const clearPrevious = {};
+  Object.keys(teams).forEach(id=>{ clearPrevious['answers:'+id+'/'+qkey('tiebreak', 0)] = null; });
+  await db.ref(DB_ROOT).update(clearPrevious);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
   await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
   await refresh();
@@ -413,7 +420,7 @@ async function adminSubmitTestAnswer(id, round, idx, optionIndex){
   const key = qkey(round, idx);
   const current = await safeGet('answers:'+id, true) || {};
   if(current[key]) return;
-  const ts = Date.now();
+  const ts = serverNow();
   current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   await safeSet('answers:'+id, current, true);
   await refresh();
@@ -579,7 +586,8 @@ async function teamJoin(name){
     teamId = 'team_' + Math.random().toString(36).slice(2,9);
     teamName = trimmed;
     const lateJoin = !(!gameState || gameState.phase==='lobby');
-    await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now(), lateJoin}, true);
+    const ok = await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now(), lateJoin}, true);
+    if(!ok){ teamId = null; teamName = null; throw new Error('JOIN_WRITE_FAILED'); }
   }
   joined = true;
   setUrlSession('team', teamId);
@@ -680,10 +688,12 @@ async function teamSubmitAnswer(round, idx, optionIndex){
   // ripetuto qui perché è la scrittura che conta davvero.
   if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return;
   const key = qkey(round, idx);
-  const current = await safeGet('answers:'+teamId, true) || {};
-  if(current[key]) return; // già risposto
-  const ts = Date.now();
-  current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
-  await safeSet('answers:'+teamId, current, true);
+  const ts = serverNow();
+  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  // Transazione sulla sola chiave di questa domanda: con due tocchi ravvicinati
+  // vince sempre il primo, invece dell'ultimo che riscriveva tutte le risposte.
+  try{
+    await db.ref(DB_ROOT + '/answers:' + teamId + '/' + key).transaction(cur => cur ? undefined : answer);
+  }catch(e){ console.error('invio risposta fallito', e); }
   await refresh();
 }

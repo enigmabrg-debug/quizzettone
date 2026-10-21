@@ -185,11 +185,14 @@ function withDefaults(raw){
 function startListening(){
   if(listening) return;
   listening = true;
+  if(!state) showLoadingUntilReady();
   db.ref(DB_ROOT).on('value', snap=>{
     const all = snap.val() || {};
     const newTeams = {}, newAnswers = {}, newOverrides = {}, newQuestionBank = {}, newEffects = {};
     Object.keys(all).forEach(k=>{
-      if(k.startsWith('teaminfo:')){ if(all[k]) newTeams[all[k].id] = all[k]; }
+      // L'id finisce anche dentro attributi HTML (data-team="..."): si accettano
+      // solo quelli generati dall'app, non stringhe scritte a mano nel database.
+      if(k.startsWith('teaminfo:')){ if(all[k] && /^(team|test)_[a-z0-9]+$/.test(all[k].id)) newTeams[all[k].id] = all[k]; }
       else if(k.startsWith('answers:')){ newAnswers[k.slice('answers:'.length)] = all[k] || {}; }
       else if(k.startsWith('overrides:')){ newOverrides[k.slice('overrides:'.length)] = all[k] || {}; }
       else if(k.startsWith('question:')){ if(all[k]) newQuestionBank[all[k].id] = all[k]; }
@@ -209,7 +212,7 @@ function startListening(){
     };
     if(role==='admin'){ ensureSeedQuestions(); ensureSeedPartyDecks(); ensureJoinCode(); }
     render();
-  }, err=>{ console.error('listener fallito', err); });
+  }, err=>{ console.error('listener fallito', err); renderLoading(true); });
   db.ref('.info/connected').on('value', snap=>{
     connected = snap.val() === true;
     // Va riarmata a ogni riconnessione (non una sola volta al boot): onDisconnect()
@@ -276,6 +279,13 @@ function startUiTick(){
     if(role==='admin' && state.testMode && state.timer && state.timer.status==='running'){
       simulateTestTeamAnswers();
     }
+    // Col passare del tempo cambia solo il cerchio del timer: ridisegnare tutta
+    // la pagina ogni 250ms svuoterebbe i campi che l'admin sta compilando.
+    // Tutto il resto si aggiorna già dal listener Firebase.
+    if(!state.timer || state.timer.status!=='running') return;
+    const slot = document.getElementById('timerSlot');
+    const remaining = timeRemaining();
+    if(slot && remaining>0){ slot.innerHTML = circleTimer(remaining, state.timer.durationMs); return; }
     render();
   }, 250);
 }
@@ -347,7 +357,7 @@ function computeTiebreakAutoWinner(){
     ? (state.config && state.config.tiebreakRule && state.config.tiebreakRule.final)
     : (state.config && state.config.tiebreakRule && state.config.tiebreakRule.qualification);
   if(rule!=='prima_corretta' && rule!=='corretta_veloce') return null;
-  const key = qkey('tiebreak', tb.qIndex);
+  const key = qkey('tiebreak', 0);
   const correctIndex = tb.question.correctIndex;
   const answeredCorrectly = tb.candidates
     .map(id=>({id, ans: answersByTeam[id] && answersByTeam[id][key]}))
@@ -589,13 +599,21 @@ function drawRandomPartyCard(excludeId){
    preferendo sempre quelle usate da più tempo (o mai usate). Se il mazzo ha
    meno domande di quelle richieste, restituisce solo quelle disponibili
    invece di ripeterne qualcuna nella stessa partita. */
+function shuffle(arr){
+  const a = [...arr];
+  for(let i=a.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 function drawQuestionsForGame(pool, count, excludeIds){
   excludeIds = excludeIds || [];
   const candidates = Object.values(questionBank).filter(q=>q.pool===pool && !excludeIds.includes(q.id));
   const byCategory = {};
   candidates.forEach(q=>{ (byCategory[q.category] = byCategory[q.category] || []).push(q); });
   Object.values(byCategory).forEach(arr=> arr.sort((a,b)=> (a.lastUsedAt||0) - (b.lastUsedAt||0)) );
-  const categories = Object.keys(byCategory).sort(()=>Math.random()-0.5);
+  const categories = shuffle(Object.keys(byCategory));
   const picked = [], pickedIds = new Set();
   let progress = true;
   while(picked.length<count && progress){
@@ -606,7 +624,7 @@ function drawQuestionsForGame(pool, count, excludeIds){
       if(next){ picked.push(next); pickedIds.add(next.id); progress = true; }
     }
   }
-  return picked.sort(()=>Math.random()-0.5);
+  return shuffle(picked);
 }
 async function markQuestionsUsed(questions){
   if(!questions.length) return;
@@ -620,5 +638,5 @@ async function markQuestionsUsed(questions){
    admin e Display lo notano tramite playPendingAudioCueIfAny() e lo suonano. */
 function audioCueForQuestion(q){
   if(!q || !q.audioUrl) return null;
-  return {url:q.audioUrl, kind:'question', label:q.category, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)};
+  return {url:q.audioUrl, kind:'question', label:q.category, action:'play', startAt:0, triggeredAt:serverNow(), nonce:Math.random().toString(36).slice(2)};
 }

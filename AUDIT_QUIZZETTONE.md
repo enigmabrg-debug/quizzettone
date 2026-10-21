@@ -1,5 +1,7 @@
 # Audit Quizzettone — 2026-08-03
 
+> **Nota (2026-10-21):** questo audit descrive il vecchio `index.html` (commit `bc5d3f3`). Il gioco ora vive in `quizzettone.html` + `js/*.js`: lo stato di ogni finding sul codice attuale è riassunto in cima a `PROPOSTE_MIGLIORIE.md`.
+
 > Metodologia: audit condotto leggendo **l'intero codice sorgente** del repository (un solo file tracciato, `index.html`, 1920 righe) riga per riga, più `git log` per la cronologia dei commit. Nessuna assunzione esterna al codice è stata usata per formulare giudizi. Ogni affermazione tecnica riporta `file:riga`.
 
 ## 1. Executive summary

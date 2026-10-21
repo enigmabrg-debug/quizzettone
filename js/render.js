@@ -4,12 +4,14 @@ function letter(i){ return ['A','B','C','D'][i]; }
 function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// I nomi squadra li scrivono i giocatori: vanno sempre mostrati come testo.
+function teamLabel(id){ return escapeHtml(teams[id] ? teams[id].name : '—'); }
 function timeRemaining(){
   if(!state || !state.timer) return 0;
   const t = state.timer;
   if(t.status==='paused') return t.pausedRemainingMs || 0;
   if(t.status!=='running' || !t.startedAt) return 0;
-  return Math.max(0, t.durationMs - (Date.now() - t.startedAt));
+  return Math.max(0, t.durationMs - (serverNow() - t.startedAt));
 }
 function circleTimer(remainingMs, total){
   const pct = Math.max(0, Math.min(1, remainingMs/total));
@@ -28,7 +30,7 @@ function rankRows(idsWithScores){
   return idsWithScores.map((r,i)=>`
     <div class="rank-row ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
       <div class="rank-num">${i+1}</div>
-      <div class="rank-name">${teams[r.id] ? teams[r.id].name : '—'}</div>
+      <div class="rank-name">${teamLabel(r.id)}</div>
       <div class="rank-score">${r.score} pt</div>
     </div>`).join('');
 }
@@ -119,7 +121,7 @@ function playPendingAudioCueIfAny(){
   const el = document.getElementById('gameAudioEl');
   if(!el) return;
   if(cue.action==='stop'){ el.pause(); return; } // uno stop va sempre onorato, anche se il cue è "vecchio"
-  if(Date.now() - cue.triggeredAt > AUDIO_CUE_STALE_MS) return; // scheda appena aperta a metà domanda: non sparare audio vecchio
+  if(serverNow() - cue.triggeredAt > AUDIO_CUE_STALE_MS) return; // scheda appena aperta a metà domanda: non sparare audio vecchio
   const seekAndPlay = ()=>{
     try{ el.currentTime = cue.startAt||0; }catch(e){}
     el.play().catch(err=>console.warn('audio bloccato dal browser', err));
@@ -191,11 +193,11 @@ function renderStandingsRevealScreen(sr){
   const rows = revealedGroups.map(group=>{
     teamsSoFar += group.length;
     const pos = totalTeams - teamsSoFar + 1;
-    const names = group.map(id=>teams[id]?teams[id].name:'—').join(' 🤝 ');
+    const names = group.map(teamLabel).join(' 🤝 ');
     const score = group.length ? totalScore(group[0]) : 0;
     return `<div class="reveal-row">
       <div class="reveal-pos">${pos}°</div>
-      <div class="reveal-name">${escapeHtml(names)}</div>
+      <div class="reveal-name">${names}</div>
       <div class="reveal-score">${score} pt</div>
     </div>`;
   }).join('');
@@ -288,9 +290,15 @@ function renderTeamJoin(){
     try{
       await teamJoin(input.value);
     } catch(e){
+      const joinError = document.getElementById('joinError');
       if(e.message === 'LATE_JOIN_BLOCKED'){
         role = null;
-        document.getElementById('joinError').style.display = 'block';
+        joinError.textContent = 'La partita è già iniziata e non accetta più nuove squadre.';
+        joinError.style.display = 'block';
+      } else if(e.message === 'JOIN_WRITE_FAILED'){
+        role = null;
+        joinError.textContent = 'Non riesco a registrare la squadra: controlla la connessione e riprova.';
+        joinError.style.display = 'block';
       } else {
         throw e;
       }
@@ -301,6 +309,25 @@ function renderTeamJoin(){
 }
 
 /* ================== RENDER PRINCIPALE ================== */
+/* Finché il primo snapshot da Firebase non arriva, una pagina vuota sembra
+   un'app rotta: si mostra un messaggio, e dopo 10s un errore con "Ricarica"
+   (solo se nel frattempo nient'altro ha preso il posto del messaggio). */
+let loadFailTimer = null;
+function renderLoading(failed){
+  const app = document.getElementById('app');
+  app.className = '';
+  app.innerHTML = `<div class="card center stack" id="loadingCard" style="margin-top:40px;">
+    <h3>${failed ? 'Impossibile collegarsi al gioco' : 'Connessione al gioco…'}</h3>
+    ${failed ? '<p class="muted">Controlla la connessione internet e ricarica la pagina.</p><button class="btn" id="btnReloadApp">Ricarica</button>' : ''}
+  </div>`;
+  const reload = document.getElementById('btnReloadApp');
+  if(reload) reload.onclick = ()=>location.reload();
+}
+function showLoadingUntilReady(){
+  renderLoading(false);
+  clearTimeout(loadFailTimer);
+  loadFailTimer = setTimeout(()=>{ if(!state && document.getElementById('loadingCard')) renderLoading(true); }, 10000);
+}
 function render(){
   if(!state) return; // il primo snapshot da Firebase non è ancora arrivato
   if(role==='team' && joined) return renderTeam();
@@ -331,7 +358,7 @@ function renderTeam(){
     body = `
       <div class="card center stack">
         <div class="eyebrow">Sei dentro!</div>
-        <h2>${teamName}</h2>
+        <h2>${escapeHtml(teamName)}</h2>
         <p class="muted">In attesa che l'admin avvii la Manche 1...</p>
         <button class="btn ${ready?'':'secondary'}" id="btnTeamReady">${ready?'✓ Siamo pronti':'Siamo pronti'}</button>
       </div>`;
@@ -339,16 +366,11 @@ function renderTeam(){
   else if(s.phase==='question' && !inTiebreak){
     body = (s.round==='final' && isEliminated) ? renderSpectatorFinal(s) : renderTeamQuestion(s.round, s.qIndex, true);
   }
+  else if((s.phase==='question' || s.phase==='closed') && inTiebreak && !isTiebreakCandidate){
+    body = renderTiebreakWaitCard(s);
+  }
   else if(s.phase==='question' && inTiebreak){
-    if(isTiebreakCandidate){
-      body = renderTeamQuestion('tiebreak', s.qIndex, false, true);
-    } else {
-      body = `<div class="card center stack">
-        <div class="eyebrow pill gold">Spareggio in corso</div>
-        <h3>Due squadre si giocano l'accesso in finale</h3>
-        <p class="muted">Restate collegati, tra poco si continua.</p>
-      </div>`;
-    }
+    body = renderTeamQuestion('tiebreak', s.qIndex, true, true);
   }
   else if(s.phase==='closed'){
     body = (s.round==='final' && isEliminated) ? renderSpectatorFinal(s) : renderTeamQuestion(s.round, s.qIndex, false);
@@ -396,13 +418,13 @@ function renderTeam(){
         <div class="eyebrow">Verdetto</div>
         <h2>Siete eliminati, godetevi la finale 🍿</h2>
         <div class="divider"></div>
-        <p class="muted">In finale: ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
+        <p class="muted">In finale: ${s.finalists.map(teamLabel).join(' 🆚 ')}</p>
       </div>`;
     } else {
       body = `<div class="card center stack final-glow">
         <div class="eyebrow pill gold">Verdetto</div>
         <h2>Siete in finale! 🏆</h2>
-        <p class="muted">Contro: ${s.finalists.filter(id=>id!==teamId).map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+        <p class="muted">Contro: ${s.finalists.filter(id=>id!==teamId).map(teamLabel).join(', ')}</p>
       </div>`;
     }
   }
@@ -417,18 +439,18 @@ function renderTeam(){
     if(s.winner===teamId){
       body = `<div class="winner-card">
         <div class="eyebrow pill gold">Campioni</div>
-        <div class="winner-name">${teamName}</div>
+        <div class="winner-name">${escapeHtml(teamName)}</div>
         <p>Campioni del Quizzettone! 🏆🎉</p>
       </div>`;
     } else if(isFinalist){
       body = `<div class="card center stack">
         <div class="eyebrow">Finale</div>
         <h2>Secondo posto, ma che partita! 🥈</h2>
-        <p class="muted">Vince ${teams[s.winner]?teams[s.winner].name:'—'}</p>
+        <p class="muted">Vince ${teamLabel(s.winner)}</p>
       </div>`;
     } else {
       body = `<div class="card center stack">
-        <h2>🏆 ${teams[s.winner]?teams[s.winner].name:'—'} è campione del Quizzettone!</h2>
+        <h2>🏆 ${teamLabel(s.winner)} è campione del Quizzettone!</h2>
       </div>`;
     }
   }
@@ -436,7 +458,7 @@ function renderTeam(){
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
-      <div class="eyebrow">Quizzettone · ${teamName} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
+      <div class="eyebrow">Quizzettone · ${escapeHtml(teamName)} · <a href="#" id="lnkExit" style="color:var(--ink-dim);">non sei tu?</a></div>
       ${connectionBadge()}
     </div>
     ${body}
@@ -447,6 +469,15 @@ function renderTeam(){
   if(readyBtn) readyBtn.onclick = ()=> teamSetReady(!(teams[teamId] && teams[teamId].ready));
   const exitLink = document.getElementById('lnkExit');
   if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ disarmPresence(teamId); clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
+}
+
+function renderTiebreakWaitCard(s){
+  const tb = s.tiebreak || {};
+  return `<div class="card center stack">
+    <div class="eyebrow pill gold">Spareggio in corso</div>
+    <h3>${(tb.candidates||[]).map(teamLabel).join(' 🆚 ')}</h3>
+    <p class="muted">${tb.forFinal ? 'In palio la vittoria finale.' : "In palio l'accesso in finale."} Restate collegati, tra poco si continua.</p>
+  </div>`;
 }
 
 /* Modalità spettatore per le squadre eliminate durante la finale: mostra lo
@@ -472,7 +503,7 @@ function renderSpectatorFinal(s){
     }
     return `<div class="card stack" style="padding:12px;">
       <div class="row" style="align-items:center;justify-content:space-between;">
-        <b>${teams[id]?teams[id].name:'—'}</b>
+        <b>${teamLabel(id)}</b>
         <span class="pill ${ans?'gold':''}">${statusLabel}</span>
       </div>
       ${answerHtml}
@@ -550,7 +581,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         ${scoringPill}
         ${speedBonusPill}
       </div>
-      ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timer.durationMs)}</div>` : ''}
+      ${active ? `<div class="timer-wrap"><div id="timerSlot">${circleTimer(remaining, state.timer.durationMs)}</div></div>` : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
       <div class="options">${optionsHtml}</div>
       ${banner}
@@ -578,7 +609,7 @@ function renderEndRoundStandings(round, mode){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score: roundScore(id,round)})).sort((a,b)=>b.score-a.score);
   if(mode==='complete') return `<div class="divider"></div><h3 class="center">Classifica Manche ${round}</h3>${rankRows(ranked)}`;
-  if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div></div>`).join('')}`;
+  if(mode==='partial') return `<div class="divider"></div><h3 class="center">Posizioni (punti nascosti)</h3>${ranked.map((r,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-name">${teamLabel(r.id)}</div></div>`).join('')}`;
   return '';
 }
 
@@ -612,11 +643,8 @@ function renderDisplay(){
   else if(s.phase==='question' && !inTiebreak){
     body = renderTeamQuestion(s.round, s.qIndex, true, false, true);
   }
-  else if(s.phase==='question' && inTiebreak){
-    body = `<div class="card center stack">
-      <div class="eyebrow pill gold">Spareggio in corso</div>
-      <h3>Due squadre si giocano l'accesso in finale</h3>
-    </div>`;
+  else if((s.phase==='question' || s.phase==='closed') && inTiebreak){
+    body = renderTiebreakWaitCard(s);
   }
   else if(s.phase==='closed'){
     body = renderTeamQuestion(s.round, s.qIndex, false, false, true);
@@ -828,7 +856,7 @@ function renderAdmin(){
           const online = isTeamOnline(id);
           const devices = teamDeviceCount(id);
           return `<div class="team-tag">
-            <span style="color:${online?'var(--green)':'var(--pink)'};">●</span> ${teams[id].name}
+            <span style="color:${online?'var(--green)':'var(--pink)'};">●</span> ${teamLabel(id)}
             ${devices>1?` <span class="pill">${devices} dispositivi</span>`:''}
             ${teams[id].ready?' <span class="pill gold">Pronta</span>':''}
             ${teams[id].lateJoin?' <span class="pill">tardiva</span>':''}
@@ -882,7 +910,7 @@ function renderAdmin(){
           <span class="pill">${missingIdsForCount.length} mancanti</span>
           ${offlineMissingCount>0?`<span class="pill" style="color:var(--pink);">${offlineMissingCount} offline</span>`:''}
         </div>
-        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?'<div class="pill">In attesa di avvio</div>':''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
+        ${!closed?`<div class="timer-wrap"><div id="timerSlot">${circleTimer(remaining, s.timer.durationMs)}</div>${idle?'<div class="pill">In attesa di avvio</div>':''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
         ${!closed?`<div class="row">
           ${idle?`<button class="btn" id="btnStartTimer">▶ Avvia timer</button>`:''}
           ${!idle && s.timer.status==='running'?`<button class="btn secondary small" id="btnPauseTimer">⏸ Pausa</button>`:''}
@@ -943,7 +971,7 @@ function renderAdmin(){
     liveTable = `
       <div class="card">
         <h3>Stato squadre</h3>
-        <table><thead><tr><th>Squadra</th><th>Stato</th><th>Risposta</th><th>Punti</th></tr></thead><tbody>
+        <div class="table-wrap"><table><thead><tr><th>Squadra</th><th>Stato</th><th>Risposta</th><th>Punti</th></tr></thead><tbody>
         ${activeTeams.map(id=>{
           const key = qkey(round, idx);
           const ans = answersByTeam[id] && answersByTeam[id][key];
@@ -951,13 +979,13 @@ function renderAdmin(){
           const answerTxt = ans ? letter(ans.optionIndex)+') '+escapeHtml(q.options[ans.optionIndex]) : '—';
           const pts = closed ? teamPointsForQuestion(id, round, idx) : '—';
           return `<tr>
-            <td>${teams[id]?teams[id].name:'—'}</td>
+            <td>${teamLabel(id)}</td>
             <td>${status}</td>
             <td>${answerTxt}</td>
             <td>${pts} ${closed?`<button class="btn ghost small" data-adjust="-1" data-team="${id}">−</button><button class="btn ghost small" data-adjust="1" data-team="${id}">+</button>`:''}</td>
           </tr>`;
         }).join('')}
-        </tbody></table>
+        </tbody></table></div>
       </div>`;
   }
   else if(s.phase==='checkpoint'){
@@ -1001,7 +1029,7 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Spareggio necessario</h3>
-        <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teams[id]?teams[id].name:'—').join(', ')}</p>
+        <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(teamLabel).join(', ')}</p>
         <p class="muted">Scegli una domanda dal pool finale da usare come spareggio:</p>
         <div class="stack">
           ${(s.tiebreak.candidateQuestions||[]).map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. [${escapeHtml(q.category)}] ${escapeHtml(q.question.slice(0,50))}...</button>`).join('') || '<p class="muted">Nessuna domanda disponibile nel pool finale.</p>'}
@@ -1017,14 +1045,14 @@ function renderAdmin(){
         <h3>Risultato spareggio</h3>
         <p class="qtext">${escapeHtml(q.question)}</p>
         <p class="muted">Corretta: ${letter(q.correctIndex)}) ${escapeHtml(q.options[q.correctIndex])}</p>
-        ${autoWinnerId ? `<p class="muted">Il sistema suggerisce <b>${teams[autoWinnerId]?teams[autoWinnerId].name:'—'}</b> in base alla regola di spareggio scelta: conferma o scegli un'altra squadra.</p>` : ''}
+        ${autoWinnerId ? `<p class="muted">Il sistema suggerisce <b>${teamLabel(autoWinnerId)}</b> in base alla regola di spareggio scelta: conferma o scegli un'altra squadra.</p>` : ''}
         <div class="stack">
           ${tb.candidates.map(id=>{
-            const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', tb.qIndex)];
+            const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', 0)];
             const correct = ans && ans.optionIndex===q.correctIndex;
             const suggested = autoWinnerId===id;
             return `<div class="row" style="align-items:center;">
-              <div>${teams[id]?teams[id].name:'—'} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
+              <div>${teamLabel(id)} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
               <button class="btn small ${suggested?'':'secondary'}" data-assign-winner="${id}">${assignLabel}</button>
             </div>`;
           }).join('')}
@@ -1035,8 +1063,8 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Finaliste svelate</h3>
-        <p>🏆 ${s.finalists.map(id=>teams[id]?teams[id].name:'—').join(' 🆚 ')}</p>
-        <p class="muted">Eliminate: ${(s.eliminated||[]).map(id=>teams[id]?teams[id].name:'—').join(', ') || 'nessuna'}</p>
+        <p>🏆 ${s.finalists.map(teamLabel).join(' 🆚 ')}</p>
+        <p class="muted">Eliminate: ${(s.eliminated||[]).map(teamLabel).join(', ') || 'nessuna'}</p>
         <button class="btn" id="btnGoFinal">Inizia la Finale</button>
       </div>`;
   }
@@ -1045,7 +1073,7 @@ function renderAdmin(){
     controlPanel = `
       <div class="card stack">
         <h3>Finale conclusa</h3>
-        ${scores.map(r=>`<div class="rank-row"><div class="rank-name">${teams[r.id]?teams[r.id].name:'—'}</div><div class="rank-score">${r.score} pt</div></div>`).join('')}
+        ${scores.map(r=>`<div class="rank-row"><div class="rank-name">${teamLabel(r.id)}</div><div class="rank-score">${r.score} pt</div></div>`).join('')}
         <button class="btn" id="btnRevealWinner">Svela vincitore</button>
       </div>`;
   }
@@ -1053,8 +1081,8 @@ function renderAdmin(){
     controlPanel = `
       <div class="winner-card">
         <div class="eyebrow pill gold">Campioni del Quizzettone</div>
-        <div class="winner-name">${teams[s.winner]?teams[s.winner].name:'—'}</div>
-        ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teams[r.id]?teams[r.id].name:'—'}: ${r.score} pt</p>`).join('')}
+        <div class="winner-name">${teamLabel(s.winner)}</div>
+        ${(s.finalWinnerScoreSnapshot||[]).map(r=>`<p class="muted">${teamLabel(r.id)}: ${r.score} pt</p>`).join('')}
       </div>
       ${renderFinalStatsBlock()}
       <div class="card stack">
@@ -1068,14 +1096,14 @@ function renderAdmin(){
   const globalStandings = `
     <div class="card">
       <h3>Classifica generale (solo admin)</h3>
-      <table><thead><tr><th>Squadra</th>${standingsRoundNums.map(r=>`<th>Manche ${r}</th>`).join('')}<th>Finale</th><th>Totale</th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th>Squadra</th>${standingsRoundNums.map(r=>`<th>Manche ${r}</th>`).join('')}<th>Finale</th><th>Totale</th></tr></thead><tbody>
       ${teamIds.map(id=>`<tr>
-        <td>${teams[id].name}</td>
+        <td>${teamLabel(id)}</td>
         ${standingsRoundNums.map(r=>`<td>${roundScore(id,r)}</td>`).join('')}
         <td>${state.finalists && state.finalists.includes(id) ? roundScore(id,'final') : '—'}</td>
         <td><b>${totalScore(id)}</b></td>
       </tr>`).join('')}
-      </tbody></table>
+      </tbody></table></div>
     </div>`;
 
   const historyLog = (s.history && s.history.log) || [];
@@ -1668,7 +1696,7 @@ function attachAdminHandlers(){
   document.querySelectorAll('[data-play-effect]').forEach(btn=>{
     btn.onclick = ()=>{
       const fx = soundEffects[btn.getAttribute('data-play-effect')];
-      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+      if(fx) safeSet('state', {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:serverNow(), nonce:Math.random().toString(36).slice(2)}}, true);
     };
   });
   document.querySelectorAll('[data-delete-effect]').forEach(btn=>{

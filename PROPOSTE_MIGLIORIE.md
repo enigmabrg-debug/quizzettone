@@ -1,5 +1,10 @@
 # Proposte di miglioria — Quizzettone (da AUDIT_QUIZZETTONE.md)
 
+> **Stato al 2026-10-21.** Questo documento è stato scritto sul vecchio `index.html` (commit `bc5d3f3`). Dopo, `main` è stato riscritto (PR #1 e #2: `quizzettone.html` + `js/*.js`). Le correzioni sono state applicate sul codice nuovo, con test in `tests/e2e/audit-fixes.spec.js`:
+> - **Applicate:** A1 (escape dei nomi + filtro sugli id), A2 (spareggio giocabile; in più la chiave delle risposte di spareggio, che non coincideva con la domanda scelta e non veniva azzerata tra uno spareggio e l'altro), A3, A4, A5, A6 (anche per chiusura a scadenza, bonus velocità e suggerimento dello spareggio), A7, A8, A10 (anche la griglia admin, `minmax(0,…)`), A11, A12.
+> - **Già risolte su `main`:** A9 (testo checkpoint), B2 (presenza), B5 (il pareggio in finale ora usa lo spareggio), B6 (le eliminate guardano la finale da spettatrici), B7 (bonus velocità opzionale e annunciato).
+> - **Ancora aperte, serve una tua decisione:** B1 (regole Firebase), B3 (rientro con lo stesso nome), B4 (3 o più squadre pari per 2 posti: si assegna ancora un solo posto), B8, B9 (le classifiche live numerano ancora 1°, 2° anche a pari punti), B10, e i refactor C.
+
 > Nessuna modifica è stata applicata a `index.html`. Tutte le patch sotto sono proposte da approvare.
 > I numeri di riga si riferiscono a `index.html` al commit `50e2419`.
 > **[NUOVO]** = problema non presente nell'audit originale, trovato rileggendo il codice.

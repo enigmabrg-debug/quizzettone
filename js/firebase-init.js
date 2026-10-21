@@ -22,7 +22,17 @@ if(new URLSearchParams(location.search).get('emulator') === '1'){
 }
 const DB_ROOT = 'quizzettone'; // tutti i dati del gioco vivono sotto questo "nodo" del database
 
+/* Gli orologi dei telefoni sono spesso sfasati di secondi: timer, chiusura a
+   scadenza, bonus velocità e spareggi confrontano timestamp scritti da
+   dispositivi diversi, quindi usano tutti l'ora del server Firebase. */
+let serverTimeOffset = 0;
+db.ref('.info/serverTimeOffset').on('value', snap=>{ serverTimeOffset = snap.val() || 0; });
+function serverNow(){ return Date.now() + serverTimeOffset; }
+
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 async function uploadAudioFile(file, folder){
+  if(file.size > MAX_AUDIO_BYTES) throw new Error('file troppo grande (max 10 MB)');
+  if(file.type && !file.type.startsWith('audio/')) throw new Error('il file non è un audio');
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = 'quizzettone-audio/' + folder + '/' + Date.now() + '_' + safeName;
   const ref = storage.ref(path);
