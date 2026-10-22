@@ -100,6 +100,12 @@
     box-shadow:0 8px 24px rgba(0,0,0,.25);
   }
   .game-card:active{transform:translateY(0) scale(.99);}
+  /* Anteprima della palette di Top Dieci (verde smeraldo e lime), la stessa del gioco. */
+  .game-card.topdieci{background:linear-gradient(160deg,#0E3A2E,#06201A);border-color:rgba(163,230,53,.25);}
+  .game-card.topdieci:hover{border-color:rgba(163,230,53,.6);}
+  .game-card.topdieci .game-title{color:#D9F99D;}
+  .game-card.topdieci .game-desc{color:#A7C4B5;}
+  .game-card.topdieci .pill.gold{color:#A3E635;border-color:rgba(163,230,53,.4);background:rgba(163,230,53,.1);}
   .game-icon{font-size:30px;line-height:1;}
   .game-title{
     font-family:'Space Grotesk',sans-serif;
@@ -146,7 +152,7 @@
       <div class="pill gold" style="width:fit-content;">Gioca ora</div>
     </a>
 
-    <a class="game-card" href="quizzettone.html?gioco=topdieci">
+    <a class="game-card topdieci" href="quizzettone.html?gioco=topdieci">
       <div class="game-icon">🔟</div>
       <div class="game-title">Top Dieci</div>
       <div class="game-desc">Una classifica nascosta, dieci voci da scoprire a turno: più è in basso, più punti vale.</div>

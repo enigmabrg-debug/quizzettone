@@ -38,7 +38,7 @@ function circleTimer(remainingMs, total){
   return `<div class="timer ${urgent?'urgent':''}">
     <svg width="118" height="118" viewBox="0 0 118 118">
       <circle cx="59" cy="59" r="${r}" fill="none" stroke="rgba(245,241,255,.12)" stroke-width="8"/>
-      <circle cx="59" cy="59" r="${r}" fill="none" stroke="${urgent?'#FF4D6D':'#F2B705'}" stroke-width="8"
+      <circle cx="59" cy="59" r="${r}" fill="none" style="stroke:${urgent?'var(--pink)':'var(--gold)'}" stroke-width="8"
         stroke-dasharray="${c}" stroke-dashoffset="${c*(1-pct)}" stroke-linecap="round"/>
     </svg>
     <div class="timer-num">${Math.ceil(remainingMs/1000)}</div>
@@ -211,7 +211,8 @@ function renderJoinCodeBlock(joinCode){
   let qrSvg = '';
   if(typeof qrcode !== 'undefined'){
     try{
-      const joinUrl = location.origin + location.pathname + '?role=team';
+      // Con Top Dieci il link porta anche il gioco, così il telefono è nei colori giusti da subito.
+      const joinUrl = location.origin + location.pathname + '?role=team' + (state && state.config && state.config.gameType==='topdieci' ? '&gioco=topdieci' : '');
       const qr = qrcode(0, 'M');
       qr.addData(joinUrl);
       qr.make();
@@ -282,7 +283,7 @@ function playPendingAudioCueIfAny(){
 }
 function audioUnlockOverlayHtml(){
   if(audioUnlocked) return '';
-  return `<div class="card center stack" id="audioUnlockCard" style="position:fixed;inset:0;z-index:999;justify-content:center;background:rgba(21,12,43,.96);border-radius:0;">
+  return `<div class="card center stack" id="audioUnlockCard" style="position:fixed;inset:0;z-index:999;justify-content:center;background:rgba(var(--stage-rgb),.96);border-radius:0;">
     <h2>🔊 Attiva l'audio</h2>
     <p class="muted">Tocca per abilitare la riproduzione automatica su questo schermo.</p>
     <button class="btn" id="btnUnlockAudio">Attiva</button>
@@ -488,7 +489,13 @@ function renderBootScreen(){
 }
 
 /* ================== RENDER PRINCIPALE ================== */
+/* Top Dieci ha una palette sua (verde smeraldo): la classe su <html> ridefinisce
+   le variabili di colore. Vale anche prima che arrivi lo stato, dal link dell'hub. */
+function applyTheme(){
+  document.documentElement.classList.toggle('theme-topdieci', brandName()==='Top Dieci');
+}
 function render(){
+  applyTheme();
   if(!state) return renderBootScreen(); // il primo snapshot da Firebase non è ancora arrivato
   if(role==='team' && joined) return renderTeam();
   if(role==='admin') return renderAdmin();
@@ -2174,7 +2181,7 @@ function renderPartyPopup(){
   if(!data){ return ''; }
   const label = slot==='bonus' ? 'Bonus' : slot==='malus' ? 'Malus' : 'Prova a sorpresa';
   const deck = activePartyDeck();
-  return `<div class="card center stack" style="position:fixed;inset:0;z-index:999;justify-content:center;background:rgba(21,12,43,.97);border-radius:0;overflow:auto;padding:24px 18px;">
+  return `<div class="card center stack" style="position:fixed;inset:0;z-index:999;justify-content:center;background:rgba(var(--stage-rgb),.97);border-radius:0;overflow:auto;padding:24px 18px;">
     <div class="eyebrow pill gold">Pesca privata · ${label}</div>
     <h2 style="max-width:480px;">${escapeHtml(data.card.testo)}</h2>
     ${data.card.tipo?`<p class="muted">Tipo: ${escapeHtml(data.card.tipo)}</p>`:''}
