@@ -2,6 +2,49 @@
 
 > Audit completo del progetto così com'è oggi. Sostituisce l'audit del 3 agosto, che descriveva il vecchio `index.html` monolitico (si trova ancora nella cronologia git, commit `323d92a`).
 
+## Stato dopo le correzioni (branch `claude/quizzettone-full-audit-i4x1e8`, PR #4)
+
+Il branch della PR #4 ora parte dalla **PR #3** come base (passo 0 della roadmap). Ci sono state portate le correzioni della vecchia PR #4 e sono stati corretti i finding ancora aperti. Le righe citate più sotto si riferiscono ancora a `main`. Test: **84 e2e + 42 unitari verdi**. Di questi, `tests/e2e/audit-fixes.spec.js` (16 test) fallisce in 14 casi sulla PR #3 originale; `tests/e2e/top10.spec.js` e `tests/unit/top10.spec.js` coprono la nuova modalità.
+
+| # | Stato | Come |
+|---|---|---|
+| 1 | ✅ | Lo snapshot di undo esclude `history`, e si salvano solo i campi cambiati. Test: 25 azioni restano sotto i 20 KB |
+| 2 | ✅ | Condizione `above+tied > posti` corretta. Con 3+ pari per meno posti si resta sullo spareggio, assegnando un posto alla volta (decisione B4: stesso spareggio, più posti) |
+| 3 | ✅ | Spareggio giocabile dai telefoni dei soli candidati. Chiave `tiebreak-0` azzerata a ogni nuova domanda. Pulsante "Altra domanda di spareggio" |
+| 4 | ⚠️ aperto | Serve la console Firebase (regole/auth) |
+| 5 | ✅ | Escape già presente nella PR #3. In più, gli id squadra non generati dall'app vengono ignorati |
+| 6, 9, 20 | ✅ | Già corretti dalla PR #3 (`serverNow`, transazioni, limiti di upload) |
+| 7 | ✅ | Il tick aggiorna solo il timer. Battito del Display rimosso. I campi admin modificati sopravvivono ai re-render (valori, focus, file scelti) |
+| 8 | ✅ | `patchState()`/`statePatchPaths()`: ogni azione scrive solo i propri campi. Test con due admin |
+| 10 | ⚠️ aperto | Piano/bucket dello Storage in console |
+| 11 | ✅ | Le PR non divergono più. CI in `.github/workflows/tests.yml` (unitari + Playwright con emulatore) |
+| 12 | ✅ | La rivincita cancella risposte e punteggi di tutte le squadre, comprese quelle di prova |
+| 13 | ✅ | Podio, statistiche e classifiche usano la stessa graduatoria (`standingsRanking`): finaliste prima, vincitrice in testa |
+| 14 | ✅ / 🟡 | "Blocca duplicati" e spareggio "a oltranza" ora funzionano. L'opzione "numerica" è stata tolta. Il codice serata resta decorativo (domanda 5) |
+| 15 | ✅ | `joinedAt` col tempo del server: chi entra a domanda aperta gioca dalla successiva, con avviso sul telefono e "Entrata dopo" in regia |
+| 16 | ❌ aperto | Listener per ruolo: refactor della Fase 7 del piano |
+| 17, 21, 23 | ✅ | Griglia `minmax(0,…)` + `.table-wrap`, Fisher-Yates, zoom consentito |
+| 18 | ⚠️ | Operativo: unire lontano da una serata, dopo un backup JSON |
+| 19 | ❌ aperto | Serve la decisione B3 (domanda 10) |
+| 22 | ✅ | Testi calcolati da candidati e posizione reale. Ex aequo nelle classifiche |
+| 25 | ✅ | Scheda "Regole della serata" in lobby (Display e telefoni), generata dalla configurazione |
+| 26 | 🟡 | Estratta la scheda di attesa dello spareggio, comune a Squadra e Display |
+
+**Altri problemi trovati e corretti durante il lavoro**
+- `teamJoin` leggeva lo stato senza default: su un database appena creato l'ingresso delle squadre era bloccato.
+- La checklist pre-partita contava come valide le domande Vero/Falso con 4 opzioni, e non teneva conto del tipo di gioco.
+- Il Display mandava un battito ogni 2,5 s sul ramo ascoltato da tutti i client, quindi ridisegnava tutto su ogni dispositivo.
+- Spareggio: se il pool finale era esaurito non c'erano domande. Ora si attinge al pool manche e, in Top Dieci, a una nuova estrazione di una classifica già giocata (`drawTiebreakCandidates`).
+
+**Top Dieci (nuova modalità)**
+- Una classifica di 10 voci diventa a ogni partita una domanda diversa, in una di tre varianti:
+  - *Chi è il primo?*: 4 voci, si sceglie la più alta;
+  - *Indovina la posizione*: griglia 1°-10°, punti pieni se esatto e parziali a ±1;
+  - *Ricostruisci la classifica*: 4 voci da ordinare, punti per ogni voce al posto giusto più un bonus se l'ordine è perfetto.
+- In regia la classifica completa è sempre visibile; sul Display si svela dal 10° al 1° posto.
+- Si gioca dall'hub (`quizzettone.html?gioco=topdieci`, che precarica il preset) oppure scegliendo "Tipo di gioco" nella Sala: Quiz classico, Top Dieci o Misto. Nel gestore domande c'è un modulo per le classifiche ed è supportato anche l'import in blocco (`top10|…`). Sono incluse 8 classifiche di esempio con la fonte.
+- La pipeline di punteggio è la stessa delle altre domande: punti speciali, finale e spareggio funzionano anche in Top Dieci. Alcuni dettagli invece valgono solo qui: il bonus velocità conta solo sulla risposta perfetta, e il profilo "dinamico" non si applica alle domande Top Dieci.
+
 ## 0. Perimetro e metodo
 
 Il repository oggi contiene **tre versioni** del gioco, e l'audit le copre tutte:

@@ -306,6 +306,14 @@ async function adminAdjustTimer(deltaMs){
   }
   await refresh();
 }
+/* Top Dieci: dopo la chiusura la classifica completa si rivela dal 10° al 1°
+   posto, un gradino alla volta (o tutta insieme). */
+async function adminRevealTop10(all){
+  const key = qkey(state.round, state.qIndex);
+  const current = (state.top10Reveal && state.top10Reveal.key===key) ? state.top10Reveal.count : 0;
+  await patchState({top10Reveal:{key, count: all ? 10 : Math.min(10, current+1)}});
+  await refresh();
+}
 async function adminRevealSolution(){
   await patchState({solutionRevealed:true}); await refresh();
 }
@@ -404,7 +412,7 @@ async function adminRevealFinalists(){
     // il taglio cade su un pari merito con più squadre che posti: chi è sopra
     // il taglio è già qualificato, gli spareggianti si giocano i posti rimasti
     // (se i pari merito entrano tutti nei posti, nessuno spareggio)
-    const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
+    const candidateQuestions = drawTiebreakCandidates(tiebreakCandidateCount);
     await patchState({phase:'tiebreak_setup', tiebreak:{qualifiedSoFar: aboveCutoff.map(r=>r.id), candidates: tiedAtCutoff.map(r=>r.id), candidateQuestions, question:null, qIndex:null}});
   } else {
     await patchState({phase:'reveal_finalists', finalists: ranked.slice(0,finalistCount).map(r=>r.id), eliminated: ranked.slice(finalistCount).map(r=>r.id)});
@@ -447,7 +455,7 @@ async function adminNewTiebreakQuestion(){
   let candidateQuestions = (tb.candidateQuestions||[]).filter(q=>!used.includes(q.id));
   if(!candidateQuestions.length){
     const tiebreakCandidateCount = (state.config && state.config.tiebreakCandidateCount) || 5;
-    candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount, used);
+    candidateQuestions = drawTiebreakCandidates(tiebreakCandidateCount, used);
   }
   await patchState({phase:'tiebreak_setup', tiebreak:{...tb, candidateQuestions, question:null, qIndex:null}});
   await refresh();
@@ -520,7 +528,7 @@ async function adminRevealWinner(){
     // Pareggio per il primo posto in finale: stesso meccanismo di spareggio
     // usato per l'accesso in finale, non solo un flag 'TIE' con scelta libera.
     const tiebreakCandidateCount = (state.config && state.config.tiebreakCandidateCount) || 5;
-    const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
+    const candidateQuestions = drawTiebreakCandidates(tiebreakCandidateCount);
     await patchState({phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop.map(s=>s.id), candidateQuestions, question:null, qIndex:null, forFinal:true, finalScoresSnapshot:scores}});
     await refresh();
     return;
@@ -641,10 +649,10 @@ async function adminRemoveTestTeams(){
    ma parametrizzata sull'id (il client admin non ha una propria identità
    squadra) e senza il controllo "eliminata in finale", perché le squadre
    prova non arrivano mai in finale nell'uso previsto di questa modalità. */
-async function adminSubmitTestAnswer(id, round, idx, optionIndex){
+async function adminSubmitTestAnswer(id, round, idx, payload){
   const key = qkey(round, idx);
   const ts = serverNow();
-  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  const answer = {...answerPayload(payload), ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   try{
     await db.ref(DB_ROOT + '/' + answersPath(id)).child(key).transaction(current => current ? undefined : answer);
   } catch(e){ console.error('invio risposta prova fallito', e); }
@@ -666,8 +674,13 @@ async function simulateTestTeamAnswers(){
     if(answersByTeam[id] && answersByTeam[id][key]) { tried.add(id); continue; }
     if(Math.random() > 0.08) continue; // ~8% di probabilità per tick: risposte scaglionate nel tempo, non tutte insieme
     tried.add(id);
-    const optionIndex = Math.random() < 0.7 ? q.correctIndex : Math.floor(Math.random()*q.options.length);
-    await adminSubmitTestAnswer(id, state.round, state.qIndex, optionIndex);
+    let payload;
+    if(q.top10Variant==='ordina'){
+      payload = {order: Math.random() < 0.5 ? [...q.correctOrder] : shuffle(q.options.map((_,i)=>i))};
+    } else {
+      payload = Math.random() < 0.7 ? q.correctIndex : Math.floor(Math.random()*q.options.length);
+    }
+    await adminSubmitTestAnswer(id, state.round, state.qIndex, payload);
   }
 }
 
@@ -1007,6 +1020,12 @@ async function restoreFromUrl(){
    nulla (stesso pattern di closeAnswersTransactional). Ritorna true se, alla
    fine, la risposta risulta salvata (da questa chiamata o da una precedente:
    "già risposto" non è un errore), false solo per un fallimento vero. */
+/* Una risposta è un indice di opzione (domande a scelta, Top Dieci "primo" e
+   "posizione") oppure {order:[...]} (Top Dieci "Ricostruisci la classifica"). */
+function answerPayload(payload){
+  if(payload && typeof payload==='object' && Array.isArray(payload.order)) return {order: payload.order.map(Number)};
+  return {optionIndex: payload};
+}
 async function teamSubmitAnswer(round, idx, optionIndex){
   // Le squadre eliminate sono spettatrici in finale: l'interfaccia non mostra
   // già i pulsanti di risposta (renderSpectatorFinal), ma il controllo va
@@ -1015,7 +1034,7 @@ async function teamSubmitAnswer(round, idx, optionIndex){
   if(!teamEligibleForQuestion(teamId, round, idx)) return true;
   const key = qkey(round, idx);
   const ts = serverNow();
-  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  const answer = {...answerPayload(optionIndex), ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   let alreadyAnswered = false;
   let result;
   try{

@@ -46,6 +46,87 @@ const QF = [
  {category:"Storia", question:"Quale tra questi eventi è avvenuto per primo?", options:["Primo uomo sulla Luna","Caduta del Muro di Berlino","Nascita di Internet commerciale","Attentati dell'11 settembre 2001"], correctIndex:0},
 ];
 const DEFAULT_SCORING = {correct:1, wrong:0, noAnswer:0};
+
+/* ================== TOP DIECI ==================
+   Una domanda Top Dieci è una classifica di 10 voci (top10.items[0] è la 1ª).
+   A ogni partita ne viene estratta una variante concreta (materializeTop10):
+   - 'primo':     4 voci della classifica, si sceglie quella più in alto;
+   - 'posizione': 1 voce, si sceglie la sua posizione (1ª-10ª);
+   - 'ordina':    4 voci da mettere in ordine, dalla più alta alla più bassa.
+   'primo' e 'posizione' usano lo stesso motore a opzioni delle altre domande
+   (optionIndex/correctIndex); 'ordina' salva l'ordine scelto (answer.order). */
+const TOP10_VARIANTS = ['primo','posizione','ordina'];
+const TOP10_VARIANT_LABELS = {primo:'Chi è il primo?', posizione:'Indovina la posizione', ordina:'Ricostruisci la classifica'};
+const TOP10_SHOWN_ITEMS = 4;
+const DEFAULT_TOP10_SCORING = {positionExact:3, positionNear:1, orderPerItem:1, orderPerfectBonus:2};
+/* Classifiche di esempio, aggiunte una sola volta se il mazzo non ne ha:
+   dati stabili e verificabili, con la fonte nella nota per l'admin. */
+const TOP10_SEED = [
+  {pool:'manche', category:'Geografia', title:'Le 10 montagne più alte del mondo', items:['Everest','K2','Kangchenjunga','Lhotse','Makalu','Cho Oyu','Dhaulagiri I','Manaslu','Nanga Parbat','Annapurna I'], source:'Altitudine sul livello del mare (Everest 8.849 m, Annapurna I 8.091 m)'},
+  {pool:'manche', category:'Geografia', title:'Le 10 regioni italiane più estese', items:['Sicilia','Piemonte','Sardegna','Lombardia','Toscana','Emilia-Romagna','Puglia','Veneto','Lazio','Calabria'], source:'Superficie in km², ISTAT'},
+  {pool:'manche', category:'Geografia', title:'I 10 comuni italiani più popolosi', items:['Roma','Milano','Napoli','Torino','Palermo','Genova','Bologna','Firenze','Bari','Catania'], source:'Popolazione residente, ISTAT 2023'},
+  {pool:'manche', category:'Geografia', title:'I 10 Paesi più popolosi del mondo', items:['India','Cina','Stati Uniti','Indonesia','Pakistan','Nigeria','Brasile','Bangladesh','Russia','Messico'], source:'Stime ONU (World Population Prospects) per il 2023'},
+  {pool:'manche', category:'Scienze', title:'I primi 10 elementi della tavola periodica', items:['Idrogeno','Elio','Litio','Berillio','Boro','Carbonio','Azoto','Ossigeno','Fluoro','Neon'], source:'Ordine per numero atomico (1-10)'},
+  {pool:'finale', category:'Storia', title:'I primi 10 Presidenti della Repubblica Italiana', items:['Enrico De Nicola','Luigi Einaudi','Giovanni Gronchi','Antonio Segni','Giuseppe Saragat','Giovanni Leone','Sandro Pertini','Francesco Cossiga','Oscar Luigi Scalfaro','Carlo Azeglio Ciampi'], source:'Ordine cronologico di elezione (1948-1999)'},
+  {pool:'finale', category:'Musica', title:'I vincitori del Festival di Sanremo dal 2015 al 2024', items:['Il Volo','Stadio','Francesco Gabbani','Ermal Meta e Fabrizio Moro','Mahmood','Diodato','Måneskin','Mahmood e Blanco','Marco Mengoni','Angelina Mango'], source:'In ordine di anno: 1ª = 2015, 10ª = 2024'},
+  {pool:'finale', category:'Matematica', title:'I 10 numeri primi più piccoli', items:['2','3','5','7','11','13','17','19','23','29'], source:'Dal più piccolo al più grande'}
+];
+function isValidTop10(q){
+  const t = q && q.top10;
+  if(!t || !String(t.title||'').trim() || !Array.isArray(t.items) || t.items.length!==10) return false;
+  if(t.items.some(it=>!String(it||'').trim())) return false;
+  const variants = t.variants || TOP10_VARIANTS;
+  return Array.isArray(variants) && variants.length>0 && variants.every(v=>TOP10_VARIANTS.includes(v));
+}
+/* Da una classifica del mazzo a una domanda concreta, scelta a caso tra le
+   varianti ammesse. Chiamata al momento della pesca: la stessa classifica dà
+   domande diverse da una partita all'altra. */
+function materializeTop10(q, forcedVariant){
+  const items = q.top10.items;
+  const allowed = (q.top10.variants && q.top10.variants.length) ? q.top10.variants : TOP10_VARIANTS;
+  const variant = forcedVariant || allowed[Math.floor(Math.random()*allowed.length)];
+  const base = {...q, top10Variant: variant, correctOrder: null};
+  if(variant==='posizione'){
+    const rank = Math.floor(Math.random()*10);
+    return {...base, top10Shown:[rank], options: items.map((_,i)=>(i+1)+'°'), correctIndex: rank,
+      question: 'In che posizione è «'+items[rank]+'»?'};
+  }
+  const shown = shuffle([0,1,2,3,4,5,6,7,8,9]).slice(0, TOP10_SHOWN_ITEMS);
+  if(variant==='primo'){
+    return {...base, top10Shown: shown, options: shown.map(i=>items[i]), correctIndex: shown.indexOf(Math.min(...shown)),
+      question: 'Quale di queste è più in alto in classifica?'};
+  }
+  const correctOrder = shown.map((_,i)=>i).sort((a,b)=>shown[a]-shown[b]);
+  return {...base, top10Shown: shown, options: shown.map(i=>items[i]), correctIndex: null, correctOrder,
+    question: 'Mettile in ordine, dalla più alta alla più bassa in classifica'};
+}
+function materializeQuestion(q){
+  return (q && q.answerType==='top10' && isValidTop10(q)) ? materializeTop10(q) : q;
+}
+function top10Scoring(){
+  return {...DEFAULT_TOP10_SCORING, ...((state && state.config && state.config.top10Scoring)||{})};
+}
+/* Punti Top Dieci, scalati sul valore "corretta" della domanda (così anche
+   l'override "punti speciali" di una singola domanda funziona). Il bonus
+   velocità del profilo classico si somma solo alla risposta perfetta. */
+function top10Points(q, ans, sc){
+  const t = top10Scoring();
+  const perfect = isAnswerCorrect(q, ans);
+  const bonus = perfect ? (ans.speedBonus||0) : 0;
+  if(q.top10Variant==='posizione'){
+    const diff = Math.abs(ans.optionIndex - q.correctIndex);
+    if(diff===0) return sc.correct * t.positionExact + bonus;
+    if(diff===1) return sc.correct * t.positionNear;
+    return sc.wrong;
+  }
+  if(q.top10Variant==='ordina'){
+    const order = Array.isArray(ans.order) ? ans.order : [];
+    const placed = (q.correctOrder||[]).filter((v,i)=>order[i]===v).length;
+    if(placed===0) return sc.wrong;
+    return sc.correct * (placed * t.orderPerItem + (perfect ? t.orderPerfectBonus : 0)) + bonus;
+  }
+  return perfect ? sc.correct + bonus : sc.wrong;
+}
 const CATEGORIES =["Geografia","Storia","Matematica","Musica","Scienze","Cinema","Sport","Serie TV","Tecnologia","Videogiochi","Filosofia","Arte","Letteratura","Attualità e Società","Natura e Animali","Mitologia","Food e Bevande","Moda e Costume","Fumetti e Anime","Cartoni Animati e Disney","Curiosità e Record"];
 /* PL-18 (item 15): contratto comune della domanda. */
 const CONTENT_TYPES = ['testo','immagine','audio','video'];
@@ -212,6 +293,9 @@ function defaultState(){
       // windowMs dall'apertura della domanda; si applica solo se la risposta
       // è corretta ed è calcolato una sola volta al momento dell'invio.
       speedBonus: {enabled:false, maxBonus:0, windowMs:0},
+      // 'quiz' (domande classiche) | 'topdieci' (solo classifiche Top Dieci) | 'misto'
+      gameType: 'quiz',
+      top10Scoring: {...DEFAULT_TOP10_SCORING},
       // 'team_devices' (oggi, default) | 'shared_screen' | 'hybrid' (PL-11):
       // governa solo se lo sblocco delle risposte è immediato o manuale
       // (vedi resolvePresentationMode/answerUnlockPolicyFor); nessuna vista
@@ -264,6 +348,7 @@ function withDefaults(raw){
   merged.config.tiebreakRule = {...base.config.tiebreakRule, ...((raw.config||{}).tiebreakRule||{})};
   merged.config.lateJoin = {...base.config.lateJoin, ...((raw.config||{}).lateJoin||{})};
   merged.config.dynamicScoring = {...base.config.dynamicScoring, ...((raw.config||{}).dynamicScoring||{})};
+  merged.config.top10Scoring = {...base.config.top10Scoring, ...((raw.config||{}).top10Scoring||{})};
   merged.party = {...base.party, ...(raw.party||{})};
   merged.timer = {...base.timer, ...(raw.timer||{})};
   merged.history = {...base.history, ...(raw.history||{})};
@@ -350,7 +435,7 @@ function startListening(){
     // valori corretti invece che su placeholder appena azzerati.
     if(role==='admin'){
       migrateFlatStateToSessions(all).then(migrated=>{
-        if(!migrated){ ensureSeedQuestions(); ensureSeedPartyDecks(); ensureJoinCode(); }
+        if(!migrated){ ensureSeedQuestions(); ensureSeedTop10Questions(); ensureSeedPartyDecks(); ensureJoinCode(); }
       });
       ensureOrderBonusComputed();
     }
@@ -728,6 +813,8 @@ function teamPointsForQuestion(id, round, idx){
   if(ov !== undefined && ov !== null) return ov;
   const ans = answersByTeam[id] && answersByTeam[id][key];
   if(!ans) return scoringFor(round, idx).noAnswer;
+  const q = getQuestion(round, idx);
+  if(q && q.answerType==='top10') return top10Points(q, ans, scoringFor(round, idx));
   return pointsForAnswer(round, idx, ans.optionIndex, ans.speedBonus, id);
 }
 function roundScore(id, round){
@@ -892,16 +979,18 @@ function computePreGameChecklist(){
   const duplicateGroups = Object.values(seen).filter(c=>c>1).length;
   if(duplicateGroups) issues.push({type:'duplicates', detail:`${duplicateGroups} testi di domanda duplicati nel mazzo`});
 
-  const emptyCategories = CATEGORIES.filter(cat=>!questions.some(q=>q.category===cat && q.pool==='manche'));
+  const cfgForType = (state && state.config) || defaultState().config;
+  const playable = questions.filter(questionMatchesGameType);
+  const emptyCategories = (cfgForType.gameType==='topdieci') ? [] : CATEGORIES.filter(cat=>!playable.some(q=>q.category===cat && q.pool==='manche'));
   if(emptyCategories.length) issues.push({type:'empty_categories', detail:`Categorie senza domande manche: ${emptyCategories.join(', ')}`});
 
   const cfg = (state && state.config) || defaultState().config;
   const mancheNeeded = cfg.questionsPerRound.reduce((a,b)=>a+b, 0);
-  const mancheAvailable = questions.filter(q=>q.pool==='manche').length;
+  const mancheAvailable = playable.filter(q=>q.pool==='manche').length;
   if(mancheAvailable < mancheNeeded) issues.push({type:'insufficient_manche', detail:`Servono ${mancheNeeded} domande manche, disponibili ${mancheAvailable}`});
 
   const finaleNeeded = cfg.finalQuestionCount + cfg.tiebreakCandidateCount;
-  const finaleAvailable = questions.filter(q=>q.pool==='finale').length;
+  const finaleAvailable = playable.filter(q=>q.pool==='finale').length;
   if(finaleAvailable < finaleNeeded) issues.push({type:'insufficient_finale', detail:`Servono almeno ${finaleNeeded} domande finale (comprese quelle di riserva per lo spareggio), disponibili ${finaleAvailable}`});
 
   return issues;
@@ -1018,6 +1107,18 @@ function parseBulkQuestions(text){
   const parsed = [], errors = [];
   lines.forEach((line, i)=>{
     const parts = line.split('|').map(p=>p.trim());
+    if(parts[0]==='top10'){
+      // top10|pool|categoria|titolo|voce1;voce2;...;voce10|varianti (facoltativo)|fonte (facoltativa)
+      const [, pool, category, title, itemsRaw, variantsRaw, source] = parts;
+      const items = (itemsRaw||'').split(';').map(x=>x.trim()).filter(Boolean);
+      const variants = variantsRaw ? variantsRaw.split(',').map(v=>v.trim()).filter(Boolean) : TOP10_VARIANTS;
+      if(pool!=='manche' && pool!=='finale'){ errors.push('Riga '+(i+1)+': il pool deve essere "manche" o "finale"'); return; }
+      if(!category || !title){ errors.push('Riga '+(i+1)+': categoria e titolo della classifica sono obbligatori'); return; }
+      if(items.length!==10){ errors.push('Riga '+(i+1)+': una classifica Top Dieci deve avere esattamente 10 voci separate da ";" (trovate '+items.length+')'); return; }
+      if(!variants.every(v=>TOP10_VARIANTS.includes(v))){ errors.push('Riga '+(i+1)+': varianti ammesse: '+TOP10_VARIANTS.join(', ')); return; }
+      parsed.push({kind:'top10', pool, category, title, items, variants, source: source||null});
+      return;
+    }
     if(parts.length<7){ errors.push('Riga '+(i+1)+': mancano dei campi (servono almeno 7 valori separati da "|")'); return; }
     const [pool, category, question, o1,o2,o3,o4, correctRaw, note, audioUrl] = parts;
     if(pool!=='manche' && pool!=='finale'){ errors.push('Riga '+(i+1)+': il pool deve essere "manche" o "finale"'); return; }
@@ -1032,6 +1133,7 @@ async function bulkAddQuestions(list){
   const updates = {};
   list.forEach(q=>{
     const id = newQuestionId();
+    if(q.kind==='top10'){ updates[questionBankPath(id)] = top10BankEntry(id, q); return; }
     updates[questionBankPath(id)] = withQuestionDefaults({id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex, adminNote:q.adminNote, audioUrl:q.audioUrl||null, lastUsedAt:null});
   });
   await db.ref(DB_ROOT).update(updates);
@@ -1050,6 +1152,33 @@ async function deleteEffect(id){ await safeDelete(soundEffectPath(id), true); }
    le domande "storiche" (quelle che prima erano fisse nel codice), così il
    gioco resta uguale a prima finché non se ne aggiungono di nuove. */
 let seedAttempted = false;
+/* Le classifiche Top Dieci di esempio vengono aggiunte una sola volta, anche
+   a un mazzo già pieno di domande classiche (altrimenti la modalità Top Dieci
+   partirebbe senza domande). Si possono eliminare dalla gestione domande. */
+let seedTop10Attempted = false;
+async function ensureSeedTop10Questions(){
+  if(seedTop10Attempted) return;
+  seedTop10Attempted = true;
+  if(Object.values(questionBank).some(q=>q.answerType==='top10')) return;
+  const updates = {};
+  TOP10_SEED.forEach(t=>{
+    const id = newQuestionId();
+    updates[questionBankPath(id)] = top10BankEntry(id, t);
+  });
+  await db.ref(DB_ROOT).update(updates);
+}
+function top10BankEntry(id, t){
+  return withQuestionDefaults({
+    id, pool:t.pool, category:t.category, answerType:'top10', question:t.title,
+    top10:{title:t.title, items:t.items, variants:t.variants||TOP10_VARIANTS, source:t.source||null},
+    options:[], correctIndex:null, adminNote: t.source ? 'Fonte: '+t.source : null, audioUrl:null, lastUsedAt:null
+  });
+}
+async function addTop10Question(t){
+  const id = newQuestionId();
+  await safeSet(questionBankPath(id), top10BankEntry(id, t), true);
+  return id;
+}
 async function ensureSeedQuestions(){
   if(seedAttempted) return;
   seedAttempted = true;
@@ -1146,7 +1275,19 @@ function drawQuestionsForGame(pool, count, excludeIds){
       if(next){ picked.push(next); pickedIds.add(next.id); usedKeys.add(questionDuplicateKey(next)); progress = true; }
     }
   }
-  return shuffle(picked);
+  return shuffle(picked).map(materializeQuestion);
+}
+/* Domande per uno spareggio: dal pool finale, poi dal pool manche se il
+   finale è esaurito. In Top Dieci, come ultima risorsa, una classifica già
+   giocata torna buona con una nuova estrazione di variante e voci. */
+function drawTiebreakCandidates(count, excludeIds){
+  let out = drawQuestionsForGame('finale', count, excludeIds);
+  if(!out.length) out = drawQuestionsForGame('manche', count, excludeIds);
+  if(!out.length){
+    out = shuffle(Object.values(questionBank).filter(q=>q.answerType==='top10' && isValidTop10(q) && questionMatchesGameType(q)))
+      .slice(0, count).map(materializeQuestion);
+  }
+  return out;
 }
 async function markQuestionsUsed(questions){
   if(!questions.length) return;
@@ -1180,7 +1321,10 @@ if(typeof module !== 'undefined' && module.exports){
     computeFrozenLeaderboardBands, totalScore, qualificationScore, roundScore,
     withQuestionDefaults, CONTENT_TYPES, ANSWER_TYPES, ANSWER_POLICIES, DIFFICULTIES,
     resolvePresentationMode, answerUnlockPolicyFor,
+    TOP10_SEED, DEFAULT_TOP10_SCORING, isValidTop10, materializeTop10, top10Points, isAnswerCorrect,
+    parseBulkQuestions, questionMatchesGameType, drawQuestionsForGame, drawTiebreakCandidates, top10BankEntry,
     __setTestState: (s)=>{ state = s; },
+    __setTestQuestionBank: (qb)=>{ questionBank = qb; },
     __setTestGameQuestions: (gq)=>{ gameQuestions = gq; },
     __setTestScoringDefaults: (sd)=>{ scoringDefaults = sd; },
     __setTestAnswersByTeam: (a)=>{ answersByTeam = a; },
