@@ -45,12 +45,16 @@ function circleTimer(remainingMs, total){
   </div>`;
 }
 function rankRows(idsWithScores){
-  return idsWithScores.map((r,i)=>`
-    <div class="rank-row ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
-      <div class="rank-num">${i+1}</div>
+  const positions = rankPositions(idsWithScores);
+  return idsWithScores.map((r,i)=>{
+    const pos = positions[i];
+    return `
+    <div class="rank-row ${pos===1?'top1':pos===2?'top2':pos===3?'top3':''}">
+      <div class="rank-num">${pos}</div>
       <div class="rank-name">${teamNameHtml(r.id)}</div>
       <div class="rank-score">${r.score} pt</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 function activeTeamsForRound(round){
   if(round==='final') return state.finalists || Object.keys(teams);
@@ -319,8 +323,7 @@ function renderFinalStatsBlock(){
     </div>`;
 }
 function renderLiveStandingsCard(){
-  const ids = Object.keys(teams);
-  const ranked = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>b.score-a.score);
+  const ranked = standingsRanking();
   return `<div class="card center stack final-glow">
     <div class="eyebrow pill gold">Classifica</div>
     <h2>Classifica generale</h2>
@@ -336,11 +339,11 @@ function renderStandingsRevealScreen(sr){
   const rows = revealedGroups.map(group=>{
     teamsSoFar += group.length;
     const pos = totalTeams - teamsSoFar + 1;
-    const names = group.map(id=>teams[id]?teams[id].name:'—').join(' 🤝 ');
-    const score = group.length ? totalScore(group[0]) : 0;
+    const names = group.map(teamNameHtml).join(' 🤝 ');
+    const score = group.length ? standingsScore(group[0]) : 0;
     return `<div class="reveal-row">
       <div class="reveal-pos">${pos}°</div>
-      <div class="reveal-name">${escapeHtml(names)}</div>
+      <div class="reveal-name">${names}</div>
       <div class="reveal-score">${score} pt</div>
     </div>`;
   }).join('');
@@ -523,16 +526,11 @@ function renderTeam(){
   else if(s.phase==='question' && !inTiebreak){
     body = (s.round==='final' && isEliminated) ? renderSpectatorFinal(s) : renderTeamQuestion(s.round, s.qIndex, true);
   }
+  else if((s.phase==='question' || s.phase==='closed') && inTiebreak && !isTiebreakCandidate){
+    body = renderTiebreakWaitCard(s);
+  }
   else if(s.phase==='question' && inTiebreak){
-    if(isTiebreakCandidate){
-      body = renderTeamQuestion('tiebreak', s.qIndex, false, true);
-    } else {
-      body = `<div class="card center stack">
-        <div class="eyebrow pill gold">Spareggio in corso</div>
-        <h3>Due squadre si giocano l'accesso in finale</h3>
-        <p class="muted">Restate collegati, tra poco si continua.</p>
-      </div>`;
-    }
+    body = renderTeamQuestion('tiebreak', s.qIndex, true, true);
   }
   else if(s.phase==='closed'){
     body = (s.round==='final' && isEliminated) ? renderSpectatorFinal(s) : renderTeamQuestion(s.round, s.qIndex, false);
@@ -605,9 +603,11 @@ function renderTeam(){
         <p>Campioni del Quizzettone! 🏆🎉</p>
       </div>`;
     } else if(isFinalist){
+      const ranking = standingsRanking();
+      const myPos = rankPositions(ranking)[ranking.findIndex(r=>r.id===teamId)] || 2;
       body = `<div class="card center stack">
         <div class="eyebrow">Finale</div>
-        <h2>Secondo posto, ma che partita! 🥈</h2>
+        <h2>${myPos===2 ? 'Secondo posto, ma che partita! 🥈' : myPos===3 ? 'Terzo posto, sul podio! 🥉' : myPos+'° posto in finale, ma che partita!'}</h2>
         <p class="muted">Vince ${teamNameHtml(s.winner)}</p>
       </div>`;
     } else {
@@ -633,6 +633,26 @@ function renderTeam(){
   if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ disarmPresence(teamId); clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
+function renderTiebreakWaitCard(s){
+  const tb = s.tiebreak || {};
+  return `<div class="card center stack">
+    <div class="eyebrow pill gold">Spareggio in corso</div>
+    <h3>${(tb.candidates||[]).map(teamNameHtml).join(' 🆚 ')}</h3>
+    <p class="muted">${tb.forFinal ? 'In palio la vittoria finale.' : "In palio l'accesso in finale."} Restate collegati, tra poco si continua.</p>
+  </div>`;
+}
+/* Testo di una risposta data e della risposta corretta, per tutte le tipologie. */
+function answerText(q, ans){
+  if(!q || !ans) return '—';
+  if(q.answerType==='top10') return top10AnswerText(q, ans);
+  return letter(ans.optionIndex)+') '+(q.options ? q.options[ans.optionIndex] : '');
+}
+function correctAnswerText(q){
+  if(!q) return '';
+  if(q.answerType==='top10') return top10CorrectText(q);
+  return letter(q.correctIndex)+') '+q.options[q.correctIndex];
+}
+
 /* Modalità spettatore per le squadre eliminate durante la finale: mostra lo
    stato di ogni finalista (sta pensando / risposta bloccata / tempo scaduto)
    senza far vedere il testo della risposta finché la config
@@ -651,8 +671,8 @@ function renderSpectatorFinal(s){
     const statusLabel = ans ? 'Risposta bloccata' : (s.phase==='closed' ? 'Tempo scaduto' : 'Sta pensando...');
     let answerHtml = '';
     if(showAnswers && ans && q){
-      const color = s.solutionRevealed ? (ans.optionIndex===q.correctIndex ? 'var(--green)' : 'var(--pink)') : 'var(--ink)';
-      answerHtml = `<div style="font-size:14px;margin-top:4px;color:${color};">${letter(ans.optionIndex)}) ${escapeHtml(q.options[ans.optionIndex])}</div>`;
+      const color = s.solutionRevealed ? (isAnswerCorrect(q, ans) ? 'var(--green)' : 'var(--pink)') : 'var(--ink)';
+      answerHtml = `<div style="font-size:14px;margin-top:4px;color:${color};">${escapeHtml(answerText(q, ans))}</div>`;
     }
     return `<div class="card stack" style="padding:12px;">
       <div class="row" style="align-items:center;justify-content:space-between;">
@@ -687,6 +707,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const remaining = active ? (timerIdle ? state.timer.durationMs : timeRemaining()) : 0;
   const expired = active && !timerIdle && remaining<=0 && !myAnswer;
   const showCorrectness = round!=='tiebreak' && !active && !!state.solutionRevealed;
+  const lateForThis = role==='team' && !teamEligibleForQuestion(teamId, round, idx);
   // PL-11 (item 6): con sblocco manuale (schermo condiviso/ibrido) e input
   // ancora bloccato, la domanda non va mostrata sul telefono — solo un
   // rimando allo schermo condiviso — a meno che l'admin non abbia attivato
@@ -714,14 +735,15 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
       if(i===q.correctIndex) cls += ' correct';
       else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
     }
-    const disabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0 || submitPending;
+    const disabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0 || submitPending || lateForThis;
     return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>
       <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
     </button>`;
   }).join('');
 
   let banner = '';
-  if(submitPending) banner = `<div class="status-banner">Invio in corso...</div>`;
+  if(lateForThis) banner = `<div class="status-banner">Siete entrati a domanda già aperta: partecipate dalla prossima.</div>`;
+  else if(submitPending) banner = `<div class="status-banner">Invio in corso...</div>`;
   else if(myAnswer){
     const bonusNote = myAnswer.speedBonus>0 ? ` (⚡ bonus velocità: +${myAnswer.speedBonus} se corretta)` : '';
     banner = `<div class="status-banner sent">✓ Risposta inviata${bonusNote}</div>`;
@@ -790,7 +812,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         ${comebackPill}
         ${audioStatusPill}
       </div>
-      ${active ? `<div class="timer-wrap">${circleTimer(remaining, state.timer.durationMs)}</div>` : ''}
+      ${active ? `<div class="timer-wrap"><div id="timerSlot">${circleTimer(remaining, state.timer.durationMs)}</div></div>` : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
       ${questionImageHtml(q)}
       <div class="options">${optionsHtml}</div>
@@ -858,11 +880,8 @@ function renderDisplay(){
   else if(s.phase==='question' && !inTiebreak){
     body = renderTeamQuestion(s.round, s.qIndex, true, false, true);
   }
-  else if(s.phase==='question' && inTiebreak){
-    body = `<div class="card center stack">
-      <div class="eyebrow pill gold">Spareggio in corso</div>
-      <h3>Due squadre si giocano l'accesso in finale</h3>
-    </div>`;
+  else if((s.phase==='question' || s.phase==='closed') && inTiebreak){
+    body = renderTiebreakWaitCard(s);
   }
   else if(s.phase==='closed'){
     body = renderTeamQuestion(s.round, s.qIndex, false, false, true);
@@ -1022,6 +1041,11 @@ function applyPresetValuesToForm(values){
       byId('setupFinalScoringNoAnswer').value = values.finalScoring.noAnswer;
     }
   }
+  if(values.gameType) byId('setupGameType').value = values.gameType;
+  if(values.gameName) byId('setupGameName').value = values.gameName;
+  // Valori impostati da codice: vanno trattati come modifiche non salvate,
+  // altrimenti il prossimo aggiornamento Firebase li riporterebbe indietro.
+  markFieldsDirty('setup');
 }
 /* Raccoglie il patch dallo stato ATTUALE del form (stessa forma passata ad
    adminSaveSetup). Fattorizzata da dentro l'handler di btnSaveSetup così può
@@ -1112,7 +1136,7 @@ function showStartSummaryModal(cfg, onConfirm){
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
   const displayModeLabels = {team_devices:'solo dispositivi squadra', shared_screen:'schermo condiviso', hybrid:'ibrida'};
   const carryoverLabels = {reset:'azzerati', keep:'mantenuti', convert:'convertiti'};
-  const profileLabels = {classico:'Classico', dinamico:'Dinamico (in arrivo, calcolo identico a Classico per ora)', personalizzato:'Personalizzato (in arrivo, calcolo identico a Classico per ora)'};
+  const profileLabels = {classico:'Classico', dinamico:'Dinamico (bonus per ordine, penalità a fasce, bonus rimonta)', personalizzato:'Personalizzato'};
   const lines = [
     `${cfg.rounds} manche di qualificazione da ${cfg.questionsPerRound[0]||0} domande`,
     `Finale: ${cfg.finalistCount} finalisti, ${cfg.finalQuestionCount} domande`,
@@ -1141,8 +1165,7 @@ function renderSalaPrePartita(s, cfg){
   const tieOptions = [
     ['prima_corretta','Prima risposta corretta'],
     ['oltranza','Spareggio a oltranza'],
-    ['corretta_veloce','Corretta più veloce'],
-    ['numerica','Più vicino al valore corretto']
+    ['corretta_veloce','Corretta più veloce']
   ];
   const tieSelect = (id, selected)=> `<select id="${id}">${tieOptions.map(([v,label])=>`<option value="${v}" ${v===selected?'selected':''}>${label}</option>`).join('')}</select>`;
   const lateJoinOptions = [
@@ -1211,10 +1234,10 @@ function renderSalaPrePartita(s, cfg){
         <div class="divider"></div>
         <label class="stack">Profilo di scoring<select id="setupScoringProfile" ${s.setupLocked?'disabled':''}>
           <option value="classico" ${(cfg.scoringProfile||'classico')==='classico'?'selected':''}>Classico (punteggio fisso, come oggi)</option>
-          <option value="dinamico" ${cfg.scoringProfile==='dinamico'?'selected':''}>Dinamico (bonus ordine + penalità a fascia — in arrivo)</option>
-          <option value="personalizzato" ${cfg.scoringProfile==='personalizzato'?'selected':''}>Personalizzato (in arrivo)</option>
+          <option value="dinamico" ${cfg.scoringProfile==='dinamico'?'selected':''}>Dinamico (bonus per ordine + penalità a fasce + bonus rimonta)</option>
+          <option value="personalizzato" ${cfg.scoringProfile==='personalizzato'?'selected':''}>Personalizzato (come Dinamico, con le tabelle della partita)</option>
         </select></label>
-        <p class="muted" style="font-size:12px;">"Dinamico" e "Personalizzato" sono selezionabili e salvati, ma il calcolo dei punti resta identico a "Classico" finché i meccanismi (bonus ordine, penalità a fascia, bonus rimonta) non saranno collegati in un aggiornamento successivo.</p>
+        <p class="muted" style="font-size:12px;">"Dinamico": chi risponde giusto prima prende un bonus, chi è in testa rischia un malus più alto e chi è indietro prende un bonus rimonta. Le squadre vedono il loro rischio prima di rispondere.</p>
         <label class="row" style="align-items:center;"><input type="checkbox" id="setupFinalScoringEnabled" ${finalScoringEnabled?'checked':''} ${s.setupLocked?'disabled':''}> Punteggi diversi in finale</label>
         <div class="row">
           <label class="stack">Finale: corretta<input type="text" inputmode="numeric" id="setupFinalScoringCorrect" value="${fs.correct}" ${s.setupLocked?'disabled':''}></label>
@@ -1237,6 +1260,84 @@ function renderSalaPrePartita(s, cfg){
 }
 
 /* ================== VISTA ADMIN ================== */
+/* render() ricostruisce il pannello admin a ogni aggiornamento Firebase (una
+   squadra che entra, una risposta…): senza questo, quello che l'admin sta
+   scrivendo e non ha ancora salvato sparirebbe. I valori modificati vengono
+   rimessi nei campi ridisegnati, con focus e cursore. Ogni gruppo di campi ha
+   un suo contesto: i campi del punteggio di una domanda non "migrano" alla
+   domanda successiva. I file scelti non si possono reimpostare in un <input
+   type=file>, quindi restano in memoria (pendingFiles). */
+const dirtyFields = {};
+const pendingFiles = {};
+let dirtyTrackingBound = false;
+function formFieldContext(id){
+  if(!state) return '';
+  if(id.startsWith('qs')) return ['q', state.phase==='closed'?'question':state.phase, state.round, state.qIndex].join('|');
+  if(id.startsWith('setup')) return 'setup|' + (state.setupLocked ? 'locked' : 'open');
+  return 'global';
+}
+function bindDirtyTrackingOnce(){
+  if(dirtyTrackingBound) return;
+  dirtyTrackingBound = true;
+  const track = e=>{
+    const el = e.target;
+    const app = document.getElementById('app');
+    if(role!=='admin' || !el || !el.id || !app || !app.contains(el)) return;
+    if(!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    if(el.type==='file'){ pendingFiles[el.id] = el.files && el.files[0] ? el.files[0] : null; return; }
+    dirtyFields[el.id] = {value: el.type==='checkbox' ? el.checked : el.value, ctx: formFieldContext(el.id)};
+  };
+  document.addEventListener('input', track, true);
+  document.addEventListener('change', track, true);
+}
+function markFieldsDirty(prefix){
+  document.querySelectorAll('#app [id^="'+prefix+'"]').forEach(el=>{
+    if(!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.type==='file') return;
+    dirtyFields[el.id] = {value: el.type==='checkbox' ? el.checked : el.value, ctx: formFieldContext(el.id)};
+  });
+}
+function forgetDirty(prefixOrIds){
+  const list = Array.isArray(prefixOrIds) ? prefixOrIds : null;
+  Object.keys(dirtyFields).forEach(id=>{ if(list ? list.includes(id) : id.startsWith(prefixOrIds)) delete dirtyFields[id]; });
+  Object.keys(pendingFiles).forEach(id=>{ if(list ? list.includes(id) : id.startsWith(prefixOrIds)) delete pendingFiles[id]; });
+}
+function pickedFile(id){
+  const el = document.getElementById(id);
+  return (el && el.files && el.files[0]) || pendingFiles[id] || null;
+}
+function captureAdminFocus(){
+  const a = document.activeElement;
+  const app = document.getElementById('app');
+  if(!a || !a.id || !app || !app.contains(a) || !/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return null;
+  let start = null, end = null;
+  try{ start = a.selectionStart; end = a.selectionEnd; }catch(e){}
+  return {id:a.id, start, end};
+}
+function restoreAdminFormState(focus){
+  Object.keys(dirtyFields).forEach(id=>{
+    const d = dirtyFields[id];
+    if(d.ctx !== formFieldContext(id)){ delete dirtyFields[id]; return; }
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(el.type==='checkbox') el.checked = d.value; else el.value = d.value;
+  });
+  Object.keys(pendingFiles).forEach(id=>{
+    const el = document.getElementById(id);
+    const f = pendingFiles[id];
+    if(el && f && !(el.files && el.files[0])){
+      el.insertAdjacentHTML('afterend', `<p class="note" data-pending-file="${escapeHtml(id)}">File scelto: ${escapeHtml(f.name)}</p>`);
+    }
+  });
+  // I campi che mostrano/nascondono altre parti del form vanno risincronizzati.
+  ['qmAnswerType','qmContentType'].forEach(id=>{ const el = document.getElementById(id); if(el && dirtyFields[id] && el.onchange) el.onchange(); });
+  if(focus){
+    const el = document.getElementById(focus.id);
+    if(el){
+      el.focus();
+      try{ if(focus.start!=null) el.setSelectionRange(focus.start, focus.end); }catch(e){}
+    }
+  }
+}
 function syncStandingsAutoPlay(s){
   const sr = s.standingsReveal;
   const shouldRun = sr && sr.autoPlaying && sr.revealedCount < sr.order.length;
@@ -1347,7 +1448,7 @@ function renderAdmin(){
           <span class="pill">${missingIdsForCount.length} mancanti</span>
           ${offlineMissingCount>0?`<span class="pill" style="color:var(--pink);">${offlineMissingCount} offline</span>`:''}
         </div>
-        ${!closed?`<div class="timer-wrap">${circleTimer(remaining, s.timer.durationMs)}${idle?`<div class="pill">${manualUnlock?'Risposte bloccate: in attesa dello schermo condiviso':'In attesa di avvio'}</div>`:''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
+        ${!closed?`<div class="timer-wrap"><div id="timerSlot">${circleTimer(remaining, s.timer.durationMs)}</div>${idle?`<div class="pill">${manualUnlock?'Risposte bloccate: in attesa dello schermo condiviso':'In attesa di avvio'}</div>`:''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
         ${!closed?`<div class="row">
           ${idle?`<button class="btn" id="btnStartTimer">${manualUnlock?'🔓 Apri risposte':'▶ Avvia timer'}</button>`:''}
           ${idle && manualUnlock && !fallbackActive?`<button class="btn ghost small" id="btnActivateTeamFallback">Mostra domanda sui telefoni</button>`:''}
@@ -1410,12 +1511,13 @@ function renderAdmin(){
     liveTable = `
       <div class="card">
         <h3>Stato squadre</h3>
-        <table><thead><tr><th>Squadra</th><th>Stato</th><th>Risposta</th><th>Punti</th></tr></thead><tbody>
+        <div class="table-wrap"><table><thead><tr><th>Squadra</th><th>Stato</th><th>Risposta</th><th>Punti</th></tr></thead><tbody>
         ${activeTeams.map(id=>{
           const key = qkey(round, idx);
           const ans = answersByTeam[id] && answersByTeam[id][key];
-          const status = ans ? `<span class="status-dot dot-ok"></span>Risposto` : (closed ? `<span class="status-dot dot-late"></span>Nessuna risposta` : `<span class="status-dot dot-wait"></span>In attesa`);
-          const answerTxt = ans ? letter(ans.optionIndex)+') '+escapeHtml(q.options[ans.optionIndex]) : '—';
+          const lateForThis = !teamEligibleForQuestion(id, round, idx);
+          const status = ans ? `<span class="status-dot dot-ok"></span>Risposto` : lateForThis ? `<span class="status-dot dot-wait"></span>Entrata dopo` : (closed ? `<span class="status-dot dot-late"></span>Nessuna risposta` : `<span class="status-dot dot-wait"></span>In attesa`);
+          const answerTxt = ans ? escapeHtml(answerText(q, ans)) : '—';
           const pts = closed ? teamPointsForQuestion(id, round, idx) : '—';
           return `<tr>
             <td>${teamNameHtml(id)}</td>
@@ -1424,7 +1526,7 @@ function renderAdmin(){
             <td>${pts} ${closed?`<button class="btn ghost small" data-adjust="-1" data-team="${id}">−</button><button class="btn ghost small" data-adjust="1" data-team="${id}">+</button>`:''}</td>
           </tr>`;
         }).join('')}
-        </tbody></table>
+        </tbody></table></div>
       </div>`;
   }
   else if(s.phase==='checkpoint'){
@@ -1483,12 +1585,13 @@ function renderAdmin(){
       <div class="card stack">
         <h3>Risultato spareggio</h3>
         <p class="qtext">${escapeHtml(q.question)}</p>
-        <p class="muted">Corretta: ${letter(q.correctIndex)}) ${escapeHtml(q.options[q.correctIndex])}</p>
+        <p class="muted">Corretta: ${escapeHtml(correctAnswerText(withQuestionDefaults(q)))}</p>
+        ${!tb.forFinal ? `<p class="muted">Posti in finale ancora da assegnare: ${Math.max(0, ((s.config && s.config.finalistCount)||2) - (tb.qualifiedSoFar||[]).length)}${(tb.qualifiedSoFar||[]).length ? ' · già in finale: '+(tb.qualifiedSoFar||[]).map(teamNameHtml).join(', ') : ''}</p>` : ''}
         ${autoWinnerId ? `<p class="muted">Il sistema suggerisce <b>${teamNameHtml(autoWinnerId)}</b> in base alla regola di spareggio scelta: conferma o scegli un'altra squadra.</p>` : ''}
         <div class="stack">
           ${tb.candidates.map(id=>{
-            const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', tb.qIndex)];
-            const correct = ans && ans.optionIndex===q.correctIndex;
+            const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', 0)];
+            const correct = ans && isAnswerCorrect(withQuestionDefaults(q), ans);
             const suggested = autoWinnerId===id;
             return `<div class="row" style="align-items:center;">
               <div>${teamNameHtml(id)} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
@@ -1496,6 +1599,7 @@ function renderAdmin(){
             </div>`;
           }).join('')}
         </div>
+        <button class="btn ghost small" id="btnNewTiebreakQuestion">Altra domanda di spareggio tra queste squadre</button>
       </div>`;
   }
   else if(s.phase==='reveal_finalists'){
@@ -1535,14 +1639,14 @@ function renderAdmin(){
   const globalStandings = `
     <div class="card">
       <h3>Classifica generale (solo admin)</h3>
-      <table><thead><tr><th>Squadra</th>${standingsRoundNums.map(r=>`<th>Manche ${r}</th>`).join('')}<th>Finale</th><th>Totale</th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th>Squadra</th>${standingsRoundNums.map(r=>`<th>Manche ${r}</th>`).join('')}<th>Finale</th><th>Totale</th></tr></thead><tbody>
       ${teamIds.map(id=>`<tr>
         <td>${teamNameHtml(id)}</td>
         ${standingsRoundNums.map(r=>`<td>${roundScore(id,r)}</td>`).join('')}
         <td>${state.finalists && state.finalists.includes(id) ? roundScore(id,'final') : '—'}</td>
         <td><b>${totalScore(id)}</b></td>
       </tr>`).join('')}
-      </tbody></table>
+      </tbody></table></div>
     </div>`;
 
   const historyLog = (s.history && s.history.log) || [];
@@ -1680,6 +1784,8 @@ function renderAdmin(){
       </div>
     </div>` : '';
 
+  bindDirtyTrackingOnce();
+  const focus = captureAdminFocus();
   const app2 = document.getElementById('app');
   app2.innerHTML = `
     <div class="header">
@@ -1717,6 +1823,7 @@ function renderAdmin(){
     ${renderPartyPopup()}
   `;
   attachAdminHandlers();
+  restoreAdminFormState(focus);
   const exitAdmin = document.getElementById('btnExitAdmin');
   if(exitAdmin) exitAdmin.onclick = ()=>{ clearUrlSession(); stopListening(); role=null; renderRoleSelect(); };
   playPendingAudioCueIfAny();
@@ -2016,6 +2123,7 @@ function attachAdminHandlers(){
     const gameName = byId('setupGameName').value.trim() || 'Quizzettone';
     const patch = collectSetupPatchFromForm(false);
     await adminSaveSetup(gameName, patch);
+    forgetDirty('setup');
   };
   document.querySelectorAll('[data-builtin-preset]').forEach(btn=>{
     btn.onclick = ()=>{
@@ -2081,7 +2189,8 @@ function attachAdminHandlers(){
     const testo = byId('pdmTesto').value.trim();
     if(!testo) return;
     await adminAddPartyCard(deck, testo, tipo);
-    byId('pdmTesto').value = '';
+    const fresh = byId('pdmTesto'); if(fresh) fresh.value = '';
+    forgetDirty(['pdmTesto']);
   };
   document.querySelectorAll('[data-delete-party-card]').forEach(btn=>{
     btn.onclick = ()=>{
@@ -2096,12 +2205,14 @@ function attachAdminHandlers(){
     const wrong = parseInt(byId('scDefWrong').value, 10) || 0;
     const noAnswer = parseInt(byId('scDefNoAnswer').value, 10) || 0;
     adminSetScoringDefaults({correct, wrong, noAnswer});
+    forgetDirty('scDef');
   };
   if(byId('btnApplyQuestionScoring')) byId('btnApplyQuestionScoring').onclick = ()=>{
     const correct = parseInt(byId('qsCorrect').value, 10) || 0;
     const wrong = parseInt(byId('qsWrong').value, 10) || 0;
     const noAnswer = parseInt(byId('qsNoAnswer').value, 10) || 0;
     adminSetQuestionScoring(state.round, state.qIndex, {correct, wrong, noAnswer});
+    forgetDirty('qs');
   };
   // PL-19: Vero/Falso riusa il motore a scelta multipla esistente con
   // esattamente 2 opzioni — nessun nuovo motore, solo un preset del form.
@@ -2142,8 +2253,8 @@ function attachAdminHandlers(){
       : [byId('qmOpt0').value.trim(), byId('qmOpt1').value.trim(), byId('qmOpt2').value.trim(), byId('qmOpt3').value.trim()];
     const correctIndex = parseInt(byId('qmCorrect').value, 10);
     const note = byId('qmNote').value.trim();
-    const audioFile = byId('qmAudioFile').files[0];
-    const imageFile = byId('qmImageFile').files[0];
+    const audioFile = pickedFile('qmAudioFile');
+    const imageFile = pickedFile('qmImageFile');
     const msg = byId('qmAddMsg');
     if(!question || opts.some(o=>!o)){
       msg.textContent = isVeroFalso ? 'Compila la domanda e le due opzioni (Vero/Falso).' : 'Compila la domanda e tutte e 4 le opzioni.';
@@ -2187,6 +2298,8 @@ function attachAdminHandlers(){
     if(freshImageFile) freshImageFile.value = '';
     const freshAudioFile = byId('qmAudioFile');
     if(freshAudioFile) freshAudioFile.value = '';
+    forgetDirty(['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote','qmTolerance','qmAudioFile','qmImageFile']);
+    document.querySelectorAll('[data-pending-file^="qm"]').forEach(el=>el.remove());
   };
   if(byId('btnBulkImport')) byId('btnBulkImport').onclick = async ()=>{
     const text = byId('qmBulkText').value;
@@ -2197,7 +2310,7 @@ function attachAdminHandlers(){
     if(errors.length) text2 += ' Problemi: ' + errors.join('; ');
     msg.textContent = text2;
     msg.style.color = errors.length ? 'var(--pink)' : 'var(--green)';
-    if(parsed.length>0) byId('qmBulkText').value = '';
+    if(parsed.length>0){ byId('qmBulkText').value = ''; forgetDirty(['qmBulkText']); }
   };
   document.querySelectorAll('[data-delete-question]').forEach(btn=>{
     btn.onclick = ()=>{ if(confirm('Eliminare questa domanda dal mazzo?')) deleteQuestion(btn.getAttribute('data-delete-question')); };
@@ -2215,6 +2328,7 @@ function attachAdminHandlers(){
   document.querySelectorAll('[data-assign-winner]').forEach(btn=>{
     btn.onclick = ()=> adminAssignTiebreakWinner(btn.getAttribute('data-assign-winner'));
   });
+  if(byId('btnNewTiebreakQuestion')) byId('btnNewTiebreakQuestion').onclick = adminNewTiebreakQuestion;
   if(byId('btnOpenDisplay')) byId('btnOpenDisplay').onclick = ()=>{
     const url = new URL(window.location.href);
     url.searchParams.set('role','display'); url.searchParams.delete('id');
@@ -2228,7 +2342,7 @@ function attachAdminHandlers(){
   document.querySelectorAll('[data-play-effect]').forEach(btn=>{
     btn.onclick = ()=>{
       const fx = soundEffects[btn.getAttribute('data-play-effect')];
-      if(fx) safeSet(statePath(), {...state, audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+      if(fx) patchState({audioCue:{url:fx.url, kind:'effect', label:fx.name, action:'play', startAt:0, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}});
     };
   });
   document.querySelectorAll('[data-delete-effect]').forEach(btn=>{
@@ -2236,15 +2350,19 @@ function attachAdminHandlers(){
   });
   if(byId('btnUploadEffect')) byId('btnUploadEffect').onclick = async ()=>{
     const name = byId('fxName').value.trim();
-    const file = byId('fxFile').files[0];
+    const file = pickedFile('fxFile');
     const msg = byId('fxUploadMsg');
     if(!name || !file){ msg.textContent = 'Inserisci nome e file.'; msg.style.color = 'var(--pink)'; return; }
     msg.textContent = 'Caricamento...'; msg.style.color = '';
     try{
       const url = await uploadAudioFile(file, 'effects');
       await addEffect(name, url);
-      msg.textContent = 'Effetto caricato!'; msg.style.color = 'var(--green)';
-      byId('fxName').value=''; byId('fxFile').value='';
+      forgetDirty(['fxName','fxFile']);
+      const freshMsg = byId('fxUploadMsg');
+      if(freshMsg){ freshMsg.textContent = 'Effetto caricato!'; freshMsg.style.color = 'var(--green)'; }
+      if(byId('fxName')) byId('fxName').value='';
+      if(byId('fxFile')) byId('fxFile').value='';
+      document.querySelectorAll('[data-pending-file="fxFile"]').forEach(el=>el.remove());
     }catch(e){ msg.textContent = 'Upload fallito: ' + e.message; msg.style.color = 'var(--pink)'; }
   };
 

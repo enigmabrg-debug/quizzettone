@@ -121,7 +121,6 @@ let serverTimeOffset = 0; // differenza (ms) tra l'orologio del server Firebase 
                            // scheda, letta da '.info/serverTimeOffset' (PL-11): serverNow() la usa
                            // ovunque il conto alla rovescia deve restare autorevole anche con
                            // l'orologio locale sfasato.
-let displayHeartbeatTimer = null; // battito di presenza per il ruolo 'display' (PL-11, item 9)
 
 let state = null;         // stato di gioco condiviso
 let gameQuestions = null; // domande estratte per questa partita (ramo separato, PL-09): {rounds, final, tiebreak}
@@ -319,7 +318,10 @@ function startListening(){
     // questionBankPath(id)/soundEffectPath(id) con entry.id===id), quindi non
     // serve più ricostruirle a mano leggendo entry.id da ogni valore.
     const session = (all.sessions && all.sessions[SESSION_ID]) || {};
-    teams = session.teams || {};
+    // L'id finisce dentro attributi HTML (data-team="..."): si accettano solo
+    // gli id generati dall'app, non chiavi scritte a mano nel database.
+    teams = {};
+    Object.keys(session.teams || {}).forEach(id=>{ if(/^(team|test)_[a-z0-9]+$/.test(id)) teams[id] = session.teams[id]; });
     answersByTeam = session.answers || {};
     overridesByTeam = session.scoreLedger || {};
     presenceByTeam = session.presence || {};
@@ -455,22 +457,17 @@ function disarmPresence(teamId){
 function isTeamOnline(id){ return !!(presenceByTeam[id] && Object.keys(presenceByTeam[id]).length>0); }
 function teamDeviceCount(id){ return presenceByTeam[id] ? Object.keys(presenceByTeam[id]).length : 0; }
 /* PL-11 (item 9): stesso pattern di armPresence/disarmPresence sopra, ma per
-   un futuro ruolo Display, su presencePath('display', connId). In più tiene
-   un battito periodico (lastSeenAt), non solo connectedAt: una vista Display
-   futura potrà distinguere "connesso ma bloccato" da "davvero vivo". Nessuna
-   UI di questo pacchetto legge questi dati: solo la scrittura è costruita
-   qui, verificata dai test leggendo direttamente il ramo Firebase. */
+   il ruolo Display, su presencePath('display', connId). lastSeenAt viene
+   scritto a ogni (ri)connessione, non più ogni 2,5 s: tutti i client ascoltano
+   l'intero albero, quindi un battito periodico faceva ridisegnare tutti gli
+   schermi (e svuotava i form dell'admin) a ogni battito. */
 function armDisplayPresence(){
   presenceConnId = presenceConnId || ('conn_' + Math.random().toString(36).slice(2,10));
   const connRef = db.ref(DB_ROOT + '/' + presencePath('display', presenceConnId));
   connRef.onDisconnect().remove();
-  const beat = ()=> connRef.set({connected:true, lastSeenAt: firebase.database.ServerValue.TIMESTAMP});
-  beat();
-  if(displayHeartbeatTimer) clearInterval(displayHeartbeatTimer);
-  displayHeartbeatTimer = setInterval(beat, 2500);
+  connRef.set({connected:true, lastSeenAt: firebase.database.ServerValue.TIMESTAMP});
 }
 function disarmDisplayPresence(){
-  if(displayHeartbeatTimer){ clearInterval(displayHeartbeatTimer); displayHeartbeatTimer = null; }
   if(!presenceConnId) return;
   db.ref(DB_ROOT + '/' + presencePath('display', presenceConnId)).remove();
 }
@@ -489,7 +486,7 @@ async function ensureJoinCode(){
   if(joinCodeEnsureAttempted) return;
   joinCodeEnsureAttempted = true;
   if(state && state.joinCode) return;
-  await safeSet(statePath(), {...state, joinCode: generateJoinCode()}, true);
+  await patchState({joinCode: generateJoinCode()});
 }
 function startUiTick(){
   if(uiTickTimer) return;
@@ -507,6 +504,13 @@ function startUiTick(){
     if(role==='admin' && state.testMode && state.timer && state.timer.status==='running'){
       simulateTestTeamAnswers();
     }
+    // Col passare del tempo cambia solo il cerchio del timer: ridisegnare
+    // tutta la pagina ogni 250ms svuotava i campi che l'admin sta compilando.
+    // Tutto il resto si aggiorna già dal listener Firebase.
+    if(!state.timer || state.timer.status!=='running') return;
+    const slot = document.getElementById('timerSlot');
+    const remaining = timeRemaining();
+    if(slot && remaining>0){ slot.innerHTML = circleTimer(remaining, state.timer.durationMs); return; }
     render();
   }, 250);
 }
@@ -603,6 +607,16 @@ function scoringFor(round, idx){
    Serve quindi anche il teamId, che il profilo classico non usa (il suo
    bonus arriva già calcolato dentro 'speedBonus', persistito sulla
    risposta stessa). */
+/* Unico punto che decide se una risposta è "giusta" (statistiche, bonus
+   d'ordine, spareggi): per le domande a opzioni è l'opzione corretta, per
+   "Ricostruisci la classifica" (Top Dieci) l'ordine esatto. */
+function isAnswerCorrect(q, ans){
+  if(!q || !ans) return false;
+  if(Array.isArray(ans.order)){
+    return Array.isArray(q.correctOrder) && ans.order.length===q.correctOrder.length && ans.order.every((v,i)=>v===q.correctOrder[i]);
+  }
+  return ans.optionIndex === q.correctIndex;
+}
 function pointsForAnswer(round, idx, optionIndex, speedBonus, teamId){
   const q = getQuestion(round, idx);
   if(!q) return 0;
@@ -664,7 +678,7 @@ function computeOrderBonusAssignments(round, idx){
   const table = (state && state.config && state.config.dynamicScoring && state.config.dynamicScoring.orderBonusPercents) || [];
   const correctAnswers = Object.keys(answersByTeam)
     .map(id => ({id, ans: answersByTeam[id] && answersByTeam[id][key]}))
-    .filter(x => x.ans && x.ans.optionIndex === q.correctIndex)
+    .filter(x => x.ans && isAnswerCorrect(q, x.ans))
     .sort((a,b) => a.ans.ts - b.ans.ts);
   const assignments = {};
   let rank = 0, lastTs = null;
@@ -696,9 +710,20 @@ async function ensureOrderBonusComputed(){
   const newGameQuestions = applyQuestionInstanceFields(gameQuestions, round, idx, {orderBonusAssignments: assignments});
   await db.ref(DB_ROOT + '/' + questionInstancesPath()).set(newGameQuestions);
 }
+/* Ingresso tardivo (piano §4.5): una squadra entrata mentre una domanda era
+   già aperta partecipa dalla successiva. Non può rispondere a quella in corso
+   e non prende il malus "non data" per le domande aperte prima del suo ingresso. */
+function teamEligibleForQuestion(id, round, idx){
+  const t = teams[id];
+  if(!t || !t.lateJoin || !t.joinedAt) return true;
+  const q = getList(round)[idx];
+  if(!q || !q.presentedAt) return true;
+  return t.joinedAt <= q.presentedAt;
+}
 function teamPointsForQuestion(id, round, idx){
   const key = qkey(round, idx);
   if(state && state.cancelledQuestions && state.cancelledQuestions.includes(key)) return 0;
+  if(!teamEligibleForQuestion(id, round, idx)) return 0;
   const ov = overridesByTeam[id] && overridesByTeam[id][key];
   if(ov !== undefined && ov !== null) return ov;
   const ans = answersByTeam[id] && answersByTeam[id][key];
@@ -740,6 +765,46 @@ function totalScore(id){
     }
   }
   return qualificationScore(id) + roundScore(id,'final');
+}
+/* Punteggio da mostrare in classifica: per le finaliste quello della finale
+   (secondo scoreCarryover), per le eliminate quello di qualificazione. */
+function standingsScore(id){
+  const isFinalist = !!(state && state.finalists && state.finalists.includes(id));
+  return isFinalist ? totalScore(id) : qualificationScore(id);
+}
+/* Classifica unica per podio, classifica live e classifica animata. Una volta
+   decise le finaliste, stanno sempre davanti alle eliminate e la vincitrice è
+   prima: con "Azzera" una finalista ha solo i punti della finale e altrimenti
+   un'eliminata con tanti punti di qualificazione le passerebbe davanti. */
+function standingsRanking(){
+  const finalists = (state && state.finalists) || null;
+  const winner = state && state.winner;
+  const rows = Object.keys(teams).map(id=>({
+    id, score: standingsScore(id),
+    group: finalists && !finalists.includes(id) ? 1 : 0,
+    isWinner: !!winner && winner===id
+  }));
+  rows.sort((a,b)=> (a.group-b.group) || ((b.isWinner?1:0)-(a.isWinner?1:0)) || (b.score-a.score));
+  return rows;
+}
+/* Posizione con i pari merito (1°, 1°, 3°…): due squadre con lo stesso
+   punteggio nello stesso gruppo hanno la stessa posizione. */
+function rankPositions(rows){
+  let pos = 0;
+  return rows.map((r,i)=>{
+    const prev = rows[i-1];
+    if(!prev || prev.group!==r.group || prev.score!==r.score || prev.isWinner!==r.isWinner) pos = i+1;
+    return pos;
+  });
+}
+/* Tipo di partita (Sala pre-partita): 'quiz' gioca le domande classiche,
+   'topdieci' solo le classifiche Top Dieci, 'misto' entrambe. */
+function questionMatchesGameType(q){
+  const gameType = (state && state.config && state.config.gameType) || 'quiz';
+  const isTop10 = q && q.answerType==='top10';
+  if(gameType==='topdieci') return isTop10;
+  if(gameType==='misto') return true;
+  return !isTop10;
 }
 /* PL-15: fascia di rischio/rimonta in base alla POSIZIONE consolidata
    (totalScore, la stessa classifica già mostrata nel pannello di regia) tra
@@ -786,13 +851,18 @@ function computeTiebreakAutoWinner(){
   const rule = tb.forFinal
     ? (state.config && state.config.tiebreakRule && state.config.tiebreakRule.final)
     : (state.config && state.config.tiebreakRule && state.config.tiebreakRule.qualification);
-  if(rule!=='prima_corretta' && rule!=='corretta_veloce') return null;
-  const key = qkey('tiebreak', tb.qIndex);
-  const correctIndex = tb.question.correctIndex;
+  if(rule!=='prima_corretta' && rule!=='corretta_veloce' && rule!=='oltranza') return null;
+  // Le risposte di spareggio stanno sempre su 'tiebreak-0' (state.qIndex è 0
+  // durante lo spareggio); tb.qIndex è solo l'indice della domanda scelta.
+  const key = qkey('tiebreak', 0);
+  const q = withQuestionDefaults(tb.question);
   const answeredCorrectly = tb.candidates
     .map(id=>({id, ans: answersByTeam[id] && answersByTeam[id][key]}))
-    .filter(c=>c.ans && c.ans.optionIndex===correctIndex)
+    .filter(c=>c.ans && isAnswerCorrect(q, c.ans))
     .sort((a,b)=>a.ans.ts-b.ans.ts);
+  // "A oltranza": decide solo se ha risposto bene una sola squadra; altrimenti
+  // si gioca un'altra domanda tra le squadre ancora in parità.
+  if(rule==='oltranza') return answeredCorrectly.length===1 ? answeredCorrectly[0].id : null;
   return answeredCorrectly.length ? answeredCorrectly[0].id : null;
 }
 
@@ -803,7 +873,12 @@ function computeTiebreakAutoWinner(){
 function computePreGameChecklist(){
   const issues = [];
   const questions = Object.values(questionBank);
-  const invalid = questions.filter(q=>!q.options || q.options.length<4 || q.options.some(o=>!o || !String(o).trim()) || typeof q.correctIndex!=='number' || q.correctIndex<0 || q.correctIndex>3);
+  // Vero/Falso ha 2 opzioni, non 4; Top Dieci ha 10 voci in classifica e nessuna opzione fissa.
+  const invalid = questions.filter(q=>{
+    if(q.answerType==='top10') return !isValidTop10(q);
+    const needed = q.answerType==='vero_falso' ? 2 : 4;
+    return !q.options || q.options.length<needed || q.options.some(o=>!o || !String(o).trim()) || typeof q.correctIndex!=='number' || q.correctIndex<0 || q.correctIndex>=q.options.length;
+  });
   if(invalid.length) issues.push({type:'invalid', detail:`${invalid.length} domande senza risposta corretta valida o con opzioni vuote`});
 
   // Confronta testo+opzioni, non il solo testo: alcune domande riusano
@@ -868,7 +943,7 @@ function computeFinalStats(){
         const ans = answersByTeam[id] && answersByTeam[id][key];
         if(!ans) return;
         answeredCount++;
-        if(ans.optionIndex===q.correctIndex){
+        if(isAnswerCorrect(q, ans)){
           correctCount++;
           correctTsById[id] = ans.ts;
           if(minTs===null || ans.ts<minTs) minTs = ans.ts;
@@ -886,8 +961,8 @@ function computeFinalStats(){
     });
   });
 
-  const podium = ids.map(id=>({id, name:teams[id].name, score:totalScore(id)}))
-    .sort((a,b)=>b.score-a.score).slice(0,3);
+  const podium = standingsRanking().filter(r=>ids.includes(r.id)).slice(0,3)
+    .map(r=>({id:r.id, name:teams[r.id].name, score:r.score}));
 
   const accuracy = totalAnswered>0 ? Math.round((totalCorrect/totalAnswered)*100) : null;
 
@@ -908,7 +983,7 @@ function computeFinalStats(){
   let bestComeback=null;
   if(state.finalists && state.finalists.length){
     const qualRanked = ids.map(id=>({id, score:qualificationScore(id)})).sort((a,b)=>b.score-a.score);
-    const finalRanked = ids.map(id=>({id, score:totalScore(id)})).sort((a,b)=>b.score-a.score);
+    const finalRanked = standingsRanking().filter(r=>ids.includes(r.id));
     const qualRank = {}; qualRanked.forEach((r,i)=>{ qualRank[r.id]=i+1; });
     const finalRank = {}; finalRanked.forEach((r,i)=>{ finalRank[r.id]=i+1; });
     state.finalists.filter(id=>ids.includes(id)).forEach(id=>{
@@ -1034,24 +1109,44 @@ function drawRandomPartyCard(excludeId){
    preferendo sempre quelle usate da più tempo (o mai usate). Se il mazzo ha
    meno domande di quelle richieste, restituisce solo quelle disponibili
    invece di ripeterne qualcuna nella stessa partita. */
+function shuffle(arr){
+  const a = [...arr];
+  for(let i=a.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+// Stesso criterio della checklist pre-partita: testo + opzioni, non il solo testo.
+function questionDuplicateKey(q){
+  return (q.question||'').trim().toLowerCase() + '|' + (q.options||[]).map(o=>(o||'').trim().toLowerCase()).join('|') + '|' + ((q.top10 && q.top10.title)||'').trim().toLowerCase();
+}
 function drawQuestionsForGame(pool, count, excludeIds){
   excludeIds = excludeIds || [];
-  const candidates = Object.values(questionBank).filter(q=>q.pool===pool && !excludeIds.includes(q.id));
+  const candidates = Object.values(questionBank).filter(q=>q.pool===pool && !excludeIds.includes(q.id) && questionMatchesGameType(q));
+  // "Blocca domande duplicate": niente due domande uguali nella stessa partita,
+  // neanche se nel mazzo sono salvate due volte o tra manche e finale.
+  const blockDuplicates = !(state && state.config && state.config.blockDuplicateQuestions===false);
+  const usedKeys = new Set();
+  if(blockDuplicates && gameQuestions){
+    const already = [...Object.values(gameQuestions.rounds||{}).flat(), ...(gameQuestions.final||[])];
+    already.forEach(q=>{ if(q) usedKeys.add(questionDuplicateKey(q)); });
+  }
   const byCategory = {};
   candidates.forEach(q=>{ (byCategory[q.category] = byCategory[q.category] || []).push(q); });
   Object.values(byCategory).forEach(arr=> arr.sort((a,b)=> (a.lastUsedAt||0) - (b.lastUsedAt||0)) );
-  const categories = Object.keys(byCategory).sort(()=>Math.random()-0.5);
+  const categories = shuffle(Object.keys(byCategory));
   const picked = [], pickedIds = new Set();
   let progress = true;
   while(picked.length<count && progress){
     progress = false;
     for(const cat of categories){
       if(picked.length>=count) break;
-      const next = byCategory[cat].find(q=>!pickedIds.has(q.id));
-      if(next){ picked.push(next); pickedIds.add(next.id); progress = true; }
+      const next = byCategory[cat].find(q=>!pickedIds.has(q.id) && !(blockDuplicates && usedKeys.has(questionDuplicateKey(q))));
+      if(next){ picked.push(next); pickedIds.add(next.id); usedKeys.add(questionDuplicateKey(next)); progress = true; }
     }
   }
-  return picked.sort(()=>Math.random()-0.5);
+  return shuffle(picked);
 }
 async function markQuestionsUsed(questions){
   if(!questions.length) return;

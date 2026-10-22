@@ -93,6 +93,19 @@ async function safeSet(key, value, shared){
   try{ await db.ref(DB_ROOT + '/' + key).set(value); return true; }
   catch(e){ console.error('storage set failed', key, e); return false; }
 }
+/* Scrive solo i campi indicati dello stato di partita invece di riscriverlo
+   tutto a partire dalla copia locale: due schede admin, o un'azione admin e
+   la chiusura automatica fatta da un telefono, non si cancellano più a vicenda. */
+async function patchState(fields){
+  try{ await db.ref(DB_ROOT + '/' + statePath()).update(fields); return true; }
+  catch(e){ console.error('state update failed', fields, e); return false; }
+}
+// Stessi campi, come percorsi per un update() multi-ramo (es. insieme a questionInstances).
+function statePatchPaths(fields){
+  const out = {};
+  Object.keys(fields).forEach(k=>{ out[statePath() + '/' + k] = fields[k] === undefined ? null : fields[k]; });
+  return out;
+}
 async function safeDelete(key, shared){
   try{ await db.ref(DB_ROOT + '/' + key).remove(); }catch(e){}
 }
