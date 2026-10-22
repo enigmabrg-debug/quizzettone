@@ -524,6 +524,9 @@ function renderTeam(){
       </div>
       ${renderRulesCard()}`;
   }
+  else if((s.phase==='question' || s.phase==='closed') && isTop10(getQuestion(s.round, s.qIndex))){
+    body = renderTop10Play(s.round, s.qIndex, 'team');
+  }
   else if(s.phase==='question' && !inTiebreak){
     body = (s.round==='final' && isEliminated) ? renderSpectatorFinal(s) : renderTeamQuestion(s.round, s.qIndex, true);
   }
@@ -628,6 +631,7 @@ function renderTeam(){
     ${renderPartyRevealCards()}
   `;
   attachTeamOptionHandlers();
+  attachTop10Handlers();
   const readyBtn = document.getElementById('btnTeamReady');
   if(readyBtn) readyBtn.onclick = ()=> teamSetReady(!(teams[teamId] && teams[teamId].ready));
   const exitLink = document.getElementById('lnkExit');
@@ -650,36 +654,38 @@ function brandName(){
 function renderRulesCard(){
   const cfg = state && state.config;
   if(!cfg) return '';
-  const t = cfg.gameType || 'quiz';
   const sc = cfg.scoring || DEFAULT_SCORING;
   const perRound = (cfg.questionsPerRound||[])[0] || 0;
   const carry = {reset:'si riparte da zero', keep:'si tengono i punti delle manche', convert:'i punti delle manche diventano un bonus'}[cfg.scoreCarryover] || '';
-  const general = [
-    `${cfg.rounds} manche da ${perRound} domande, ${Math.round((cfg.questionDurationMs||0)/1000)} secondi per rispondere.`,
-    `Risposta giusta +${sc.correct}, sbagliata ${sc.wrong}, non data ${sc.noAnswer}.`,
-    cfg.speedBonus && cfg.speedBonus.enabled ? `Bonus velocità: fino a +${cfg.speedBonus.maxBonus} a chi risponde giusto nei primi ${Math.round(cfg.speedBonus.windowMs/1000)} secondi.` : '',
-    cfg.finalistCount < 100 ? `In finale le prime ${cfg.finalistCount}${carry ? ' ('+carry+')' : ''}; le altre squadre guardano la finale.` : `Nessuna eliminazione: tutte le squadre giocano la finale.`,
-    `Una risposta inviata non si cambia più.`
-  ].filter(Boolean);
-  let top10Html = '';
-  if(t==='topdieci' || t==='misto'){
-    const t10 = top10Scoring();
-    const base = sc.correct || 1;
-    top10Html = `<div class="stack top10-rules">
-    <div class="eyebrow">🔟 Come si gioca a Top Dieci</div>
-    <p class="muted">Ogni domanda nasce da una classifica di 10 voci. Tre modi di giocarla:</p>
-    <ul style="margin:0;padding-left:18px;text-align:left;">
-      <li><b>${TOP10_VARIANT_LABELS.primo}</b> — tra 4 voci scegliete quella più in alto: ${base} pt.</li>
-      <li><b>${TOP10_VARIANT_LABELS.posizione}</b> — una voce, indovinate il posto: ${base*t10.positionExact} pt esatto, ${base*t10.positionNear} pt se sbagliate di uno.</li>
-      <li><b>${TOP10_VARIANT_LABELS.ordina}</b> — mettete 4 voci in ordine: ${base*t10.orderPerItem} pt per ogni voce al posto giusto, +${base*t10.orderPerfectBonus} se è tutto giusto.</li>
-    </ul>
-    <p class="muted" style="font-size:12px;">Dopo ogni domanda la classifica completa si svela dal 10° al 1° posto.</p>
-  </div>`;
+  const finalLine = cfg.finalistCount < 100
+    ? `In finale le prime ${cfg.finalistCount}${carry ? ' ('+carry+')' : ''}; le altre squadre guardano la finale.`
+    : `Nessuna eliminazione: tutte le squadre giocano la finale.`;
+  let lines, title = '📜 Regole della serata', extraClass = '';
+  if(cfg.gameType==='topdieci'){
+    const t10 = {...DEFAULT_TOP10_CONFIG, ...(cfg.top10||{})};
+    const m = sc.correct || 1;
+    title = '🔟 Come si gioca a Top Dieci'; extraClass = 'top10-rules';
+    lines = [
+      `Ogni classifica ha 10 voci nascoste. Si gioca a turno: quando tocca a voi avete ${t10.turnSeconds} secondi per scrivere una voce.`,
+      `Voce giusta: tanti punti quanto è in basso, ${m===1 ? '10° posto = 10 punti, 1° posto = 1 punto' : 'posizione × '+m+' (10° = '+(10*m)+' punti)'}. La voce compare sul tabellone di tutti, con il suo dato.`,
+      `Voce sbagliata o tempo scaduto: il turno passa${sc.wrong ? ' ('+sc.wrong+' punti)' : ''}. Se la voce è già sul tabellone potete riprovare.`,
+      `Piccoli errori di battitura, maiuscole e accenti non contano.`,
+      t10.maxLaps ? `Si gioca finché la classifica è completa o per ${t10.maxLaps} giri; poi si svelano le voci mancanti.` : `Si gioca finché la classifica è completa.`,
+      `A ogni classifica parte la squadra successiva.`,
+      `${cfg.rounds} manche da ${perRound} ${perRound===1 ? 'classifica' : 'classifiche'}. ${finalLine}`
+    ];
+  } else {
+    lines = [
+      `${cfg.rounds} manche da ${perRound} domande, ${Math.round((cfg.questionDurationMs||0)/1000)} secondi per rispondere.`,
+      `Risposta giusta +${sc.correct}, sbagliata ${sc.wrong}, non data ${sc.noAnswer}.`,
+      cfg.speedBonus && cfg.speedBonus.enabled ? `Bonus velocità: fino a +${cfg.speedBonus.maxBonus} a chi risponde giusto nei primi ${Math.round(cfg.speedBonus.windowMs/1000)} secondi.` : '',
+      finalLine,
+      `Una risposta inviata non si cambia più.`
+    ].filter(Boolean);
   }
-  return `<div class="card stack rules-card">
-    <div class="eyebrow">📜 Regole della serata</div>
-    <ul style="margin:0;padding-left:18px;text-align:left;">${general.map(l=>`<li>${escapeHtml(l)}</li>`).join('')}</ul>
-    ${top10Html}
+  return `<div class="card stack rules-card ${extraClass}">
+    <div class="eyebrow">${title}</div>
+    <ul style="margin:0;padding-left:18px;text-align:left;">${lines.map(l=>`<li>${escapeHtml(l)}</li>`).join('')}</ul>
   </div>`;
 }
 
@@ -694,101 +700,225 @@ function renderTiebreakWaitCard(s){
 /* Testo di una risposta data e della risposta corretta, per tutte le tipologie. */
 function answerText(q, ans){
   if(!q || !ans) return '—';
-  if(q.answerType==='top10') return top10AnswerText(q, ans);
   return letter(ans.optionIndex)+') '+(q.options ? q.options[ans.optionIndex] : '');
 }
 function correctAnswerText(q){
   if(!q) return '';
-  if(q.answerType==='top10') return top10CorrectText(q);
   return letter(q.correctIndex)+') '+q.options[q.correctIndex];
 }
 
-/* ================== TOP DIECI (vista) ================== */
-function isTop10(q){ return !!(q && q.answerType==='top10' && q.top10 && q.top10Variant); }
+/* ================== TOP DIECI (vista) ==================
+   Tabellone condiviso da squadre e Display: le voci compaiono, con il dato e
+   la squadra che le ha trovate, man mano che arrivano le risposte giuste; a
+   classifica chiusa il presentatore svela quelle rimaste. */
+function isTop10(q){ return !!(q && q.answerType==='top10' && q.top10); }
 function top10Title(q){ return (q.top10 && q.top10.title) || q.question; }
-function top10AnswerText(q, ans){
-  if(q.top10Variant==='ordina'){
-    const order = Array.isArray(ans.order) ? ans.order : [];
-    return order.map((o,i)=>(i+1)+'. '+(q.options[o]!=null ? q.options[o] : '?')).join(' · ');
-  }
-  if(q.top10Variant==='posizione') return q.options[ans.optionIndex] || '?';
-  return letter(ans.optionIndex)+') '+(q.options[ans.optionIndex] || '');
+function top10RoundLabel(round, idx){
+  const n = getList(round).length;
+  if(round==='final') return 'FINALE' + (n>1 ? ' · classifica '+(idx+1)+'/'+n : '');
+  if(round==='tiebreak') return 'SPAREGGIO';
+  return 'MANCHE '+round + (n>1 ? ' · classifica '+(idx+1)+'/'+n : '');
 }
-function top10CorrectText(q){
-  if(q.top10Variant==='ordina') return (q.correctOrder||[]).map((o,i)=>(i+1)+'. '+q.options[o]).join(' · ');
-  if(q.top10Variant==='posizione') return q.options[q.correctIndex];
-  return letter(q.correctIndex)+') '+q.options[q.correctIndex];
-}
-function top10RevealCount(round, idx){
-  const r = state.top10Reveal;
-  return (r && r.key===qkey(round, idx)) ? (r.count||0) : 0;
-}
-/* Tabellone 1-10. Le voci si svelano dal 10° al 1° posto (top10Reveal);
-   con la soluzione svelata compaiono subito le voci in gioco nella domanda.
-   full=true (solo regia) mostra sempre tutto. */
-function renderTop10Board(q, round, idx, full){
-  const items = q.top10.items || [];
-  const inPlay = q.top10Shown || [];
-  const count = full ? 10 : top10RevealCount(round, idx);
-  const rows = items.map((it,i)=>{
-    const isInPlay = inPlay.includes(i);
-    const revealed = full || i >= 10-count || (isInPlay && state.solutionRevealed);
-    const latest = !full && count>0 && i===10-count;
-    return `<div class="top10-row ${isInPlay?'in-play':''} ${revealed?'revealed':''} ${latest?'latest':''}">
-      <span class="top10-pos">${i+1}</span><span class="top10-item">${revealed ? escapeHtml(it) : '? ? ?'}</span>
-    </div>`;
-  }).join('');
-  return `<div class="top10-board" data-top10-board>${rows}</div>`;
-}
-function renderTop10Header(q){
-  return `<div class="top10-head">
-    <div class="eyebrow">🔟 Top Dieci · ${escapeHtml(TOP10_VARIANT_LABELS[q.top10Variant] || '')}</div>
-    <div class="top10-title">${escapeHtml(top10Title(q))}</div>
+function top10StatusLine(b){
+  if(!b) return '';
+  if(state.phase==='closed' && b.status!=='done') return `<div class="status-banner">Classifica annullata dal presentatore</div>`;
+  const lap = top10Lap(b), laps = b.order.length ? Math.ceil((b.maxTurns||0)/b.order.length) : 0;
+  const lapText = laps ? `Giro ${Math.min(lap, laps)}/${laps}` : `Giro ${lap}`;
+  if(b.status==='ready') return `<div class="status-banner">In attesa del via. Ordine dei turni: ${b.order.map(teamNameHtml).join(' → ')}</div>`;
+  if(b.status==='done') return `<div class="status-banner">Classifica chiusa · ${top10FoundCount(b)}/10 trovate</div>`;
+  const cur = top10CurrentTeam(b);
+  return `<div class="top10-turn">
+    <div id="timerSlot">${circleTimer(top10TurnRemaining(b), b.turnMs)}</div>
+    <div class="stack" style="gap:4px;">
+      <div class="eyebrow">${lapText}${b.status==='paused' ? ' · ⏸ in pausa' : ''}</div>
+      <div class="top10-turn-name">${role==='team' && cur===teamId ? 'Tocca a voi!' : 'Tocca a '+teamNameHtml(cur)}</div>
+    </div>
   </div>`;
 }
-// Ordine in costruzione sul telefono, prima dell'invio (solo locale).
-let top10Draft = {key:null, order:[]};
-function top10DraftFor(key){
-  if(top10Draft.key!==key) top10Draft = {key, order:[]};
-  return top10Draft;
+function top10LogText(q, e){
+  const items = top10Items(q);
+  const who = teamNameHtml(e.t);
+  const said = e.a ? ' «'+escapeHtml(e.a)+'»' : '';
+  if(e.r==='ok') return `${who}:${said} ✓ ${escapeHtml(items[e.i] ? items[e.i].name : '')} (${e.i+1}°)`;
+  if(e.r==='dup') return `${who}:${said} è già in classifica`;
+  if(e.r==='timeout') return `${who}: tempo scaduto`;
+  if(e.r==='skip') return `${who}: turno passato`;
+  return `${who}:${said} ✗ non è in classifica`;
 }
-function renderTop10Options(q, key, myAnswer, disabled, showCorrectness, readOnly){
-  if(q.top10Variant==='posizione'){
-    return `<div class="options top10-positions">${q.options.map((opt,i)=>{
-      let cls = 'opt';
-      if(myAnswer && myAnswer.optionIndex===i) cls += ' selected';
-      if(showCorrectness){
-        if(i===q.correctIndex) cls += ' correct';
-        else if(Math.abs(i-q.correctIndex)===1) cls += ' near';
-        else if(myAnswer && myAnswer.optionIndex===i) cls += ' wrong';
-      }
-      return `<button class="${cls}" data-idx="${i}" ${disabled?'disabled':''}>${escapeHtml(opt)}</button>`;
-    }).join('')}</div>`;
-  }
-  if(q.top10Variant==='ordina'){
-    const placedOrder = myAnswer && Array.isArray(myAnswer.order) ? myAnswer.order : (readOnly ? [] : top10DraftFor(key).order);
-    const slots = q.options.map((_,pos)=>{
-      const o = placedOrder[pos];
-      let cls = 'top10-slot';
-      let mark = '';
-      if(o!=null && showCorrectness){
-        const ok = q.correctOrder && q.correctOrder[pos]===o;
-        cls += ok ? ' correct' : ' wrong';
-        mark = ok ? ' ✓' : ' ✗ ('+(q.top10Shown[o]+1)+'°)';
-      }
-      return `<div class="${cls}"><span class="top10-pos">${pos+1}</span><span>${o!=null ? escapeHtml(q.options[o]) : '—'}${mark}</span></div>`;
-    }).join('');
-    const remaining = q.options.map((opt,i)=>i).filter(i=>!placedOrder.includes(i));
-    const picks = (myAnswer || readOnly) ? '' : `<div class="options">${remaining.map(i=>
-      `<button class="opt" data-order-idx="${i}" ${disabled?'disabled':''}><span class="letter">+</span><span>${escapeHtml(q.options[i])}</span></button>`).join('')}</div>`;
-    const actions = (myAnswer || readOnly) ? '' : `<div class="row">
-      <button class="btn ghost small" id="btnTop10Reset" ${disabled || !placedOrder.length ? 'disabled' : ''}>↺ Ricomincia</button>
-      <button class="btn" id="btnTop10Submit" ${disabled || placedOrder.length<q.options.length ? 'disabled' : ''}>Invia ordine</button>
+function renderTop10Board(q, b, full){
+  const items = top10Items(q);
+  // Solo l'ultima voce scoperta si anima: le altre restano ferme ai re-render.
+  const last = b && b.log.length ? b.log[b.log.length-1] : null;
+  const latest = last && last.r==='ok' ? last.i : null;
+  return `<div class="top10-board" data-top10-board>${items.map((it,i)=>{
+    const f = b ? top10FoundAt(b.found, i) : null;
+    const revealed = full || !!f || !!(b && b.revealed['i'+i]);
+    const cls = (f ? 'found' : revealed ? 'revealed' : '') + (i===latest ? ' latest' : '');
+    return `<div class="top10-row ${cls}">
+      <span class="top10-pos">${i+1}</span>
+      <span class="top10-item">${revealed ? escapeHtml(it.name) : '? ? ?'}${revealed && it.value ? `<span class="top10-value">${escapeHtml(it.value)}</span>` : ''}</span>
+      ${f ? `<span class="top10-by">${teamNameHtml(f.t)}</span>` : (revealed && b && b.status==='done' && !full ? '<span class="top10-by missed">non trovata</span>' : '')}
     </div>`;
-    const readOnlyList = (readOnly && !myAnswer) ? `<div class="options">${q.options.map((opt,i)=>`<div class="opt" style="cursor:default;"><span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span></div>`).join('')}</div>` : '';
-    return `${readOnlyList}${readOnly && !myAnswer ? '' : `<div class="top10-slots">${slots}</div>`}${picks}${actions}`;
+  }).join('')}</div>`;
+}
+function renderTop10Scores(round, idx, b){
+  if(!b || !b.order.length) return '';
+  const cur = b.status==='playing' || b.status==='paused' ? top10CurrentTeam(b) : null;
+  return `<div class="top10-scores">${b.order.map(id=>`<span class="pill ${id===cur?'gold':''}">${teamNameHtml(id)} · ${teamPointsForQuestion(id, round, idx)} pt</span>`).join('')}</div>`;
+}
+// Testo che la squadra di turno sta scrivendo: sopravvive ai re-render.
+let top10Typed = {key:null, text:''};
+let top10Pending = false;
+let top10MyFeedback = null; // {key, turn, text, ok}
+function renderTop10Play(round, idx, viewer){
+  const q = getQuestion(round, idx);
+  const b = top10Board(round, idx);
+  const key = qkey(round, idx);
+  if(!q || !b) return '<div class="card center">Un attimo...</div>';
+  const myTurn = viewer==='team' && state.phase==='question' && b.status==='playing' && top10CurrentTeam(b)===teamId;
+  if(top10Typed.key!==key) top10Typed = {key, text:''};
+  const last = b.log.length ? b.log[b.log.length-1] : null;
+  let input = '';
+  if(myTurn){
+    const fb = top10MyFeedback && top10MyFeedback.key===key && top10MyFeedback.turn===b.turn ? top10MyFeedback : null;
+    input = `<form class="top10-answer" id="top10Form" autocomplete="off">
+      <input type="text" id="top10Answer" maxlength="80" placeholder="Scrivete una voce della classifica" value="${escapeHtml(top10Typed.text)}" ${top10Pending?'disabled':''} autocapitalize="sentences" spellcheck="false">
+      <button class="btn" id="btnTop10Send" type="submit" ${top10Pending?'disabled':''}>Invia</button>
+    </form>
+    ${fb ? `<div class="status-banner">${escapeHtml(fb.text)}</div>` : ''}`;
+  } else if(viewer==='team' && b.status!=='done' && !b.order.includes(teamId)){
+    input = `<div class="status-banner">${round==='final' ? 'Seguite la finale: giocano le finaliste.' : round==='tiebreak' ? 'Seguite lo spareggio.' : 'Entrerete in gioco dalla prossima classifica.'}</div>`;
   }
-  return null; // 'primo': opzioni standard
+  return `<div class="card stack top10-card">
+    <div class="qmeta">
+      <span class="pill gold">${escapeHtml(top10RoundLabel(round, idx))}</span>
+      <span class="pill">${escapeHtml(q.category)}</span>
+    </div>
+    <div class="eyebrow">🔟 Top Dieci</div>
+    <div class="top10-title">${escapeHtml(top10Title(q))}</div>
+    ${top10StatusLine(b)}
+    ${input}
+    ${last ? `<div class="top10-last ${last.r}">${top10LogText(q, last)}</div>` : ''}
+    ${renderTop10Board(q, b, false)}
+    ${renderTop10Scores(round, idx, b)}
+  </div>`;
+}
+/* Regia Top Dieci: classifica completa (solo admin), comandi del turno,
+   cronologia delle risposte con le correzioni manuali. */
+function renderTop10Admin(round, idx){
+  const q = getQuestion(round, idx);
+  const b = top10Board(round, idx);
+  if(!b) return `<div class="card stack"><h3>Tabellone non trovato</h3><p class="muted">Usa "Annulla domanda" o "Reset partita".</p></div>`;
+  const items = top10Items(q);
+  const missing = items.map((it,i)=>({it,i})).filter(x=>!top10FoundAt(b.found, x.i));
+  const hidden = missing.filter(x=>!b.revealed['i'+x.i]).sort((x,y)=>y.i-x.i); // si svelano dal basso
+  let controls = '';
+  if(state.phase==='closed' && b.status!=='done') controls = `<span class="pill">Classifica annullata</span><button class="btn" id="btnNext">Avanti</button>`;
+  else if(b.status==='ready') controls = `<button class="btn" id="btnTop10Start">▶ Inizia (parte ${teamNameHtml(b.order[0])})</button>`;
+  else if(b.status==='playing' || b.status==='paused') controls = `
+    ${b.status==='playing' ? '<button class="btn secondary small" id="btnTop10Pause">⏸ Pausa</button>' : '<button class="btn small" id="btnTop10Resume">▶ Riprendi</button>'}
+    <button class="btn ghost small" id="btnTop10Skip">⏭ Passa il turno</button>
+    <button class="btn ghost small" id="btnTop10End">■ Chiudi classifica</button>`;
+  else controls = `
+    ${hidden.length ? `<button class="btn secondary" id="btnTop10RevealNext">Svela il ${hidden[0].i+1}° posto</button><button class="btn ghost small" id="btnTop10RevealAll">Svela tutte (${hidden.length})</button>` : ''}
+    <button class="btn" id="btnNext">${round==='tiebreak' ? 'Verifica risultato spareggio' : 'Avanti'}</button>`;
+  const log = b.log.map((e,i)=>({e,i})).reverse();
+  const unfoundOptions = missing.map(x=>`<option value="${x.i}">${x.i+1}° ${escapeHtml(x.it.name)}</option>`).join('');
+  const logHtml = log.map(({e,i})=>{
+    let fix = '';
+    if(e.r==='wrong' && missing.length) fix = `<select id="top10AcceptSel_${i}">${unfoundOptions}</select><button class="btn ghost small" data-top10-accept="${i}">✓ Era giusta</button>`;
+    if(e.r==='ok') fix = `<button class="btn ghost small" data-top10-reject="${i}">✗ Annulla</button>`;
+    return `<div class="top10-log-row ${e.r}"><span class="muted">G${b.order.length ? Math.floor(e.turn/b.order.length)+1 : 1}</span><span style="flex:1;">${top10LogText(q, e)}${e.manual ? ' <span class="pill">corretta a mano</span>' : ''}</span>${fix}</div>`;
+  }).join('');
+  const sc = scoringFor(round, idx);
+  const nextQ = (round==='tiebreak') ? null : getQuestion(round, idx+1);
+  return `
+    <div class="card stack">
+      <div class="qmeta">
+        <span class="pill gold">${escapeHtml(top10RoundLabel(round, idx))}</span>
+        <span class="pill">${escapeHtml(q.category)}</span>
+        <span class="pill">${top10FoundCount(b)}/10 trovate</span>
+      </div>
+      <div class="top10-title">${escapeHtml(top10Title(q))}</div>
+      ${q.adminNote ? `<p class="note">${escapeHtml(q.adminNote)}</p>` : ''}
+      ${top10StatusLine(b)}
+      <div class="row">${controls}</div>
+      ${b.status!=='done' && state.phase==='question' ? '<button class="btn ghost small" id="btnCancelQuestion">Annulla classifica (nessun punto)</button>' : ''}
+      <div class="eyebrow">Classifica completa · solo tu la vedi</div>
+      <div class="top10-board admin">${items.map((it,i)=>{
+        const f = top10FoundAt(b.found, i);
+        return `<div class="top10-row ${f ? 'found' : b.revealed['i'+i] ? 'revealed' : 'pending'}">
+          <span class="top10-pos">${i+1}</span>
+          <span class="top10-item">${escapeHtml(it.name)}${it.value ? `<span class="top10-value">${escapeHtml(it.value)}</span>` : ''}${it.alts.length ? `<span class="top10-alts">anche: ${it.alts.map(escapeHtml).join(', ')}</span>` : ''}</span>
+          ${f ? `<span class="top10-by">${teamNameHtml(f.t)}</span>` : b.revealed['i'+i] ? '<span class="top10-by missed">svelata</span>' : ''}
+        </div>`;
+      }).join('')}</div>
+      <div class="divider"></div>
+      <div class="eyebrow">Punteggio di questa classifica</div>
+      <div class="row">
+        <label class="stack">Punti × posizione<input type="text" inputmode="numeric" id="qsCorrect" value="${sc.correct}"></label>
+        <label class="stack">Errore / tempo scaduto<input type="text" inputmode="numeric" id="qsWrong" value="${sc.wrong}"></label>
+        <input type="hidden" id="qsNoAnswer" value="${sc.noAnswer}">
+      </div>
+      <button class="btn ghost small" id="btnApplyQuestionScoring">Applica solo a questa classifica</button>
+    </div>
+    <div class="card stack">
+      <h3>Risposte</h3>
+      ${logHtml || '<p class="muted">Ancora nessuna risposta.</p>'}
+    </div>
+    ${nextQ ? `<div class="card stack" style="opacity:.8;"><div class="eyebrow">Prossima classifica · solo tu la vedi</div><div style="font-weight:600;">🔟 ${escapeHtml(top10Title(nextQ))}</div></div>` : ''}`;
+}
+function renderTop10AdminTable(round, idx){
+  const b = top10Board(round, idx);
+  if(!b) return '';
+  const cur = (b.status==='playing' || b.status==='paused') ? top10CurrentTeam(b) : null;
+  return `
+    <div class="card">
+      <h3>Squadre in gioco</h3>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Squadra</th><th>Trovate</th><th>Punti</th></tr></thead><tbody>
+      ${b.order.map((id,n)=>{
+        const found = Object.keys(b.found).filter(k=>b.found[k] && b.found[k].t===id).length;
+        return `<tr ${id===cur ? 'class="top10-current"' : ''}>
+          <td>${n+1}${id===cur ? ' ▶' : ''}</td>
+          <td><span style="color:${isTeamOnline(id)?'var(--green)':'var(--pink)'};">●</span> ${teamNameHtml(id)}</td>
+          <td>${found}</td>
+          <td>${teamPointsForQuestion(id, round, idx)} <button class="btn ghost small" data-adjust="-1" data-team="${id}">−</button><button class="btn ghost small" data-adjust="1" data-team="${id}">+</button></td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>
+    </div>`;
+}
+let top10FocusTurn = '';
+function attachTop10Handlers(){
+  const form = document.getElementById('top10Form');
+  const input = document.getElementById('top10Answer');
+  if(!form || !input) return;
+  input.oninput = ()=>{ top10Typed.text = input.value; };
+  // Appena tocca a noi il cursore va nella casella; dopo, si mantiene il focus tra un aggiornamento e l'altro.
+  const b = top10Board(state.round, state.qIndex);
+  const turnKey = qkey(state.round, state.qIndex)+'#'+(b ? b.turn : '');
+  if(top10FocusTurn!==turnKey || document.activeElement===document.body){
+    top10FocusTurn = turnKey;
+    input.focus();
+    try{ input.setSelectionRange(input.value.length, input.value.length); }catch(e){}
+  }
+  form.onsubmit = async (e)=>{
+    e.preventDefault();
+    const text = input.value.trim();
+    if(!text || top10Pending) return;
+    const round = state.round, idx = state.qIndex, key = qkey(round, idx);
+    const turn = top10Board(round, idx).turn;
+    top10Pending = true; render();
+    const res = await teamTop10Submit(round, idx, text);
+    top10Pending = false;
+    if(res && res.kind==='dup'){
+      top10MyFeedback = {key, turn, text:'«'+text+'» è già in classifica: provate con un\'altra voce.'};
+    } else {
+      top10MyFeedback = null;
+    }
+    if(res) top10Typed = {key, text:''};
+    render();
+  };
 }
 
 /* Modalità spettatore per le squadre eliminate durante la finale: mostra lo
@@ -867,9 +997,7 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   }
 
   const optsDisabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0 || submitPending || lateForThis;
-  const top10 = isTop10(q);
-  const top10Html = top10 ? renderTop10Options(q, key, myAnswer, optsDisabled, showCorrectness, readOnly || !active) : null;
-  let optionsHtml = top10Html!=null ? '' : q.options.map((opt,i)=>{
+  let optionsHtml = q.options.map((opt,i)=>{
     let cls = 'opt';
     if(myAnswer && myAnswer.optionIndex===i) cls += ' selected';
     if(showCorrectness){
@@ -953,12 +1081,10 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         ${audioStatusPill}
       </div>
       ${active ? `<div class="timer-wrap"><div id="timerSlot">${circleTimer(remaining, state.timer.durationMs)}</div></div>` : ''}
-      ${top10 ? renderTop10Header(q) : ''}
       <div class="qtext">${escapeHtml(q.question)}</div>
       ${questionImageHtml(q)}
-      ${top10Html!=null ? top10Html : `<div class="options">${optionsHtml}</div>`}
+      <div class="options">${optionsHtml}</div>
       ${banner}
-      ${top10 && !active && round!=='tiebreak' ? renderTop10Board(q, round, idx, false) : ''}
     </div>
   `;
 }
@@ -977,30 +1103,6 @@ function attachTeamOptionHandlers(){
       render();
     };
   });
-  // Top Dieci "ordina": si toccano le voci dalla più alta alla più bassa.
-  document.querySelectorAll('[data-order-idx]').forEach(btn=>{
-    btn.onclick = ()=>{
-      if(btn.disabled) return;
-      const draft = top10DraftFor(qkey(state.round, state.qIndex));
-      const i = parseInt(btn.getAttribute('data-order-idx'));
-      if(!draft.order.includes(i)) draft.order.push(i);
-      render();
-    };
-  });
-  const resetBtn = document.getElementById('btnTop10Reset');
-  if(resetBtn) resetBtn.onclick = ()=>{ top10DraftFor(qkey(state.round, state.qIndex)).order = []; render(); };
-  const submitBtn = document.getElementById('btnTop10Submit');
-  if(submitBtn) submitBtn.onclick = async ()=>{
-    if(submitBtn.disabled) return;
-    const round = state.round, qIdx = state.qIndex;
-    const key = qkey(round, qIdx);
-    const order = [...top10DraftFor(key).order];
-    pendingSubmitKey = key;
-    render();
-    await teamSubmitAnswer(round, qIdx, {order});
-    if(pendingSubmitKey === key) pendingSubmitKey = null;
-    render();
-  };
 }
 
 function renderProvisionalStandings(round){
@@ -1043,6 +1145,9 @@ function renderDisplay(){
         <div class="row" style="flex-wrap:wrap;justify-content:center;">${teamIds.map(id=>`<div class="team-tag">🎮 ${escapeHtml(teams[id].name)}${teams[id].ready?' ✓':''}</div>`).join('')}</div>
       </div>
       ${renderRulesCard()}`;
+  }
+  else if((s.phase==='question' || s.phase==='closed') && isTop10(getQuestion(s.round, s.qIndex))){
+    body = renderTop10Play(s.round, s.qIndex, 'display');
   }
   else if(s.phase==='question' && !inTiebreak){
     body = renderTeamQuestion(s.round, s.qIndex, true, false, true);
@@ -1150,10 +1255,10 @@ const BUILTIN_CONFIG_PRESETS = [
   {id:'classica', label:'Serata classica', values:{rounds:2, questionsPerRound:15, finalistCount:2, finalQuestionCount:10, scoreCarryover:'reset'}},
   {id:'rapida', label:'Partita rapida', values:{rounds:1, questionsPerRound:10, finalistCount:2, finalQuestionCount:5, scoreCarryover:'reset'}},
   {id:'tutti_contro_tutti', label:'Tutti contro tutti', values:{rounds:2, questionsPerRound:15, finalistCount:999, finalQuestionCount:10, scoreCarryover:'keep'}},
-  // Le classifiche del mazzo sono poche: manche brevi, finale a 3 domande.
-  {id:'topdieci', label:'🔟 Top Dieci', values:{gameType:'topdieci', gameName:'Top Dieci', rounds:1, questionsPerRound:5, finalistCount:2, finalQuestionCount:3, questionDurationMs:30000, scoreCarryover:'reset'}}
+  // Una classifica per manche (a ogni manche parte la squadra successiva), finale a due sull'ultima classifica.
+  {id:'topdieci', label:'🔟 Top Dieci', values:{gameType:'topdieci', gameName:'Top Dieci', rounds:4, questionsPerRound:1, finalistCount:2, finalQuestionCount:1, scoreCarryover:'keep', top10:{maxLaps:3, turnSeconds:30}}}
 ];
-const GAME_TYPE_LABELS = {quiz:'Quiz classico', topdieci:'Top Dieci (solo classifiche)', misto:'Misto (quiz + classifiche)'};
+const GAME_TYPE_LABELS = {quiz:'Quiz classico', topdieci:'Top Dieci (classifiche a turno)'};
 /* Scrive i valori di un preset (built-in o salvato) direttamente sui campi
    del form, senza un render() completo: stesso principio già usato per
    btnToggleAdvancedSetup, per non perdere altre modifiche non ancora
@@ -1163,7 +1268,7 @@ function applyPresetValuesToForm(values){
   const byId = id=>document.getElementById(id);
   const hasAdvanced = values.scoreCarryover || (values.tiebreakRule && values.tiebreakRule.final) ||
     values.answerVisibilityForEliminated || values.blockDuplicateQuestions!=null || values.speedBonus ||
-    ('finalScoring' in values) || values.scoringProfile || values.top10Scoring;
+    ('finalScoring' in values) || values.scoringProfile;
   if(hasAdvanced && !showAdvancedSetup){
     showAdvancedSetup = true;
     byId('salaAdvancedSection').style.display = 'flex';
@@ -1211,11 +1316,9 @@ function applyPresetValuesToForm(values){
       byId('setupFinalScoringNoAnswer').value = values.finalScoring.noAnswer;
     }
   }
-  if(values.top10Scoring){
-    byId('setupTop10PositionExact').value = values.top10Scoring.positionExact;
-    byId('setupTop10PositionNear').value = values.top10Scoring.positionNear;
-    byId('setupTop10OrderPerItem').value = values.top10Scoring.orderPerItem;
-    byId('setupTop10OrderPerfect').value = values.top10Scoring.orderPerfectBonus;
+  if(values.top10){
+    byId('setupTop10MaxLaps').value = values.top10.maxLaps;
+    byId('setupTop10TurnSeconds').value = values.top10.turnSeconds;
   }
   if(values.gameType) byId('setupGameType').value = values.gameType;
   if(values.gameName) byId('setupGameName').value = values.gameName;
@@ -1238,6 +1341,10 @@ function collectSetupPatchFromForm(includeAdvancedAlways){
   const perRound = intVal('setupQuestionsPerRound') || 1;
   const patch = {
     gameType: byId('setupGameType').value,
+    top10: {
+      maxLaps: Math.max(0, intVal('setupTop10MaxLaps') || 0),
+      turnSeconds: Math.max(5, intVal('setupTop10TurnSeconds') || 30)
+    },
     rounds,
     questionsPerRound: Array(rounds).fill(perRound),
     finalistCount: intVal('setupFinalistCount') || 1,
@@ -1268,12 +1375,6 @@ function collectSetupPatchFromForm(includeAdvancedAlways){
       enabled: byId('setupSpeedBonusEnabled').checked,
       maxBonus: intVal('setupSpeedBonusMax') || 0,
       windowMs: (intVal('setupSpeedBonusWindow') || 0) * 1000
-    };
-    patch.top10Scoring = {
-      positionExact: intVal('setupTop10PositionExact') || 0,
-      positionNear: intVal('setupTop10PositionNear') || 0,
-      orderPerItem: intVal('setupTop10OrderPerItem') || 0,
-      orderPerfectBonus: intVal('setupTop10OrderPerfect') || 0
     };
   }
   return patch;
@@ -1321,7 +1422,7 @@ function showStartSummaryModal(cfg, onConfirm){
   const carryoverLabels = {reset:'azzerati', keep:'mantenuti', convert:'convertiti'};
   const profileLabels = {classico:'Classico', dinamico:'Dinamico (bonus per ordine, penalità a fasce, bonus rimonta)', personalizzato:'Personalizzato'};
   const lines = [
-    `Gioco: ${GAME_TYPE_LABELS[cfg.gameType||'quiz']||cfg.gameType}`,
+    `Gioco: ${GAME_TYPE_LABELS[cfg.gameType||'quiz']||cfg.gameType}` + (cfg.gameType==='topdieci' ? ` (${cfg.top10.maxLaps ? cfg.top10.maxLaps+' giri' : 'giri illimitati'}, ${cfg.top10.turnSeconds}s per turno)` : ''),
     `${cfg.rounds} manche di qualificazione da ${cfg.questionsPerRound[0]||0} domande`,
     `Finale: ${cfg.finalistCount} finalisti, ${cfg.finalQuestionCount} domande`,
     `Punteggio: corretta +${cfg.scoring.correct}, sbagliata ${cfg.scoring.wrong}, non data ${cfg.scoring.noAnswer} (profilo: ${profileLabels[cfg.scoringProfile]||cfg.scoringProfile||'Classico'})`,
@@ -1390,6 +1491,10 @@ function renderSalaPrePartita(s, cfg){
       <label class="stack">Nome partita<input type="text" id="setupGameName" value="${escapeHtml(s.gameName)}" ${s.setupLocked?'disabled':''}></label>
       <label class="stack">Tipo di gioco<select id="setupGameType" ${s.setupLocked?'disabled':''}>${Object.keys(GAME_TYPE_LABELS).map(v=>`<option value="${v}" ${v===(cfg.gameType||'quiz')?'selected':''}>${GAME_TYPE_LABELS[v]}</option>`).join('')}</select></label>
       <div class="row">
+        <label class="stack">Top Dieci: giri per classifica (0 = finché non è completa)<input type="text" inputmode="numeric" id="setupTop10MaxLaps" value="${cfg.top10.maxLaps}" ${s.setupLocked?'disabled':''}></label>
+        <label class="stack">Top Dieci: secondi per turno<input type="text" inputmode="numeric" id="setupTop10TurnSeconds" value="${cfg.top10.turnSeconds}" ${s.setupLocked?'disabled':''}></label>
+      </div>
+      <div class="row">
         <label class="stack">Manche di qualificazione<input type="text" inputmode="numeric" id="setupRounds" value="${cfg.rounds}" ${s.setupLocked?'disabled':''}></label>
         <label class="stack">Domande per manche<input type="text" inputmode="numeric" id="setupQuestionsPerRound" value="${questionsPerRound}" ${s.setupLocked?'disabled':''}></label>
       </div>
@@ -1439,16 +1544,6 @@ function renderSalaPrePartita(s, cfg){
           <label class="stack">Bonus massimo (punti)<input type="text" inputmode="numeric" id="setupSpeedBonusMax" value="${cfg.speedBonus.maxBonus}" ${s.setupLocked?'disabled':''}></label>
           <label class="stack">Finestra bonus (secondi)<input type="text" inputmode="numeric" id="setupSpeedBonusWindow" value="${Math.round(cfg.speedBonus.windowMs/1000)}" ${s.setupLocked?'disabled':''}></label>
         </div>
-        <div class="eyebrow">Top Dieci · moltiplicatori dei "punti corretta"</div>
-        <div class="row">
-          <label class="stack">Posizione esatta ×<input type="text" inputmode="numeric" id="setupTop10PositionExact" value="${cfg.top10Scoring.positionExact}" ${s.setupLocked?'disabled':''}></label>
-          <label class="stack">Posizione a ±1 ×<input type="text" inputmode="numeric" id="setupTop10PositionNear" value="${cfg.top10Scoring.positionNear}" ${s.setupLocked?'disabled':''}></label>
-        </div>
-        <div class="row">
-          <label class="stack">Ordina: per voce giusta ×<input type="text" inputmode="numeric" id="setupTop10OrderPerItem" value="${cfg.top10Scoring.orderPerItem}" ${s.setupLocked?'disabled':''}></label>
-          <label class="stack">Ordina: bonus ordine perfetto ×<input type="text" inputmode="numeric" id="setupTop10OrderPerfect" value="${cfg.top10Scoring.orderPerfectBonus}" ${s.setupLocked?'disabled':''}></label>
-        </div>
-        <p class="muted" style="font-size:12px;">"Chi è il primo?" vale come una domanda normale. Con i valori di default e "corretta" a 1: posizione esatta 3 punti, sbagliata di uno 1 punto; ordine perfetto 4+2 = 6 punti.</p>
       </div>
 
       ${s.setupLocked?'':'<button class="btn" id="btnSaveSetup">Salva impostazioni</button>'}
@@ -1611,6 +1706,10 @@ function renderAdmin(){
       <p class="muted">Non ci sono domande disponibili per questo punto della partita. Usa "Reset partita" qui sotto per ripartire da zero.</p>
     </div>`;
   }
+  else if((s.phase==='question' || s.phase==='closed') && isTop10(getQuestion(s.round, s.qIndex))){
+    controlPanel = renderTop10Admin(s.round, s.qIndex);
+    liveTable = renderTop10AdminTable(s.round, s.qIndex);
+  }
   else if(s.phase==='question' || s.phase==='closed'){
     const round = s.round, idx = s.qIndex;
     const q = getQuestion(round, idx);
@@ -1652,22 +1751,13 @@ function renderAdmin(){
           ${paused?`<button class="btn secondary small" id="btnResumeTimer">▶ Riprendi</button>`:''}
           ${!idle?`<button class="btn ghost small" id="btnTimerMinus5">-5s</button><button class="btn ghost small" id="btnTimerPlus5">+5s</button>`:''}
         </div>`:''}
-        ${isTop10(q) ? renderTop10Header(q) : ''}
         <div class="qtext">${escapeHtml(q.question)}</div>
         ${questionImageHtml(q)}
-        ${isTop10(q) && q.top10Variant!=='primo' ? `<p class="note">Risposta corretta: <b>${escapeHtml(correctAnswerText(q))}</b></p>` : `<div class="options">
+        <div class="options">
           ${q.options.map((opt,i)=>`<div class="opt ${i===q.correctIndex?'correct':''}" style="cursor:default;">
             <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>${i===q.correctIndex?' ✓':''}
           </div>`).join('')}
-        </div>`}
-        ${isTop10(q) && round!=='tiebreak' ? `
-          <div class="eyebrow">Classifica completa · solo tu la vedi (in oro le voci in gioco)</div>
-          ${renderTop10Board(q, round, idx, true)}
-          ${closed ? `<div class="row">
-            <button class="btn secondary small" id="btnTop10RevealNext" ${top10RevealCount(round, idx)>=10?'disabled':''}>Svela il ${10-top10RevealCount(round, idx)>0 ? (10-top10RevealCount(round, idx))+'° posto' : 'prossimo'} sul Display</button>
-            <button class="btn ghost small" id="btnTop10RevealAll" ${top10RevealCount(round, idx)>=10?'disabled':''}>Svela tutta la classifica</button>
-            <span class="pill">${top10RevealCount(round, idx)}/10 svelate</span>
-          </div>` : ''}` : ''}
+        </div>
         ${q.adminNote?`<p class="note">Nota: ${escapeHtml(q.adminNote)}</p>`:''}
         ${q.audioUrl?`<div class="row"><button class="btn secondary small" id="btnReplayAudio">▶ Riproduci audio</button></div>`:''}
         <div class="divider"></div>
@@ -1708,8 +1798,7 @@ function renderAdmin(){
       controlPanel += `
         <div class="card stack" style="opacity:.8;">
           <div class="eyebrow">Prossima domanda · solo tu la vedi</div>
-          <div class="qmeta"><span class="pill">${escapeHtml(nextQ.category)}</span>${nextQ.imageUrl?'<span class="pill">📷 immagine</span>':''}${isTop10(nextQ)?`<span class="pill gold">🔟 ${escapeHtml(TOP10_VARIANT_LABELS[nextQ.top10Variant])}</span>`:''}</div>
-          ${isTop10(nextQ)?`<div style="font-weight:600;">${escapeHtml(top10Title(nextQ))}</div>`:''}
+          <div class="qmeta"><span class="pill">${escapeHtml(nextQ.category)}</span>${nextQ.imageUrl?'<span class="pill">📷 immagine</span>':''}</div>
           <div class="qtext" style="font-size:16px;">${escapeHtml(nextQ.question)}</div>
         </div>`;
     }
@@ -1779,7 +1868,7 @@ function renderAdmin(){
         <p class="muted">Pari merito tra: ${s.tiebreak.candidates.map(id=>teamNameHtml(id)).join(', ')}</p>
         <p class="muted">Scegli una domanda dal pool finale da usare come spareggio:</p>
         <div class="stack">
-          ${(s.tiebreak.candidateQuestions||[]).map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. [${escapeHtml(q.category)}] ${isTop10(q) ? '🔟 '+escapeHtml(top10Title(q).slice(0,40))+' · '+escapeHtml(TOP10_VARIANT_LABELS[q.top10Variant]) : escapeHtml(q.question.slice(0,50))+'...'}</button>`).join('') || '<p class="muted">Nessuna domanda disponibile nel pool finale.</p>'}
+          ${(s.tiebreak.candidateQuestions||[]).map((q,i)=>`<button class="btn secondary small" data-tb-q="${i}">${i+1}. [${escapeHtml(q.category)}] ${isTop10(q) ? '🔟 '+escapeHtml(top10Title(q)) : escapeHtml(q.question.slice(0,50))+'...'}</button>`).join('') || '<p class="muted">Nessuna domanda disponibile nel pool finale.</p>'}
         </div>
       </div>`;
   }
@@ -1791,7 +1880,7 @@ function renderAdmin(){
       <div class="card stack">
         <h3>Risultato spareggio</h3>
         <p class="qtext">${escapeHtml(q.question)}</p>
-        <p class="muted">Corretta: ${escapeHtml(correctAnswerText(withQuestionDefaults(q)))}</p>
+        ${q.answerType==='top10' ? '' : `<p class="muted">Corretta: ${escapeHtml(correctAnswerText(withQuestionDefaults(q)))}</p>`}
         ${!tb.forFinal ? `<p class="muted">Posti in finale ancora da assegnare: ${Math.max(0, ((s.config && s.config.finalistCount)||2) - (tb.qualifiedSoFar||[]).length)}${(tb.qualifiedSoFar||[]).length ? ' · già in finale: '+(tb.qualifiedSoFar||[]).map(teamNameHtml).join(', ') : ''}</p>` : ''}
         ${autoWinnerId ? `<p class="muted">Il sistema suggerisce <b>${teamNameHtml(autoWinnerId)}</b> in base alla regola di spareggio scelta: conferma o scegli un'altra squadra.</p>` : ''}
         <div class="stack">
@@ -1799,8 +1888,11 @@ function renderAdmin(){
             const ans = answersByTeam[id] && answersByTeam[id][qkey('tiebreak', 0)];
             const correct = ans && isAnswerCorrect(withQuestionDefaults(q), ans);
             const suggested = autoWinnerId===id;
+            const outcome = q.answerType==='top10'
+              ? teamPointsForQuestion(id, 'tiebreak', 0)+' punti sul tabellone'
+              : (ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta');
             return `<div class="row" style="align-items:center;">
-              <div>${teamNameHtml(id)} — ${ans ? (correct?'✓ corretta':'✗ sbagliata') : 'nessuna risposta'} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
+              <div>${teamNameHtml(id)} — ${outcome} ${suggested?'<span class="pill gold">Suggerita</span>':''}</div>
               <button class="btn small ${suggested?'':'secondary'}" data-assign-winner="${id}">${assignLabel}</button>
             </div>`;
           }).join('')}
@@ -2130,10 +2222,9 @@ function renderQuestionManager(){
         <div class="row" style="align-items:center;">
           <div style="flex:3;">
             <div style="font-weight:600;">🔟 ${escapeHtml(t.title||q.question)}</div>
-            <div class="muted" style="font-size:12px;">${(t.items||[]).map((it,i)=>(i+1)+'. '+escapeHtml(it)).join(' · ')}</div>
+            <div class="muted" style="font-size:12px;">${top10Items(q).map((it,i)=>(i+1)+'. '+escapeHtml(it.name)+(it.value ? ' ('+escapeHtml(it.value)+')' : '')).join(' · ')}</div>
             <div style="margin-top:4px;">
               <span class="pill" style="font-size:11px;">Top Dieci</span>
-              ${(t.variants||TOP10_VARIANTS).map(v=>`<span class="pill" style="font-size:11px;">${escapeHtml(TOP10_VARIANT_LABELS[v]||v)}</span>`).join('')}
               ${isValidTop10(q) ? '' : '<span class="pill" style="font-size:11px;color:var(--pink);">⚠ incompleta</span>'}
             </div>
           </div>
@@ -2232,7 +2323,7 @@ function renderQuestionManager(){
     </div>
     <div class="card stack">
       <h3>🔟 Aggiungi una classifica Top Dieci</h3>
-      <p class="note">Dieci voci, una per riga, dalla 1ª alla 10ª. A ogni partita il gioco ne ricava una domanda diversa, scegliendo a caso tra le varianti spuntate.</p>
+      <p class="note">Dieci voci, una per riga, dalla 1ª alla 10ª. Su ogni riga: il nome, poi (facoltative) le alternative accettate separate da "/", e dopo "=" il dato da mostrare quando la voce viene scoperta.<br>Esempio: <code>Everest / Monte Everest / Chomolungma = 8.849 m</code></p>
       <div class="row">
         <select id="t10Pool">
           <option value="manche">Manche</option>
@@ -2241,10 +2332,7 @@ function renderQuestionManager(){
         <select id="t10Category">${CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select>
       </div>
       <input type="text" id="t10Title" placeholder="Titolo della classifica (es. Le 10 città più visitate d'Europa)">
-      <textarea id="t10Items" rows="10" placeholder="1ª voce&#10;2ª voce&#10;...&#10;10ª voce"></textarea>
-      <div class="row" style="flex-wrap:wrap;">
-        ${TOP10_VARIANTS.map(v=>`<label class="row" style="align-items:center;"><input type="checkbox" id="t10Var_${v}" checked> ${escapeHtml(TOP10_VARIANT_LABELS[v])}</label>`).join('')}
-      </div>
+      <textarea id="t10Items" rows="10" placeholder="1ª voce / alternativa = dato&#10;2ª voce = dato&#10;...&#10;10ª voce"></textarea>
       <input type="text" id="t10Source" placeholder="Fonte o criterio (facoltativo, es. ISTAT 2023)">
       <button class="btn" id="btnAddTop10">Aggiungi classifica</button>
       <div id="t10AddMsg" class="note"></div>
@@ -2254,7 +2342,7 @@ function renderQuestionManager(){
       <p class="note">Un rigo per domanda, campi separati da "|":<br>
       <code>manche|Musica|Che canzone è?|Sere nere|Ti scatterò una foto|Non me lo so spiegare|Imbranato|2|Tiziano Ferro</code><br>
       L'ottavo campo è la risposta corretta (1=A, 2=B, 3=C, 4=D). Il nono campo (nota) e il decimo campo (URL audio) sono facoltativi.<br>
-      Classifiche Top Dieci: <code>top10|manche|Geografia|Titolo|voce1;voce2;...;voce10|primo,posizione,ordina|fonte</code> (varianti e fonte facoltative).</p>
+      Classifiche Top Dieci: <code>top10|manche|Geografia|Titolo|Everest / Chomolungma = 8.849 m;K2 = 8.611 m;...|fonte</code> (10 voci separate da ";", fonte facoltativa).</p>
       <textarea id="qmBulkText" rows="6" placeholder="Incolla qui le domande, una per riga..."></textarea>
       <button class="btn" id="btnBulkImport">Importa</button>
       <div id="qmBulkMsg" class="note"></div>
@@ -2464,8 +2552,23 @@ function attachAdminHandlers(){
     adminSetScoringDefaults({correct, wrong, noAnswer});
     forgetDirty('scDef');
   };
-  if(byId('btnTop10RevealNext')) byId('btnTop10RevealNext').onclick = ()=>adminRevealTop10(false);
-  if(byId('btnTop10RevealAll')) byId('btnTop10RevealAll').onclick = ()=>adminRevealTop10(true);
+  if(byId('btnTop10Start')) byId('btnTop10Start').onclick = adminTop10Start;
+  if(byId('btnTop10Pause')) byId('btnTop10Pause').onclick = adminTop10Pause;
+  if(byId('btnTop10Resume')) byId('btnTop10Resume').onclick = adminTop10Resume;
+  if(byId('btnTop10Skip')) byId('btnTop10Skip').onclick = adminTop10Skip;
+  if(byId('btnTop10End')) byId('btnTop10End').onclick = ()=> showConfirmModal('Chiudere la classifica adesso? Le voci non trovate si potranno svelare.', 'Chiudi classifica', adminTop10End);
+  if(byId('btnTop10RevealNext')) byId('btnTop10RevealNext').onclick = ()=>adminTop10Reveal(false);
+  if(byId('btnTop10RevealAll')) byId('btnTop10RevealAll').onclick = ()=>adminTop10Reveal(true);
+  document.querySelectorAll('[data-top10-accept]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const logIdx = parseInt(btn.getAttribute('data-top10-accept'), 10);
+      const sel = byId('top10AcceptSel_'+logIdx);
+      if(sel && sel.value!=='') adminTop10Accept(logIdx, parseInt(sel.value, 10));
+    };
+  });
+  document.querySelectorAll('[data-top10-reject]').forEach(btn=>{
+    btn.onclick = ()=> adminTop10Reject(parseInt(btn.getAttribute('data-top10-reject'), 10));
+  });
   if(byId('btnApplyQuestionScoring')) byId('btnApplyQuestionScoring').onclick = ()=>{
     const correct = parseInt(byId('qsCorrect').value, 10) || 0;
     const wrong = parseInt(byId('qsWrong').value, 10) || 0;
@@ -2562,15 +2665,13 @@ function attachAdminHandlers(){
   };
   if(byId('btnAddTop10')) byId('btnAddTop10').onclick = async ()=>{
     const title = byId('t10Title').value.trim();
-    const items = byId('t10Items').value.split('\n').map(s=>s.trim()).filter(Boolean);
-    const variants = TOP10_VARIANTS.filter(v=>byId('t10Var_'+v).checked);
+    const items = byId('t10Items').value.split('\n').map(parseTop10ItemLine).filter(Boolean);
     const msg = byId('t10AddMsg');
     const fail = text=>{ msg.textContent = text; msg.style.color = 'var(--pink)'; };
     if(!title) return fail('Scrivi il titolo della classifica.');
     if(items.length!==10) return fail('Servono esattamente 10 voci, una per riga (ora sono '+items.length+').');
-    if(new Set(items.map(s=>s.toLowerCase())).size!==10) return fail('Ci sono voci ripetute.');
-    if(!variants.length) return fail('Spunta almeno una variante.');
-    await addTop10Question({pool: byId('t10Pool').value, category: byId('t10Category').value, title, items, variants, source: byId('t10Source').value.trim() || null});
+    if(new Set(items.map(it=>normalizeTop10Text(it.name))).size!==10) return fail('Ci sono voci ripetute.');
+    await addTop10Question({pool: byId('t10Pool').value, category: byId('t10Category').value, title, items, source: byId('t10Source').value.trim() || null});
     const freshMsg = byId('t10AddMsg');
     if(freshMsg){ freshMsg.textContent = 'Classifica aggiunta!'; freshMsg.style.color = 'var(--green)'; }
     ['t10Title','t10Items','t10Source'].forEach(id=>{ const el = byId(id); if(el) el.value=''; });

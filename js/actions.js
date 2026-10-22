@@ -41,6 +41,7 @@ function withLeaderboardBandsIfDynamic(gq, round, idx, cfg){
   return applyQuestionInstanceFields(gq, round, idx, {leaderboardBands: bands});
 }
 async function openQuestionWithSnapshot(round, idx, stateFields){
+  stateFields = {...stateFields, ...top10OpenFields(round, idx, getList(round)[idx])};
   const snapshot = computeEffectiveScoringForOpen(round);
   let newGameQuestions = withScoringSnapshotApplied(gameQuestions, round, idx, snapshot);
   const presentedAt = serverNow();
@@ -131,7 +132,8 @@ async function adminStartGame(){
   // PL-11 (item 4): resolvedMode va risolto DA ZERO su questa cfg, non
   // riusato da un'eventuale partita precedente (vedi nota in openQuestionTimer).
   const resolvedMode = resolvePresentationMode(cfg);
-  const timer = openQuestionTimer(cfg.questionDurationMs, cfg, resolvedMode);
+  let timer = openQuestionTimer(cfg.questionDurationMs, cfg, resolvedMode);
+  if(drawn[0] && drawn[0].answerType==='top10') timer = {...timer, status:'idle', startedAt:null};
   // Riparte da defaultState() per azzerare i progressi della partita precedente,
   // ma preserva le regole/impostazioni scelte in lobby (config, nome partita,
   // Modalità Party) e blocca ulteriori modifiche alla configurazione.
@@ -150,6 +152,12 @@ async function adminStartGame(){
     presentation: {resolvedMode, fallbackActive:false},
     audioCue: audioCueForQuestion(drawn[0])
   };
+  // Prima domanda già una classifica Top Dieci: il suo tabellone nasce con la partita.
+  const firstTop10 = top10OpenFields(1, 0, drawn[0], cfg, 0);
+  Object.keys(firstTop10).forEach(k=>{
+    if(k.startsWith('top10Boards/')) s.top10Boards = {[k.slice('top10Boards/'.length)]: firstTop10[k]};
+    else s[k] = firstTop10[k];
+  });
   // state e questionInstances sono rami separati (PL-09): scritti insieme in
   // un solo update() atomico, così non c'è mai un istante in cui l'uno è già
   // aggiornato e l'altro no. La prima domanda (manche 1, indice 0) riceve già
@@ -306,14 +314,6 @@ async function adminAdjustTimer(deltaMs){
   }
   await refresh();
 }
-/* Top Dieci: dopo la chiusura la classifica completa si rivela dal 10° al 1°
-   posto, un gradino alla volta (o tutta insieme). */
-async function adminRevealTop10(all){
-  const key = qkey(state.round, state.qIndex);
-  const current = (state.top10Reveal && state.top10Reveal.key===key) ? state.top10Reveal.count : 0;
-  await patchState({top10Reveal:{key, count: all ? 10 : Math.min(10, current+1)}});
-  await refresh();
-}
 async function adminRevealSolution(){
   await patchState({solutionRevealed:true}); await refresh();
 }
@@ -424,7 +424,8 @@ async function adminStartTiebreakQuestion(qIdx){
   await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx, usedQuestionIds:[...(state.tiebreak.usedQuestionIds||[]), chosen.id]};
   const timer = openQuestionTimer(state.config.questionDurationMs);
-  const s = {round:'tiebreak', qIndex:0, phase:'question', timer, solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen), presentation:{...(state.presentation||{}), fallbackActive:false}};
+  const s = {round:'tiebreak', qIndex:0, phase:'question', timer, solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen), presentation:{...(state.presentation||{}), fallbackActive:false},
+    ...top10OpenFields('tiebreak', 0, chosen)};
   const gqWithTiebreak = {...gameQuestions, tiebreak: chosen};
   // Ogni spareggio usa la chiave risposta 'tiebreak-0': le risposte di uno
   // spareggio precedente (altro posto, qualificazione e poi finale, oltranza)
@@ -499,7 +500,8 @@ async function adminContinueToFinal(){
   const drawn = drawQuestionsForGame('finale', finalQuestionCount);
   await markQuestionsUsed(drawn);
   const timer = openQuestionTimer(state.config.questionDurationMs);
-  const s = {round:'final', qIndex:0, phase:'question', timer, solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0]), presentation:{...(state.presentation||{}), fallbackActive:false}};
+  const s = {round:'final', qIndex:0, phase:'question', timer, solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0]), presentation:{...(state.presentation||{}), fallbackActive:false},
+    ...top10OpenFields('final', 0, drawn[0])};
   const gqWithFinal = {...gameQuestions, final:drawn};
   const snapshot = computeEffectiveScoringForOpen('final');
   const presentedAt = serverNow();
@@ -649,10 +651,10 @@ async function adminRemoveTestTeams(){
    ma parametrizzata sull'id (il client admin non ha una propria identità
    squadra) e senza il controllo "eliminata in finale", perché le squadre
    prova non arrivano mai in finale nell'uso previsto di questa modalità. */
-async function adminSubmitTestAnswer(id, round, idx, payload){
+async function adminSubmitTestAnswer(id, round, idx, optionIndex){
   const key = qkey(round, idx);
   const ts = serverNow();
-  const answer = {...answerPayload(payload), ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   try{
     await db.ref(DB_ROOT + '/' + answersPath(id)).child(key).transaction(current => current ? undefined : answer);
   } catch(e){ console.error('invio risposta prova fallito', e); }
@@ -674,14 +676,190 @@ async function simulateTestTeamAnswers(){
     if(answersByTeam[id] && answersByTeam[id][key]) { tried.add(id); continue; }
     if(Math.random() > 0.08) continue; // ~8% di probabilità per tick: risposte scaglionate nel tempo, non tutte insieme
     tried.add(id);
-    let payload;
-    if(q.top10Variant==='ordina'){
-      payload = {order: Math.random() < 0.5 ? [...q.correctOrder] : shuffle(q.options.map((_,i)=>i))};
-    } else {
-      payload = Math.random() < 0.7 ? q.correctIndex : Math.floor(Math.random()*q.options.length);
-    }
-    await adminSubmitTestAnswer(id, state.round, state.qIndex, payload);
+    const optionIndex = Math.random() < 0.7 ? q.correctIndex : Math.floor(Math.random()*q.options.length);
+    await adminSubmitTestAnswer(id, state.round, state.qIndex, optionIndex);
   }
+}
+
+/* ================== AZIONI · TOP DIECI ==================
+   Il tabellone di una classifica vive in state/top10Boards/<qkey>. Ogni
+   mossa (risposta, tempo scaduto, comandi del presentatore) è una
+   transazione su quel solo nodo: due telefoni o due schede che agiscono
+   nello stesso istante non possono far saltare o raddoppiare un turno. */
+// Ordine dei turni ruotato di una posizione a ogni classifica: parte sempre una squadra diversa.
+function newTop10Board(round, rotation, cfg){
+  const t10 = {...DEFAULT_TOP10_CONFIG, ...((cfg && cfg.top10)||{})};
+  const base = activeTeamsForRound(round).filter(id=>teams[id])
+    .sort((a,b)=>((teams[a].joinedAt||0)-(teams[b].joinedAt||0)) || a.localeCompare(b));
+  const shift = base.length ? rotation % base.length : 0;
+  const order = [...base.slice(shift), ...base.slice(0, shift)];
+  const maxLaps = Math.max(0, parseInt(t10.maxLaps, 10) || 0);
+  return {order, turn:0, maxTurns: maxLaps ? maxLaps*order.length : 0, turnMs: Math.max(5, parseInt(t10.turnSeconds, 10) || 30)*1000,
+    status:'ready', turnStartedAt:null};
+}
+/* Campi di stato da scrivere insieme all'apertura di una domanda: per una
+   classifica, il tabellone nuovo e un timer di domanda fermo (il tempo è
+   quello del turno, sul tabellone). Vuoto per le domande normali. */
+function top10OpenFields(round, idx, q, cfg, rotation){
+  if(!q || q.answerType!=='top10') return {};
+  cfg = cfg || state.config;
+  rotation = rotation!=null ? rotation : ((state && state.top10Rotation) || 0);
+  const board = newTop10Board(round, rotation, cfg);
+  return {
+    ['top10Boards/'+qkey(round, idx)]: board,
+    top10Rotation: round==='tiebreak' ? rotation : rotation+1,
+    timer: {status:'idle', startedAt:null, durationMs:board.turnMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
+  };
+}
+function top10Advance(b){
+  b.turn += 1;
+  b.turnStartedAt = serverNow();
+  if(top10FoundCount(b)>=10 || (b.maxTurns && b.turn>=b.maxTurns)) b.status = 'done';
+  return b;
+}
+async function top10Transaction(key, fn){
+  let committed = false, board = null;
+  try{
+    const res = await db.ref(DB_ROOT + '/' + statePath() + '/top10Boards/' + key).transaction(cur=>{
+      if(!cur) return cur;
+      const out = fn(top10BoardDefaults(cur));
+      return out===undefined ? undefined : out;
+    });
+    committed = res.committed;
+    board = res.snapshot && res.snapshot.val();
+  } catch(e){
+    console.error('mossa Top Dieci non riuscita', e);
+    showErrorBanner('Mossa non registrata: controlla la connessione e riprova.');
+    return false;
+  }
+  if(committed && board && board.status==='done') await top10ClosePhase(key);
+  await refresh();
+  return committed;
+}
+// Classifica finita: la domanda passa a 'closed' (una sola volta, da chiunque se ne accorga).
+let top10CloseTried = '';
+async function top10ClosePhase(key){
+  if(!state || qkey(state.round, state.qIndex)!==key || top10CloseTried===(state.gameId||'')+key) return;
+  top10CloseTried = (state.gameId||'')+key;
+  await db.ref(DB_ROOT + '/' + statePath()).transaction(cur=>{
+    if(!cur || cur.phase!=='question' || qkey(cur.round, cur.qIndex)!==key) return;
+    return {...cur, phase:'closed', timer:{...(cur.timer||{}), status:'closed', closeReason:'top10_done', closedBy:'auto'}};
+  });
+}
+/* Risposta scritta della squadra di turno. Ritorna l'esito ({kind, index})
+   o null se non era il suo turno. asTeam: solo per le squadre di prova. */
+async function teamTop10Submit(round, idx, text, asTeam){
+  const id = asTeam || teamId;
+  const q = getQuestion(round, idx);
+  if(!q || !String(text||'').trim() || state.phase!=='question') return null;
+  let outcome = null;
+  const ok = await top10Transaction(qkey(round, idx), b=>{
+    outcome = null;
+    if(b.status!=='playing' || top10CurrentTeam(b)!==id) return;
+    const res = matchTop10Answer(q, b.found, text);
+    const entry = {t:id, a:String(text).trim().slice(0,80), r:res.kind, turn:b.turn, at:serverNow()};
+    if(res.index!=null) entry.i = res.index;
+    b.log = [...b.log, entry];
+    outcome = res;
+    // Voce già scoperta: si riprova, il turno (e il tempo) restano quelli.
+    if(res.kind==='dup') return b;
+    if(res.kind==='ok') b.found = {...b.found, ['i'+res.index]: {t:id, turn:b.turn}};
+    return top10Advance(b);
+  });
+  return ok ? outcome : null;
+}
+// Tempo del turno scaduto, o squadra di turno rimossa dalla partita.
+let top10TimeoutTried = '';
+async function top10TurnTimeout(key, turnSeen){
+  if(top10TimeoutTried===key+'#'+turnSeen) return;
+  top10TimeoutTried = key+'#'+turnSeen;
+  await top10Transaction(key, b=>{
+    if(b.status!=='playing' || b.turn!==turnSeen) return;
+    const cur = top10CurrentTeam(b);
+    if(top10TurnRemaining(b)>0 && teams[cur]) return;
+    b.log = [...b.log, {t:cur, r:'timeout', turn:b.turn, at:serverNow()}];
+    return top10Advance(b);
+  });
+}
+function currentTop10Key(){ return qkey(state.round, state.qIndex); }
+async function adminTop10Start(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='ready') return;
+    if(!b.order.length){ b.status = 'done'; return b; }
+    return {...b, status:'playing', turnStartedAt:serverNow()};
+  });
+}
+async function adminTop10Pause(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='playing') return;
+    return {...b, status:'paused', pausedRemainingMs: top10TurnRemaining(b)};
+  });
+}
+async function adminTop10Resume(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='paused') return;
+    return {...b, status:'playing', turnStartedAt: serverNow() - (b.turnMs - (b.pausedRemainingMs||0)), pausedRemainingMs:null};
+  });
+}
+// Il presentatore passa il turno (squadra assente o bloccata): nessun malus.
+async function adminTop10Skip(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='playing' && b.status!=='paused') return;
+    b.log = [...b.log, {t:top10CurrentTeam(b), r:'skip', turn:b.turn, at:serverNow()}];
+    b.status = 'playing'; b.pausedRemainingMs = null;
+    return top10Advance(b);
+  });
+}
+async function adminTop10End(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status==='done') return;
+    return {...b, status:'done'};
+  });
+}
+/* Correzioni del presentatore: una risposta segnata sbagliata era giusta
+   (refuso non riconosciuto) o viceversa. Il turno non cambia; i punti si
+   ricalcolano dal tabellone. */
+async function adminTop10Accept(logIndex, itemIndex){
+  await top10Transaction(currentTop10Key(), b=>{
+    const e = b.log[logIndex];
+    if(!e || e.r==='ok' || top10FoundAt(b.found, itemIndex)) return;
+    b.log = b.log.map((x,i)=> i===logIndex ? {...x, r:'ok', i:itemIndex, manual:true} : x);
+    b.found = {...b.found, ['i'+itemIndex]: {t:e.t, turn:e.turn}};
+    if(top10FoundCount(b)>=10) b.status = 'done';
+    return b;
+  });
+}
+async function adminTop10Reject(logIndex){
+  await top10Transaction(currentTop10Key(), b=>{
+    const e = b.log[logIndex];
+    if(!e || e.r!=='ok') return;
+    b.log = b.log.map((x,i)=> i===logIndex ? {...x, r:'wrong', manual:true} : x);
+    b.found = {...b.found, ['i'+e.i]: null};
+    return b;
+  });
+}
+// Classifica chiusa: le voci non trovate si svelano dalla più bassa alla più alta, o tutte insieme.
+async function adminTop10Reveal(all){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='done') return;
+    const hidden = [9,8,7,6,5,4,3,2,1,0].filter(i=>!top10FoundAt(b.found, i) && !b.revealed['i'+i]);
+    if(!hidden.length) return;
+    const next = {...b.revealed};
+    (all ? hidden : hidden.slice(0,1)).forEach(i=>{ next['i'+i] = true; });
+    return {...b, revealed: next};
+  });
+}
+// Modalità prova: le squadre fittizie rispondono da sole quando tocca a loro.
+let top10TestTried = '';
+async function simulateTop10TestTurn(b, q){
+  const cur = top10CurrentTeam(b);
+  if(!cur || !teams[cur] || !teams[cur].isTest) return;
+  const key = currentTop10Key();
+  if(top10TestTried===key+'#'+b.turn || serverNow()-b.turnStartedAt < 1500) return;
+  top10TestTried = key+'#'+b.turn;
+  const missing = top10Items(q).map((it,i)=>({it,i})).filter(x=>!top10FoundAt(b.found, x.i));
+  const text = (missing.length && Math.random()<0.6) ? missing[Math.floor(Math.random()*missing.length)].it.name : 'Non lo so';
+  await teamTop10Submit(state.round, state.qIndex, text, cur);
 }
 
 /* ================== AZIONI ADMIN · RIVINCITA ==================
@@ -1020,12 +1198,6 @@ async function restoreFromUrl(){
    nulla (stesso pattern di closeAnswersTransactional). Ritorna true se, alla
    fine, la risposta risulta salvata (da questa chiamata o da una precedente:
    "già risposto" non è un errore), false solo per un fallimento vero. */
-/* Una risposta è un indice di opzione (domande a scelta, Top Dieci "primo" e
-   "posizione") oppure {order:[...]} (Top Dieci "Ricostruisci la classifica"). */
-function answerPayload(payload){
-  if(payload && typeof payload==='object' && Array.isArray(payload.order)) return {order: payload.order.map(Number)};
-  return {optionIndex: payload};
-}
 async function teamSubmitAnswer(round, idx, optionIndex){
   // Le squadre eliminate sono spettatrici in finale: l'interfaccia non mostra
   // già i pulsanti di risposta (renderSpectatorFinal), ma il controllo va
@@ -1034,7 +1206,7 @@ async function teamSubmitAnswer(round, idx, optionIndex){
   if(!teamEligibleForQuestion(teamId, round, idx)) return true;
   const key = qkey(round, idx);
   const ts = serverNow();
-  const answer = {...answerPayload(optionIndex), ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
   let alreadyAnswered = false;
   let result;
   try{

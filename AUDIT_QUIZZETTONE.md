@@ -4,7 +4,7 @@
 
 ## Stato dopo le correzioni (branch `claude/quizzettone-full-audit-i4x1e8`, PR #4)
 
-Il branch della PR #4 ora parte dalla **PR #3** come base (passo 0 della roadmap). Ci sono state portate le correzioni della vecchia PR #4 e sono stati corretti i finding ancora aperti. Le righe citate più sotto si riferiscono ancora a `main`. Test: **84 e2e + 42 unitari verdi**. Di questi, `tests/e2e/audit-fixes.spec.js` (16 test) fallisce in 14 casi sulla PR #3 originale; `tests/e2e/top10.spec.js` e `tests/unit/top10.spec.js` coprono la nuova modalità.
+Il branch della PR #4 ora parte dalla **PR #3** come base (passo 0 della roadmap). Ci sono state portate le correzioni della vecchia PR #4 e sono stati corretti i finding ancora aperti. Le righe citate più sotto si riferiscono ancora a `main`. Test: **86 e2e + 43 unitari verdi**. Di questi, `tests/e2e/audit-fixes.spec.js` (16 test) fallisce in 14 casi sulla PR #3 originale; `tests/e2e/top10.spec.js` e `tests/unit/top10.spec.js` coprono la nuova modalità.
 
 | # | Stato | Come |
 |---|---|---|
@@ -36,14 +36,26 @@ Il branch della PR #4 ora parte dalla **PR #3** come base (passo 0 della roadmap
 - Il Display mandava un battito ogni 2,5 s sul ramo ascoltato da tutti i client, quindi ridisegnava tutto su ogni dispositivo.
 - Spareggio: se il pool finale era esaurito non c'erano domande. Ora si attinge al pool manche e, in Top Dieci, a una nuova estrazione di una classifica già giocata (`drawTiebreakCandidates`).
 
-**Top Dieci (nuova modalità)**
-- Una classifica di 10 voci diventa a ogni partita una domanda diversa, in una di tre varianti:
-  - *Chi è il primo?*: 4 voci, si sceglie la più alta;
-  - *Indovina la posizione*: griglia 1°-10°, punti pieni se esatto e parziali a ±1;
-  - *Ricostruisci la classifica*: 4 voci da ordinare, punti per ogni voce al posto giusto più un bonus se l'ordine è perfetto.
-- In regia la classifica completa è sempre visibile; sul Display si svela dal 10° al 1° posto.
-- Si gioca dall'hub (`quizzettone.html?gioco=topdieci`, che precarica il preset) oppure scegliendo "Tipo di gioco" nella Sala: Quiz classico, Top Dieci o Misto. Nel gestore domande c'è un modulo per le classifiche ed è supportato anche l'import in blocco (`top10|…`). Sono incluse 8 classifiche di esempio con la fonte.
-- La pipeline di punteggio è la stessa delle altre domande: punti speciali, finale e spareggio funzionano anche in Top Dieci. Alcuni dettagli invece valgono solo qui: il bonus velocità conta solo sulla risposta perfetta, e il profilo "dinamico" non si applica alle domande Top Dieci.
+**Top Dieci (nuova modalità, regolamento fornito il 2026-10-22)**
+- **Si gioca a turno.** La squadra di turno scrive una voce della classifica sul telefono, entro il tempo del turno (30 s di default).
+  - Se la voce è in classifica, compare sul tabellone di tutti (telefoni e Display) con il **dato** (es. "8.849 m") e il nome di chi l'ha trovata.
+  - Il turno poi passa alla squadra successiva, sia con una risposta giusta sia con una sbagliata o con il tempo scaduto. Una voce già scoperta non fa perdere il turno: si riprova.
+- **Punti:** tanti quanti la posizione (10° = 10 punti, 1° = 1 punto), moltiplicati per i "punti corretta". Il valore "sbagliata" è il malus per errore o tempo scaduto (default 0).
+- **Fine della classifica:** quando è completa o dopo il numero di giri scelto (default 3; 0 = senza limite). Le voci mancanti le svela il presentatore, dal basso verso l'alto, con il loro dato.
+- **Rotazione:** a ogni nuova classifica parte la squadra successiva.
+- **Riconoscimento delle risposte:**
+  - maiuscole, accenti, punteggiatura e articoli iniziali non contano;
+  - 1-2 refusi sono tollerati sulle parole lunghe; le risposte corte devono essere esatte;
+  - ogni voce può avere delle alternative, e il cognome da solo vale per i nomi composti.
+  - In regia il presentatore può segnare "era giusta" una risposta respinta, o annullarne una accettata.
+- **Regia:**
+  - classifica completa con dati e alternative;
+  - Inizia, Pausa, Passa il turno, Chiudi classifica, Annulla classifica;
+  - cronologia delle risposte e punti per squadra.
+- **Struttura della partita:** manche, finale tra le prime (su una classifica del pool finale) e spareggi riusano il motore esistente. Lo spareggio si gioca su una classifica tra le sole squadre in parità, e viene suggerita quella con più punti.
+- **Dati:** il tabellone vive in `state/top10Boards/<domanda>`. Ogni mossa è una transazione su quel nodo, quindi due dispositivi non possono far saltare o raddoppiare un turno. Le squadre di prova giocano da sole il loro turno.
+- **Come si avvia:** dall'hub (`quizzettone.html?gioco=topdieci`, preset: 4 manche da 1 classifica, finale a 2 sulla quinta, punti mantenuti) o con "Tipo di gioco" nella Sala.
+- **Mazzo:** nel gestore domande una voce per riga, nel formato `Nome / alternativa = dato`, con lo stesso formato nell'import in blocco. Sono incluse 8 classifiche di esempio con dati e fonte.
 
 ## 0. Perimetro e metodo
 
