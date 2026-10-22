@@ -1,146 +1,234 @@
-# Audit Quizzettone — 2026-08-03
+# Audit Quizzettone — 2026-10-22
 
-> **Nota (2026-10-21):** questo audit descrive il vecchio `index.html` (commit `bc5d3f3`). Il gioco ora vive in `quizzettone.html` + `js/*.js`: lo stato di ogni finding sul codice attuale è riassunto in cima a `PROPOSTE_MIGLIORIE.md`.
+> Audit completo del progetto così com'è oggi. Sostituisce l'audit del 3 agosto, che descriveva il vecchio `index.html` monolitico (si trova ancora nella cronologia git, commit `323d92a`).
 
-> Metodologia: audit condotto leggendo **l'intero codice sorgente** del repository (un solo file tracciato, `index.html`, 1920 righe) riga per riga, più `git log` per la cronologia dei commit. Nessuna assunzione esterna al codice è stata usata per formulare giudizi. Ogni affermazione tecnica riporta `file:riga`.
+## 0. Perimetro e metodo
+
+Il repository oggi contiene **tre versioni** del gioco, e l'audit le copre tutte:
+
+| Versione | Cosa è | Stato |
+|---|---|---|
+| **`main`** (`5589199`) | Versione pubblicata su GitHub Pages: hub `index.html` + `quizzettone.html` + `js/{firebase-init,state,actions,render}.js` | In produzione |
+| **PR #4** (`claude/quizzettone-full-audit-i4x1e8`) | `main` + correzioni dell'audit precedente + 11 test | Aperta, non unita |
+| **PR #3** (`claude/quizzettone-audit-planning-usu3kj`) | `main` + 41 commit: pacchetti PL-01→PL-19 del piano consolidato (sessioni, scoring dinamico, Vero/Falso, foto…) + 64 test | Aperta, non unita. Titolo e descrizione dicono "solo documentazione", ma contiene anche moltissimo codice |
+
+**Come ho verificato.**
+- Ho letto per intero `main`: `quizzettone.html`, `index.html`, i 4 file `js/*.js`, i test, le configurazioni e `Piano_modifiche_Quizzettone.md`. Della PR #3 ho letto le parti rilevanti e il suo `PROGRESS_LOG.md`.
+- Ho eseguito le suite di test sull'emulatore Firebase locale: `main` 26/26 ✅, PR #4 37/37 ✅, PR #3 64/64 ✅.
+- Ho scritto **15 esperimenti** (E1–E7 su `main` e PR #4, P1–P8 sulla PR #3) che riproducono i problemi qui sotto con browser reali.
+- Il sito pubblicato e il database di produzione **non erano raggiungibili** da questa sessione, perché la rete li blocca. Tutto ciò che riguarda la produzione è quindi marcato come da verificare.
+
+Legenda della verifica: **✅ test** = riprodotto con un test · **📖 codice** = certo dalla lettura del codice, che è deterministico · **⚠️ da verificare** = rischio che si può confermare solo a runtime o in console.
 
 ## 1. Executive summary
 
-Quizzettone è un party-game quiz realtime funzionante, interamente contenuto in **un singolo file HTML di ~94KB / 1920 righe** (`index.html`), senza build system, senza `package.json`, senza test, senza CI/CD e senza alcun file di regole Firebase versionato nel repo. L'architettura è "tre viste in un solo file" (Admin / Team / Display) pilotate da un parametro `role` in URL, con Firebase Realtime Database come unica fonte di verità condivisa e Firebase Storage per gli audio.
+Il progetto è cresciuto molto bene da agosto. È diviso in 4 file JS invece di un unico HTML, è configurabile dalla Sala pre-partita e ha presenza, chiusura transazionale delle risposte, undo, modalità prova, statistiche e test automatici sull'emulatore. Anche la PR #3 è di buona qualità: 64 test verdi e un piano seguito pacchetto per pacchetto. Restano però **due bug che bloccano o rompono una serata** e che nessuna delle tre versioni ha corretto, più un problema di processo: due PR aperte che correggono le stesse cose in modo diverso.
 
-**Rischi principali:**
-1. **XSS confermata e sfruttabile dal vivo**: il nome squadra (input libero utente) viene inserito in innerHTML in oltre 15 punti **senza `escapeHtml`**, incluse le schermate del Display pubblico e del pannello Admin (`index.html:847,1345,1420,1469,1488,1499...`).
-2. **Nessuna autenticazione Firebase, in nessuna forma**: non esiste una sola chiamata a `firebase.auth()` nel codice. Chiunque conosca l'URL può leggere/scrivere l'intero database se le regole non sono state configurate manualmente in console (regole non presenti nel repo, quindi non verificabili staticamente).
-3. **Nessuna gestione della disconnessione**: zero occorrenze di `onDisconnect` in tutto il file — non esiste presenza/rilevamento di giocatori offline durante una partita live.
+**Rischi principali**
+1. **Lo stato cresce in modo esponenziale (✅ test, tutte e tre le versioni).** Ogni azione annullabile salva dentro lo stato una copia JSON dello stato precedente, che contiene già la copia di prima. Dopo 12 azioni lo stato passa da 16 KB a **8,4 MB**, e alla 13ª supera il limite di 10 MB per stringa di Firebase. Ogni scrittura fa poi viaggiare MB verso tutti i telefoni (`js/actions.js:27`).
+2. **Il pari al primo posto blocca la partita (✅ test).** `qualifiedSoFar: []` non viene salvato, perché Firebase non conserva gli array vuoti. Il pulsante "Assegna posto finale" va quindi in `TypeError` e il gioco resta fermo su "Risultato spareggio" (`js/actions.js:280`). Su `main` e sulla PR #3 succede già con **due** squadre pari al primo posto; sulla PR #4 con tre o più.
+3. **Sicurezza ancora affidata alla fiducia.** Non c'è nessuna autenticazione, le regole Firebase non sono versionate (PL-04 "saltato" nella PR #3) e, su `main`, i nomi squadra sono ancora soggetti a XSS (corretto in entrambe le PR). Un upload di prova sullo Storage ha ricevuto **"Quota for bucket exceeded"**: probabile blocco del piano gratuito.
 
-**Punti di forza:**
-1. Logica di punteggio centralizzata in un'unica pipeline di funzioni pure (`scoringFor` → `pointsForAnswer` → `teamPointsForQuestion` → `roundScore` → `totalScore`, `index.html:395-421`), usata coerentemente da Admin e Team senza duplicazioni.
-2. Un solo listener realtime (`db.ref(DB_ROOT).on('value', ...)`, `index.html:356`) sostituisce correttamente un precedente polling, con teardown pulito (`stopListening`, `index.html:382-387`).
-3. Meccanica di spareggio per l'accesso in finale (pareggi in classifica) ragionevolmente sofisticata e gestita esplicitamente (`adminRevealFinalists`, `index.html:605-628`).
+**Punti di forza**
+1. La pipeline di punteggio è unica e coerente: `scoringFor → pointsForAnswer → teamPointsForQuestion → roundScore → totalScore` (`js/state.js:285-335`).
+2. La chiusura delle risposte è una transazione idempotente eseguibile da qualunque client (`js/actions.js:104-116`), e la presenza è gestita con `onDisconnect` riarmato a ogni riconnessione (`js/state.js:213-239`).
+3. Esiste una vera infrastruttura di test (Playwright + emulatore, con il parametro `?emulator=1` che non tocca la produzione) e la PR #3 la estende con costanza.
 
 ## 2. Audit tecnico
 
 ### 2.1 Architettura
 
-- **Un solo file per tutto**: markup, CSS, dati delle domande di default, logica Firebase, state machine di gioco e tre viste complete (Admin/Team/Display) vivono in `index.html`. Non esistono cartelle `src/`, `public/`, `components/`, non esiste bundler. Confermato da `git ls-files` (un solo file tracciato) e da `find` sull'intero working tree.
-- **Nessuna pagina fisica separata per Admin/Display**: sono funzioni di render (`renderAdmin` `index.html:1331`, `renderDisplay` `index.html:1228`, `renderTeam` `index.html:1023`) scelte a runtime in base al parametro `role` nell'URL (`restoreFromUrl`, `index.html:769-810`). Non ci sono file `admin.html` / `display.html` distinti nonostante l'audit dovesse verificarne l'esistenza reale: **non esistono come file**, solo come "viste" JS.
-- **Duplicazione di codice tra Team e Display confermata**: i blocchi HTML per le fasi `checkpoint`, `tiebreak_setup`, `tiebreak_closed` sono letteralmente copiati e incollati tra `renderTeam` (`index.html:1068-1098`) e `renderDisplay` (`index.html:1264-1293`) — stesso markup, stesse stringhe, nessuna funzione condivisa (a differenza di `renderTeamQuestion`, `renderProvisionalStandings`, `renderEndRound1Standings`, `rankRows`, che invece **sono** correttamente condivise). Questo è debito tecnico concreto: ogni modifica di quei testi va fatta in due punti, con rischio di disallineamento futuro.
-- **Separazione UI/logica/dati**: nel complesso accettabile per un file unico — le funzioni "azioni admin" (prefisso `admin*`, `index.html:524-709`) sono ragionevolmente isolate dalle funzioni di render, e lo storage è centralizzato in `safeGet/safeSet/safeDelete/safeList` (`index.html:294-314`). Non c'è però alcuna separazione a livello di file/modulo: tutto condivide lo stesso scope globale (variabili `state`, `teams`, `role`, ecc. sono globali mutabili, `index.html:317-336`).
+- **Struttura.** Ci sono due pagine statiche. `index.html` è l'hub "Enigma Games", con la card Quizzettone e due card "Coming Soon" (Top Dieci, ???) (`index.html:141-162`). `quizzettone.html` contiene CSS e boot e carica, in ordine, `firebase-init.js`, `state.js`, `actions.js` e `render.js` come script classici con scope globale condiviso (`quizzettone.html:226-235`). Non c'è nessun bundler, ed è una scelta adatta a un progetto hobbistico.
+- **Separazione delle responsabilità.** È buona, considerato che non ci sono moduli:
+  - `firebase-init.js`: configurazione e accesso al database;
+  - `state.js`: stato locale, listener, punteggi, statistiche e pesca delle domande;
+  - `actions.js`: le scritture;
+  - `render.js`: HTML e gestori degli eventi.
+
+  Il debito tecnico sta nello stato **globale mutabile** condiviso da tutti i file (`js/state.js:66-96`) e nel render "a stringhe", dove `innerHTML` ricostruisce l'intera pagina a ogni evento (`js/render.js:437`, `:1217`).
+- **Duplicazione.** I blocchi checkpoint/spareggio di Squadra e Display sono ancora copiati (`js/render.js:359-392` contro `:627-660`). Il CSS dei token è duplicato tra `index.html:10-22` e `quizzettone.html:26-38`.
+- **Tre versioni divergenti (📖).** PR #3 e PR #4 toccano gli stessi file (`actions.js`, `render.js`, `state.js`, `firebase-init.js`) per risolvere gli stessi problemi in modo diverso: XSS, schermata di avvio, invio atomico, ora del server, limite audio, errori di scrittura. **Unirle entrambe produrrà conflitti estesi.** Serve una scelta (vedi §5).
 
 ### 2.2 Firebase (dati, regole, sicurezza)
 
-- **Config Firebase hardcoded nel client** (`index.html:272-280`): normale per web app Firebase (le chiavi client-side non sono segrete), **ma la sicurezza dipende interamente dalle regole del Realtime Database**, che **non sono presenti nel repository** (nessun `database.rules.json`, mai esistito nella storia git). Non è quindi possibile verificare staticamente se sono troppo permissive: **è un rischio potenziale da verificare a runtime/in console Firebase**, non un bug confermato nel codice.
-- **Nessuna autenticazione, nemmeno anonima — confermato per assenza**: ho cercato `firebase.auth()` in tutto il file, zero occorrenze. L'unico import script è `firebase-app-compat.js`, `firebase-database-compat.js`, `firebase-storage-compat.js` (`index.html:11-13`) — **manca `firebase-auth-compat.js`**. Questo contraddice la premessa della richiesta di audit ("l'autenticazione è anonima"): nel codice attuale **non c'è alcuna autenticazione**, anonima o altro. Di conseguenza, se le regole DB richiedessero `auth != null` l'app non funzionerebbe affatto; è quindi plausibile (ma non verificabile dal codice) che le regole in console siano impostate a lettura/scrittura pubblica totale.
-- **Struttura dati**: un unico nodo padre `quizzettone` (`DB_ROOT`, `index.html:284`) con chiavi "a prefisso" invece di sotto-nodi annidati: `teaminfo:<id>`, `answers:<id>`, `overrides:<id>`, `question:<id>`, `effect:<id>`, più `state` e `scoringDefaults` come chiavi singole (parsing lato client in `startListening`, `index.html:356-375`). È una struttura **piatta e denormalizzata di fatto per convenzione di naming**, non per gerarchia reale — funziona ma è un pattern insolito per RTDB (normalmente si userebbero nodi figli reali `teams/`, `answers/`, ecc.); ogni lettura scarica **l'intero albero `quizzettone`** con `.on('value', ...)` (`index.html:356`), incluse tutte le domande della banca dati, tutti gli effetti sonori e tutte le risposte di tutte le squadre — non c'è query mirata (`.orderByChild`, `.limitToLast`, ecc.). Con banche dati grandi (centinaia di domande + audio URL) questo aumenta il payload di ogni singolo aggiornamento realtime per **tutti** i client connessi, Team compresi, che non hanno bisogno della banca domande completa.
-- **Race condition reali, non ipotetiche**:
-  - `teamSubmitAnswer` (`index.html:811-818`) fa un **read-then-write non atomico** (`safeGet` poi `safeSet`, non una `transaction()`): se lo stesso team invia due tap quasi simultanei (doppio tocco su schermo, connessione lenta), entrambe le letture possono avvenire prima che la prima scrittura si propaghi, producendo un secondo `set` che sovrascrive silenziosamente la prima risposta. Il controllo anti-doppio-invio (`if(current[key]) return;`, riga 814) protegge solo se la prima scrittura è già visibile al momento della seconda lettura — non è garantito. **Nessuna `firebase.database().ref().transaction()` è usata in tutto il file** (confermato per assenza, grep su `transaction(`).
-  - `findTeamByName` + `teamJoin` (`index.html:712-734`): due dispositivi che scrivono lo stesso nome squadra nello stesso istante possono entrambi non trovare un team esistente ed entrambi creare un `teaminfo:` separato con lo stesso nome → due squadre "gemelle" con ID diversi, nessun vincolo di unicità lato server.
-  - `adminAdjustPoints` (`index.html:560-566`): stesso pattern read-then-write sull'override punti; due click ravvicinati sul bottone +/- (anche dallo stesso admin, per doppio-tap) possono race, anche se il rischio pratico è basso trattandosi di un solo operatore admin.
-- **Gestione disconnessione: assente**. Zero occorrenze di `onDisconnect` in tutto il codice (verificato via ricerca testuale sull'intero file). Non c'è alcun meccanismo di presenza (`.info/connected` è usato **solo** per mostrare un banner "connessione persa" al client stesso, `index.html:376-379,856-859`, non per notificare gli altri client). Una squadra che si disconnette a metà partita resta "in attesa" o "nessuna risposta" agli occhi dell'Admin per sempre, senza alcun indicatore di stato offline.
+- **Regole e autenticazione (⚠️ da verificare).** Non c'è nessuna chiamata `firebase.auth()` e manca un file di regole (`firebase.json` contiene solo l'emulatore). Il piano stesso (§2.4) accetta per ora l'assenza di auth, ma chiede di **verificare ed esportare subito** le regole (FT-02). La PR #3 l'ha esplicitamente saltato (PL-04). Con la chiave pubblica e le regole aperte, chiunque abbia l'URL può svuotare `quizzettone/`.
+- **Storage (⚠️ da verificare).** L'upload di prova verso `quizzettone-49543.firebasestorage.app` ha risposto `storage/quota-exceeded`, mentre la lettura risponde 403. È compatibile con il blocco di Cloud Storage sul piano gratuito Spark. Le domande audio e gli effetti potrebbero non caricarsi più.
+- **Modello dati.**
+  - Su `main` resta il nodo piatto con chiavi a prefisso (`teaminfo:`, `answers:`, `question:`…), e tutto lo stato di partita, configurazione compresa, sta in un unico oggetto `state` (`js/state.js:98-149`).
+  - La PR #3 introduce i rami `sessions/current/{state,teams,answers,scoreLedger,presence,questionInstances}`, `questionBank/` e `soundEffects/` (PR #3 `js/firebase-init.js:34-47`), come chiede il piano (§2.2, FT-09). La migrazione è un unico `update()` atomico eseguito dal primo admin che apre il pannello (PR #3 `js/state.js:410-440`).
+  - **Rischio della migrazione (⚠️):** un telefono con ancora aperta la versione vecchia continua a scrivere sulle chiavi piatte. Dopo la migrazione quelle scritture vengono ignorate per sempre, perché `migrationAttempted` e il controllo "già migrato" impediscono una seconda passata.
+- **Scritture "a stato intero" (✅ test E5/P7, tutte e tre).** Quasi tutte le azioni admin scrivono `safeSet('state', {...state, campo})`, cioè riscrivono **tutto** lo stato partendo dalla copia locale (ad esempio `js/actions.js:203`, `:221`, `:312`). Due dispositivi admin che agiscono insieme si annullano a vicenda: nel test, "Mostra classifica" di una scheda viene cancellato dal cambio checkpoint dell'altra. Allo stesso modo, una scrittura admin può annullare per un istante la chiusura transazionale fatta da un telefono, che il tick successivo ripristina.
+- **Undo che cresce senza limite (✅ test E1/P3, tutte e tre).** `withUndo` salva `beforeJson: JSON.stringify(state)` (`js/actions.js:27`). `state` contiene già `history.last.beforeJson` dell'azione precedente, quindi ogni livello reinserisce il precedente con gli escape raddoppiati. Misure con 10 squadre e 2 manche da 15 domande, una dopo ogni cambio di modalità del checkpoint: **16 KB → 27 → 42 → 65 → 104 → 176 → 313 → 580 KB → 1,1 → 2,2 → 4,2 → 8,4 MB**. La catena si azzera solo con undo, correzione punti o rimozione squadra, cioè quando l'undo riguarda un percorso diverso da `state`. Le azioni che la allungano sono:
+  - cambio modalità del checkpoint (`:220-222`);
+  - annullamento domanda (`:128-134`);
+  - **ogni fascia rivelata della classifica animata** (`:334-344`): una sola rivelazione con 10 squadre aggiunge fino a 10 livelli.
+
+  Sulla PR #3 lo stato di partenza è più piccolo (3,9 KB, perché le domande sono fuori da `state`), ma il fattore ×1,9 per passo è lo stesso: 1,9 MB a 12 azioni.
+- **Presenza.** È implementata bene (`js/state.js:230-245`). Manca solo "ultimo contatto" (FT-07). Le squadre di prova risultano sempre offline perché non hanno una presenza.
+- **Ora del server.** Su `main` timer, chiusura a scadenza, bonus velocità, suggerimento dello spareggio e cue audio usano l'orologio di **ogni** dispositivo (`js/render.js:12`, `js/actions.js:9,112`). Un telefono con l'orologio avanti di 30 s **chiude la domanda per tutti** appena aperta: l'ho verificato con un test, che falliva su `main`. È corretto sia nella PR #4 sia nella PR #3 (PL-11).
 
 ### 2.3 Qualità del codice
 
-- **Gestione errori parziale e senza fallback utente**: `safeGet/safeSet/safeDelete` (`index.html:294-314`) catturano le eccezioni e loggano solo su `console.error`/silenziosamente (`safeDelete`, riga 306, ha un `catch(e){}` vuoto). **Nessuno dei 45 call-site che usano `await safeSet(...)`/`safeGet(...)`/`safeDelete(...)` controlla il valore di ritorno** (verificato per assenza di pattern `if(!...safeSet` in tutto il file): se una scrittura fallisce (rete assente, regole che negano l'operazione), il codice chiamante procede comunque come se fosse andata a buon fine — es. `teamJoin` (`index.html:720-734`) imposta `joined = true` anche se `safeSet('teaminfo:'+teamId, ...)` a riga 728 fallisce silenziosamente.
-- **Bug confermato — schermata bianca senza feedback in attesa del primo snapshot**: `render()` (`index.html:1015-1020`) fa semplicemente `if(!state) return;`. Se il primo `.on('value', ...)` non arriva mai (regole che negano la lettura, rete morta all'avvio), l'utente resta con `#app` vuoto **senza alcuno spinner, messaggio di caricamento o errore** — indistinguibile da un'app rotta, particolarmente critico durante un evento live con ospiti che non sanno diagnosticare il problema.
-- **Bug confermato — testo del checkpoint non sincronizzato con la logica reale**: sia in `renderTeam` (`index.html:1075`) sia in `renderDisplay` (`index.html:1271`) il messaggio del checkpoint di metà manche mostra `${cp.round===1?8:8}` — un'espressione ternaria che restituisce sempre `8` a prescindere dal branch, quindi di fatto testo **hardcoded**, mentre la logica reale che decide quando scattare il checkpoint usa `Math.ceil(list.length/2)` (`adminNextQuestion`, `index.html:572`) sul numero effettivo di domande pescate. Se il mazzo domande in un pool ha meno di 15 domande disponibili (possibile per via del commento a riga 486-488: *"Se il mazzo ha meno domande di quelle richieste, restituisce solo quelle disponibili"*), il numero "8" mostrato agli utenti sarebbe sbagliato pur essendo la logica di gioco corretta.
-- **Nessun codice morto o commentato residuo**: verificato con ricerca di `TODO`, `FIXME`, `console.log(` di debug, `debugger` — nessuna occorrenza. I commenti presenti sono in italiano, spiegano scelte architetturali non ovvie (es. `index.html:249-252, 265-271, 350-352, 467-470, 485-488, 516-517, 736-739`) e sono in linea con le linee guida di "commentare solo il perché", non il cosa.
-- **Coerenza di stile**: buona. Naming coerente (`admin*` per azioni admin, `render*` per viste, `safe*` per storage), stessa convenzione per tutto il file. Nessun mix di stili di formattazione evidente.
-- **PIN admin lato client, in chiaro nel sorgente**: `const ADMIN_PIN = '2468';` (`index.html:742`), confrontato client-side (`renderAdminPinEntry`, `index.html:972-983`). Chiunque apra i DevTools o "visualizza sorgente" legge il PIN in chiaro; non è una vera barriera di sicurezza, è solo un filtro anti-goliardata per impedire a un ospite di premere per sbaglio "sono admin". Va documentato come tale, non come misura di sicurezza reale — e comunque **non sostituisce regole DB corrette**, perché anche senza sbloccare l'admin nell'UI chiunque può scrivere direttamente su Firebase con le stesse credenziali client-side.
+- **Leggibilità e commenti.** Sono buoni. I commenti in italiano spiegano il *perché* delle scelte, per esempio la potatura degli `{}` a `js/actions.js:19-24` o la delega dei click a `js/render.js:1451-1459`. Non c'è codice morto né `console.log` di debug.
+- **XSS (✅ test su `main`).** Il nome squadra è inserito senza escape in oltre 20 punti (ad esempio `js/render.js:31`, `:334`, `:831`, `:954`, `:1073`). È corretto in entrambe le PR: `teamLabel()` nella PR #4, `teamNameHtml()` nella PR #3.
+- **Esiti delle scritture.** Su `main` nessun chiamante controlla il valore restituito da `safeSet`. Per esempio `teamJoin` mostra "Sei dentro!" anche se la scrittura fallisce (`js/actions.js:582`). La PR #4 copre l'ingresso. La PR #3 copre ingresso, risposta, start, setup e reset con un banner di errore e un comando per riprovare (PL-03).
+- **Avvio senza feedback.** Su `main` c'è `if(!state) return;` e nient'altro (`js/render.js:305`), quindi se Firebase non risponde la pagina resta vuota. È corretto in entrambe le PR.
+- **Array vuoti potati da Firebase (✅ test E3/P2).** Il codice in alcuni punti presume che `[]` sopravviva al salvataggio. In questo caso è la causa del blocco dello spareggio (§3.3). Altrove è già gestito con `||[]` (ad esempio `js/render.js:1039`).
+- **Opzioni della Sala che non fanno nulla (📖).**
+  - `scoreCarryover` ("Punti in ingresso finale", `js/render.js:766`) non viene mai letto: è implementato solo nella PR #3, con PL-16.
+  - `blockDuplicateQuestions` (`js/render.js:769`) non è letto da nessuna funzione, né su `main` né nella PR #3.
+  - Le regole di spareggio "a oltranza" e "più vicino al valore corretto" (`js/render.js:712-718`) non hanno alcun meccanismo: lasciano solo la scelta manuale all'admin (`js/state.js:337-349`). Le domande numeriche non esistono.
 
 ### 2.4 Performance
 
-- **Audio**: gli URL audio (per le domande "Che canzone è?" e per gli effetti sonori) sono caricati su Firebase Storage tramite `uploadAudioFile` (`index.html:286-292`) **senza alcun controllo su formato, durata o dimensione del file** prima dell'upload (`<input type="file" accept="audio/*">`, righe 1759 e 1649 — `accept` filtra solo l'estensione nel picker, non impedisce upload di file enormi). Un admin che carica per errore un file audio non compresso di decine di MB degrada il tempo di caricamento per Admin e Display (che lo scaricano dal CDN di Storage al momento del cue). Non è presente un meccanismo di **background music continua/loop**: l'audio è sempre event-driven a "cue" singoli legati a una domanda o a un effetto (`audioCueForQuestion`, `index.html:518-521`, e cue manuali per gli effetti, `index.html:1892`) — se l'intento del task era una musica di sottofondo continua durante l'attesa/lobby, **questa funzionalità non esiste nel codice attuale**, va segnalato come feature assente, non come bug.
-- **Payload realtime**: come già notato in 2.2, ogni evento realtime porta con sé l'intero nodo `quizzettone`, banca domande e URL audio inclusi, anche ai client Team che non ne hanno bisogno per il rendering. Con una banca domande grande (l'admin è incoraggiato a caricarne molte per evitare ripetizioni, vedi countsHtml `index.html:1704-1713`) questo payload cresce senza limiti.
-- **Nessun listener leak individuato**: `startListening`/`stopListening` (`index.html:353-387`) sono simmetrici e vengono chiamati correttamente sia sull'onboarding sia sulle uscite esplicite ("esci da admin" `index.html:1690`, "non sei tu?" per il team `index.html:1154`). Non c'è alcun path di codice in cui si cambi `role` senza passare da `stopListening()`.
-- **`setInterval` UI tick**: `startUiTick` (`index.html:388-391`) fa un re-render ogni 250ms mentre `phase==='question'`, per animare il countdown — accettabile per un timer visuale, ma essendo un re-render completo dell'HTML (`render()` → `innerHTML =`) e non solo dell'elemento timer, su dispositivi datati durante una manche potrebbe pesare leggermente sulla batteria/reattività; non è un problema bloccante.
+- **Un listener su tutto l'albero (📖, tutte e tre).** C'è `db.ref(DB_ROOT).on('value')` (`js/state.js:188`) e il piano §2.3 chiede di separarlo per ruolo. Ogni telefono scarica banca domande, mazzi party, preset e `statsHistory` (che cresce a ogni partita: `js/actions.js:267-271`), e a **ogni** evento ricostruisce l'intero oggetto e l'intera pagina. Esempio E7: con 300 domande il Display scarica 75 KB, di cui 66 KB sono la banca domande che non gli serve. Il problema diventa critico insieme alla crescita dell'undo descritta in §2.2.
+- **Ridisegno completo ogni 250 ms (✅ test).** Durante una domanda il tick chiama `render()` (`js/state.js:279`) e ricostruisce tutta la pagina. Oltre al costo su telefoni datati, **svuota i campi che l'admin sta scrivendo** (vedi §3.3). È corretto nella PR #4, dove si aggiorna solo il timer; non nella PR #3.
+- **Battito del Display (PR #3, ✅ test P4).** `armDisplayPresence` scrive un battito ogni 2,5 s (PR #3 `js/state.js:460-470`). Con il listener sull'intero albero, **ogni battito fa ridisegnare tutti gli schermi di tutti i client**. Durante una serata con Display acceso, è un ridisegno completo ogni 2,5 s su ogni telefono.
+- **Media.** Su `main` non c'è nessun limite agli upload (`js/firebase-init.js:25-31`). Il limite è di 10 MB nella PR #4 e di 8 MB nella PR #3, che lo applica anche alle immagini.
 
 ### 2.5 Deploy e workflow
 
-- **Nessuna pipeline CI/CD**: confermato per assenza — non esiste cartella `.github/` nel repository (verificato con `find`). Il deploy su GitHub Pages, per come è strutturato il repo (un solo `index.html` in root, storia con commit tipo "Trigger a fresh Pages deployment" — `e36d014`, `55ff729`, `23cf2cb`, `c15e804`), è quasi certamente configurato per pubblicare direttamente il branch `main` via GitHub Pages "deploy from a branch", senza build step.
-- **Nessun ambiente di test separato dalla produzione**: un solo `firebaseConfig` hardcoded (`index.html:272-280`), un solo progetto Firebase (`quizzettone-49543`). Non ci sono flag di ambiente, non c'è un secondo database per staging: ogni modifica pubblicata sul branch di produzione lavora contro **lo stesso** database usato dalle partite reali. Testare una modifica prima di un evento live richiederebbe di lavorare in locale contro lo stesso DB Firebase condiviso, con rischio di sporcare i dati di una partita reale (es. `adminResetGame`, `index.html:702-709`, azzererebbe squadre/risposte per tutti).
-- **Nessun `package.json`, nessun tool di build/lint/test**: confermato per assenza nella working tree e in tutta la cronologia git (`git log --all --diff-filter=A --name-only` mostra solo `quizzettone.html`→`index.html`).
+- **Deploy.** GitHub Pages serve direttamente `main`, senza build, e la home è l'hub `index.html`. Non c'è cartella `.github/`, quindi **nessuna CI**: i test esistono (26 su `main`, 64 sulla PR #3) ma vengono eseguiti solo a mano. Il `PROGRESS_LOG` della PR #3 annota più volte "suite completa non rieseguita". Una GitHub Action con l'emulatore costerebbe poco e coprirebbe proprio questo.
+- **Ambiente di test.** Su `main` e sulla PR #4 la modalità prova scrive squadre fittizie sul **database di produzione** (`js/actions.js:389-398`), e il piano chiedeva un secondo progetto Firebase (FT-01). La PR #3 ha scelto, con conferma dell'utente, un reset in due passaggi con checklist di backup al posto del secondo progetto. L'emulatore locale c'è, ma serve solo ai test automatici.
+- **PR aperte.** Due rami lunghi e non uniti (la PR #3 è ferma dal 7 agosto) su un progetto con un solo manutentore. Più passa il tempo, più costa riconciliarli.
 
 ## 3. Audit del game design
 
-### 3.1 Flusso di gioco ricostruito
+### 3.1 Flusso di gioco ricostruito (`main`)
 
-Ricostruito esclusivamente dal codice (state machine in `state.phase`, gestita da `defaultState`, `index.html:338-348`, e dalle funzioni `admin*`):
-
-1. **Lobby**: l'Admin sblocca il pannello con PIN (`ADMIN_PIN`, `index.html:742`), le squadre entrano scegliendo un nome (`renderTeamJoin`, `index.html:988-1012` → `teamJoin`, `index.html:720-734`). Fase iniziale `phase:'lobby'`.
-2. **Avvio Manche 1**: l'Admin preme "Avvia Manche 1" (`btnStart` → `adminStartGame`, `index.html:524-532`): pesca 30 domande dal pool `manche` (`drawQuestionsForGame`, `index.html:489-506`), le divide 15/15 tra `round1`/`round2` in `state.gameQuestions`, imposta `phase:'question'`, `round:1`, `qIndex:0`.
-3. **Ciclo domanda**: ogni domanda ha un timer di 20s fisso (`timerDuration:20000`, `index.html:342`, non configurabile da UI). Allo scadere il tempo l'Admin (client) auto-chiude le risposte (`index.html:1361-1364`, `setTimeout` che chiama `adminCloseAnswers`). L'Admin può anche chiudere manualmente prima (`btnCloseNow`). Dopo la chiusura, l'Admin può rivelare la soluzione alle squadre (`adminRevealSolution`, opzionale, on-demand) e passa alla domanda successiva (`adminNextQuestion`, `index.html:567-590`).
-4. **Checkpoint**: a metà e a fine di ciascuna manche (`round===1`/`round===2`), il flusso si ferma in `phase:'checkpoint'` con modalità scelte dall'Admin in tempo reale (pausa muta / classifica provvisoria / classifica completa / solo posizioni), poi l'Admin preme "Continua" (`adminContinueFromCheckpoint`, `index.html:594-604`) per passare a Manche 2.
-5. **Fine qualificazione → Finaliste**: dopo Manche 2, l'Admin preme "Svela finaliste" (`adminRevealFinalists`, `index.html:605-628`): calcola la classifica di qualificazione (Manche1+Manche2) e o rivela direttamente le prime due, o attiva uno **spareggio** (`phase:'tiebreak_setup'`) se c'è pareggio per il primo o il secondo posto.
-6. **Spareggio (se necessario)**: l'Admin sceglie una domanda dal pool `finale` tra 5 candidate pescate (`adminStartTiebreakQuestion`, `index.html:629-635`); solo le squadre in pareggio rispondono; l'Admin assegna manualmente il vincitore dello spareggio guardando le risposte (`adminAssignTiebreakWinner`, `index.html:636-642`) — **non c'è verifica automatica di correttezza**, è l'Admin a decidere chi ha risposto giusto guardando a schermo.
-7. **Finale**: `adminContinueToFinal` (`index.html:643-648`) pesca 10 domande dal pool `finale` e le assegna solo alle due finaliste (`activeTeamsForRound('final')` restituisce `state.finalists`, `index.html:851-855`); stesso ciclo domanda/timer delle manche.
-8. **Rivelazione vincitore**: `adminRevealWinner` (`index.html:649-657`) confronta i punteggi SOLO della finale (`roundScore(id,'final')`, non il totale cumulato) tra le due finaliste; se pari, `winner='TIE'` e l'Admin deve dichiarare manualmente un vincitore (`adminDeclareWinnerManually`, `index.html:658-663`) — **qui non viene riusato il meccanismo di spareggio con domanda extra** usato al punto 6, è una scelta arbitraria dell'Admin senza alcuna domanda decisiva. Incoerenza di design tra le due situazioni di pareggio (vedi 3.2).
-9. **Classifica animata**: in qualsiasi momento l'Admin può mostrare/nascondere la classifica generale live (`adminToggleStandings`) o avviare una "rivelazione classifica" animata posizione per posizione con ordine scelto a mano (`adminSetupStandingsReveal`/`adminRevealNextStanding`, `index.html:668-691`).
-10. **Reset**: `adminResetGame` (`index.html:702-709`) cancella squadre/risposte/override ma **conserva** banca domande, effetti ed default di punteggio (persistenza intenzionale, documentata nei commenti a `index.html:328-334`).
+1. **Hub → gioco.** `index.html` porta a `quizzettone.html`, dove si sceglie "Sono una squadra" oppure "Sono l'admin" (PIN) (`js/render.js:211-265`).
+2. **Sala pre-partita.** L'admin configura il nome della partita, il numero di manche, le domande per manche, i finalisti, le domande di finale, la durata, i punteggi, la regola di spareggio, l'ingresso tardivo e l'avvio del timer. Tra le opzioni avanzate ci sono il punteggio della finale, i punti in ingresso in finale, la visibilità per gli eliminati, il blocco dei duplicati e il bonus velocità (`js/render.js:710-779`). Vede anche codice e QR, una checklist del mazzo, la modalità prova e la modalità party (`:809-850`).
+3. **Lobby.** Le squadre entrano dal QR o dall'URL con il solo nome, possono segnarsi "Pronta" e vedono presenza ed eventuali badge "tardiva" o "PROVA" (`js/render.js:824-840`).
+4. **Avvio.** Vengono pescate dal pool "manche" tante domande quante richiede la configurazione e divise per manche. La configurazione viene bloccata (`js/actions.js:49-80`).
+5. **Ciclo della domanda.** Il timer parte da solo o a comando. L'admin può mettere in pausa e riprendere, aggiungere o togliere 5 s, chiudere subito, riaprire per 10 s, annullare la domanda, svelare la soluzione, cambiare il punteggio della singola domanda, correggere ±1 per squadra e annullare l'ultima azione (`js/render.js:858-961`, `js/actions.js:104-219`).
+6. **Checkpoint.** A metà manche (se le domande sono almeno `checkpointMinQuestions`) e a fine manche, con varie modalità di visualizzazione (`js/actions.js:195-235`).
+7. **Finalisti.** Si prendono i primi `finalistCount`. Con un pari al taglio parte uno spareggio con una domanda dal pool "finale", un suggerimento automatico per le regole `prima_corretta`/`corretta_veloce` e l'assegnazione manuale (`js/actions.js:236-284`).
+8. **Finale.** Si gioca con `finalQuestionCount` domande e un punteggio di finale opzionale. Le eliminate guardano da spettatrici, con la visibilità delle risposte configurabile (`js/render.js:459-486`).
+9. **Vincitore.** Si decide **solo sui punti della finale** (`js/actions.js:294`). In caso di pari si usa lo stesso spareggio (`:297-305`).
+10. **Fine serata.** Statistiche (podio, % di risposte corrette, domanda più facile e più difficile, squadra più veloce, rimonta) salvate in `statsHistory`, classifica animata a fasce, rivincita o reset (`js/actions.js:265-376,447-462`).
 
 ### 3.2 Regole di punteggio
 
-Unica pipeline, usata coerentemente ovunque (nessuna duplicazione di formule trovata):
-- `pointsForAnswer` (`index.html:400-405`): punti fissi in base a corretto/sbagliato (`scoringFor`, con default globali sovrascrivibili per singola domanda tramite `scoringOverrides`, `index.html:395-399,696-701`).
-- **Nessun bonus di velocità di risposta**: il timestamp `ts` viene salvato in ogni risposta (`teamSubmitAnswer`, riga 815) ma **non è mai letto da nessuna funzione di scoring** (confermato: `ts` non appare in `pointsForAnswer`/`teamPointsForQuestion`/`roundScore`). Se l'aspettativa di design (come suggerito dalla richiesta di audit) era un bonus per rapidità, **non è implementato**: il punteggio è puramente correttezza sì/no, uguale per chi risponde al primo secondo o all'ultimo istante disponibile.
-- **Override manuali admin per singola risposta**: `adminAdjustPoints` (`index.html:560-566`) permette all'Admin di correggere a mano i punti di una squadra per una domanda già chiusa (bottoni +/− nella tabella stato squadre, `index.html:1423`). Utile per contestazioni dal vivo, ma introduce un canale extra di stato (`overridesByTeam`) che deve restare sincronizzato con le risposte originali — gestito correttamente da `teamPointsForQuestion` (`index.html:406-413`, override ha sempre priorità sulla risposta registrata).
-- **Incoerenza di design nel pareggio finale**: come notato al punto 3.1/8, i pareggi in fase di qualificazione (per accedere alla finale) vengono risolti con una domanda di spareggio dedicata (`tiebreak_setup`/`tiebreak_closed`), mentre un pareggio nel punteggio finale tra le due finaliste produce solo `winner:'TIE'` e una scelta manuale arbitraria dell'Admin, senza alcuna domanda decisiva. Se l'intento di design era "i pareggi si risolvono sempre con una domanda extra", il codice non lo rispetta in questo punto specifico.
+- Ci sono i punti `correct`/`wrong`/`noAnswer` della configurazione, con un punteggio di finale separato facoltativo (`js/state.js:285-292`).
+- La singola domanda può avere un override (`scoringOverrides`).
+- La correzione manuale per squadra e domanda ha la precedenza su tutto (`:314-322`).
+- Le domande annullate valgono 0.
+- Il **bonus velocità** è lineare: `maxBonus × (1 − trascorso/finestra)`, solo se la risposta è corretta. Viene calcolato una sola volta all'invio e salvato con la risposta (`:304-313`), e le squadre lo vedono annunciato prima di rispondere (`js/render.js:528-541`). È un buon esempio di trasparenza.
+- **Incoerenza (📖).** Il vincitore viene da `roundScore(id,'final')` (`js/actions.js:294`), mentre classifica live, classifica animata e **podio delle statistiche** usano `totalScore`, cioè qualificazione più finale (`js/state.js:335`, `:449`). Con l'impostazione predefinita "Azzera" il podio può quindi mettere al 1° posto una squadra diversa da quella appena proclamata campione. La PR #3 (PL-16) cambia `totalScore` per i finalisti: va verificato che podio e vincitore ora coincidano.
+- La PR #3 aggiunge profili Classico/Dinamico/Personalizzato, bonus per ordine di risposta, penalità adattiva per fasce e bonus rimonta (PL-13→PL-17), come prevede il piano §4.2.
 
 ### 3.3 Casi limite e gestione errori
 
-| Caso limite | Comportamento nel codice | Verificato |
-|---|---|---|
-| Pareggio per l'accesso in finale (2° posto) | Spareggio con domanda extra tra le squadre in pareggio (`adminRevealFinalists`, `index.html:612-617`) | ✅ Confermato nel codice |
-| Pareggio per il 1° posto in qualificazione | Tutte le squadre a pari merito con lo score massimo entrano in spareggio, si prendono le prime 2 (`index.html:618-623`) | ✅ Confermato nel codice |
-| Pareggio nel punteggio finale (i due finalisti) | `winner:'TIE'`, poi scelta manuale dell'Admin senza domanda decisiva (`index.html:654,658-663`) | ✅ Confermato — incoerente col trattamento dei pareggi in 3.2 |
-| Giocatore che si disconnette a metà partita | Nessuna gestione: resta "in attesa"/"nessuna risposta" senza indicatore offline, nessun `onDisconnect` | ✅ Confermato per assenza |
-| Admin che ricarica la pagina | Funziona: il ruolo admin viene ripristinato da `?role=admin` in URL + flag `localStorage` (`restoreFromUrl`, `index.html:769-778`); solo i toggle locali (`showQuestionManager`, ecc.) si resettano, comportamento documentato e voluto (`index.html:330,332,334`) | ✅ Confermato, funziona come da commento nel codice |
-| Doppio invio della stessa risposta dalla stessa squadra | Guardia lato applicativo (`if(current[key]) return;`, `index.html:814`) ma **non atomica** (read-then-write senza `transaction()`): in teoria un doppio tap ravvicinatissimo può sovrascrivere la prima risposta | ⚠️ Rischio potenziale da verificare a runtime (bassa probabilità in condizioni normali, ma il codice non lo previene strutturalmente) |
-| Ingresso tardivo a partita già iniziata | Non c'è un flusso dedicato: una nuova squadra può creare un `teaminfo:` in qualsiasi momento (`teamJoin` non controlla `state.phase`); si ritroverebbe sincronizzata sullo stato corrente (timer/domanda) ma con 0 punti sulle domande già passate, e verrebbe automaticamente esclusa dai finalisti/spareggio se questi sono già stati assegnati (`activeTeamsForRound`, `index.html:851-855`, usa liste di ID fissate al momento della rivelazione finalisti) | ✅ Confermato: nessun blocco esplicito, ma il modello dati gestisce l'ingresso tardivo senza crash |
-| Due squadre scelgono lo stesso nome in contemporanea | Possibile race: entrambe le letture di `findTeamByName` possono non vedersi a vicenda e creare due `teaminfo:` con lo stesso nome | ⚠️ Rischio potenziale da verificare a runtime |
-| Firebase non risponde all'avvio (regole/rete) | Schermata vuota, nessun messaggio d'errore (`render()`, `index.html:1016`) | ✅ Bug confermato nel codice |
+| Caso | `main` | PR #4 | PR #3 | Verifica |
+|---|---|---|---|---|
+| **2 squadre pari al 1° posto** (2 posti in finale) | ❌ spareggio inutile → "Assegna" va in `TypeError` → partita bloccata | ✅ entrambe in finale | ❌ come `main` | ✅ test (E3, P2) |
+| **3 o più squadre pari al 1° posto** | ❌ bloccata | ❌ bloccata | ❌ bloccata | ✅ test E3 |
+| Pari per il 2° posto con una 1ª netta | ✅ spareggio corretto | ✅ | ✅ | ✅ test |
+| **Le squadre in spareggio rispondono** | ❌ pulsanti disabilitati e "Tempo scaduto" (`js/render.js:344`) | ✅ | ❌ (PR #3 `js/render.js:528`) | ✅ test (P1) |
+| Spareggio con una domanda diversa dalla prima / secondo spareggio nella stessa partita | ❌ risposte cercate con la chiave sbagliata (`js/state.js:350`, `js/render.js:1023`); le risposte vecchie restano | ✅ | ❌ | ✅ test (PR #4) / 📖 (PR #3) |
+| Pari in finale | ✅ stesso spareggio (ma con 3+ finaliste pari vale la riga sopra) | ✅ | ✅ | 📖 + test del progetto |
+| Squadra che si disconnette | ✅ pallino rosso, conteggio "offline" | ✅ | ✅ (+ presenza del Display) | 📖 |
+| Admin che ricarica la pagina | ✅ stato su Firebase; si perdono solo pannelli aperti e moduli non salvati | ✅ | ✅ | 📖 |
+| Doppio tocco sulla risposta | ❌ vince l'ultima | ✅ | ✅ | ✅ test |
+| **Ingresso tardivo a domanda aperta** | ⚠️ risponde subito alla domanda in corso; il piano §4.5 dice "dalla successiva" | idem | idem | ✅ test (E6, P8) |
+| **Rivincita dopo una prova con squadre fittizie** | ❌ le squadre di prova restano con le risposte vecchie, che valgono nella nuova partita (`js/actions.js:449-450`) | idem | idem | ✅ test (E4, P6) |
+| **Due dispositivi admin** | ❌ le azioni simultanee si cancellano | idem | idem | ✅ test (E5, P7) |
+| **L'admin compila la Sala mentre entrano squadre** | ❌ le modifiche non salvate si azzerano a ogni ingresso o "Pronta" | idem | ❌ e con il Display aperto si azzerano ogni 2,5 s | ✅ test (E2, P4) |
+| L'admin compila "Punteggio per questa domanda" durante il timer | ❌ si svuota ogni 250 ms | ✅ | ❌ | ✅ test (P5) |
+| Telefono con l'orologio sbagliato | ❌ può chiudere la domanda per tutti | ✅ | ✅ | ✅ test |
+| Firebase irraggiungibile all'avvio | ❌ pagina vuota | ✅ | ✅ | ✅ test |
+| Partita lunga con molti undo o una classifica animata | ❌ stato oltre i 10 MB (§2.2) | ❌ | ❌ | ✅ test (E1, P3) |
+| Rientro con il nome di un'altra squadra | ⚠️ entra nella squadra altrui | idem | idem (con indice atomico: niente doppioni) | 📖 |
 
 ### 3.4 Chiarezza per l'utente finale
 
-- **Nessuna schermata di regole o tutorial in-app**: cercando in tutto il file non esiste alcun testo che spieghi ai giocatori come funziona il gioco (numero di manche, criterio di qualificazione, meccanica di spareggio, punteggio). La schermata di ingresso squadra (`renderTeamJoin`, `index.html:988-1012`) chiede solo il nome squadra, senza alcuna spiegazione delle regole.
-- Le uniche informazioni contestuali che un giocatore vede sono messaggi di stato brevi generati durante il gioco (es. "Prendete fiato ☕", "C'è un pareggio per l'accesso in finale!") che **descrivono cosa sta succedendo ora**, non **come funziona il gioco nel suo complesso**. Un nuovo giocatore capirebbe passo-passo cosa fare (rispondere alle domande) ma **non** intuirebbe da solo, per esempio, che ci sono due manche di qualificazione seguite da una finale a due, o come funziona lo spareggio, finché non lo vive direttamente — le regole vanno quindi spiegate a voce dall'host prima di iniziare.
+- **Nessuna schermata con le regole.** Il giocatore vede solo messaggi di stato. Il formato (manche, finale, spareggi, punti) va spiegato a voce.
+- **Elementi chiari:** QR e codice, "Pronta", i badge "Punti speciali" e "Bonus velocità attivo" annunciati prima di rispondere, la modalità spettatore delle eliminate, il banner di connessione persa.
+- **Elementi che confondono:**
+  - il **"codice serata"** è mostrato in grande ma non viene mai chiesto né controllato all'ingresso: basta l'URL (`js/render.js:71-89`; il join a `:267-301` chiede solo il nome);
+  - "Due squadre si giocano l'accesso in finale" compare anche con 3 squadre o nello spareggio della vittoria (`js/render.js:348`, `:618`);
+  - "Secondo posto, ma che partita!" compare a ogni finalista non vincitrice, anche quarta su quattro (`js/render.js:426`);
+  - la classifica live numera 1°, 2° anche a pari punti (`js/render.js:27-34`), mentre la classifica animata raggruppa correttamente i pari merito.
+
+### 3.5 Coerenza tra piano (`Piano_modifiche_Quizzettone.md`) e implementazione
+
+| Piano | `main` | PR #3 |
+|---|---|---|
+| FT-01 ambiente di test separato | ❌ modalità prova sul database di produzione | 🟡 sostituito da reset in 2 passaggi + backup manuale (scelta confermata dall'utente) |
+| FT-02 regole versionate | ❌ | ❌ (PL-04 saltato) |
+| FT-03…FT-06, FT-11 (XSS, avvio, errori, invio atomico, ora del server) | ❌ | ✅ |
+| FT-07 presenza / ultimo contatto | 🟡 manca l'ultimo contatto | 🟡 |
+| FT-08 nomi unici, rinomina | ❌ | ✅ indice atomico + `adminRenameTeam` |
+| FT-09 / FT-10 sessione strutturata, snapshot | ❌ | ✅ (vedi rischio di migrazione, §2.2) |
+| §2.3 listener separati per ruolo | ❌ | ❌ |
+| §4.3 Azzera / Mantieni / Vantaggio | ❌ opzione visibile ma inerte | ✅ PL-16 |
+| §4.4 spareggi (tre domande, poi stima numerica; oltranza in finale) | 🟡 una domanda + scelta admin | 🟡 idem |
+| §4.5 ingresso tardivo "dalla domanda successiva" | ❌ | ❌ |
+| §4.10 undo minimo | 🟡 funziona ma cresce in modo esponenziale | 🟡 idem |
+| §4.11 rinomina, blocco, chiusura iscrizioni | 🟡 solo rimozione | 🟡 + rinomina |
+| §4.12 diretta protetta per le eliminate | ✅ | ✅ |
+| §4.14 controlli pre-start, statistiche, rivincita | ✅ (rivincita con il problema delle squadre di prova) | ✅ idem |
+| Fase 4: tipologie di domanda | ❌ solo scelta multipla a 4 opzioni | 🟡 contratto comune + Vero/Falso + foto (PL-18/19) |
 
 ## 4. Findings prioritizzati
 
-| # | Area | Severità | Descrizione | File/riga | Raccomandazione |
-|---|---|---|---|---|---|
-| 1 | Sicurezza | **Critico** | XSS memorizzata: il nome squadra (input libero, non sanificato) viene inserito in innerHTML senza `escapeHtml` in >15 punti, incluse le viste Display pubblica e Admin | `index.html:847,1044,1105,1111,1135,1139,1223,1345,1420,1469,1488,1499,1500,1509,1517-1519,1528,1562` | Passare **tutte** le occorrenze di `teams[id].name`/`teamName` per `escapeHtml()`, come già fatto correttamente a righe 920, 1298, 1313 |
-| 2 | Sicurezza / Firebase | **Critico** (da verificare) | Nessuna autenticazione Firebase nel codice (né anonima né altro): la sicurezza del DB dipende **interamente** da regole non presenti nel repo | `index.html:11-13,272-284` (assenza di `firebase-auth-compat.js`) | Verificare le regole RTDB in console Firebase; se sono `read/write: true` globali, introdurre almeno Firebase Anonymous Auth + regole che richiedano `auth != null`, e restringere la scrittura ai path pertinenti |
-| 3 | Firebase | Alto | Nessuna gestione della disconnessione/presenza (`onDisconnect` assente in tutto il file) | intero file (assenza confermata) | Aggiungere `onDisconnect()` sul nodo `teaminfo:<id>` (es. flag `online:false`) per dare all'Admin visibilità reale su chi è ancora connesso durante l'evento |
-| 4 | Qualità codice | Alto | Nessun fallback UI se il primo snapshot Firebase non arriva mai: schermata vuota senza messaggio | `index.html:1015-1020` | Mostrare uno stato di caricamento/errore esplicito finché `state===null`, con retry visibile all'utente |
-| 5 | Firebase | Medio | Race condition strutturale su invio risposta squadra (read-then-write non atomico, nessuna `transaction()`) | `index.html:811-818` | Sostituire con `db.ref(...).transaction(cur => cur[key] ? undefined : {...})` per garantire atomicità |
-| 6 | Firebase | Medio | Race condition su creazione squadra con nome duplicato (`findTeamByName` + create non atomici) | `index.html:712-734` | Usare una `transaction()` sul nodo `teaminfo` o un indice nome→id con scrittura condizionale |
-| 7 | Game design | Medio | Pareggio nel punteggio finale gestito in modo incoerente rispetto ai pareggi di qualificazione: nessuna domanda di spareggio, solo scelta manuale arbitraria dell'Admin | `index.html:649-663` vs `605-628` | Decidere e documentare se è comportamento voluto; se no, riusare il meccanismo di `tiebreak` anche per il pareggio finale |
-| 8 | Qualità codice | Basso | Testo del checkpoint "8 domande giocate" hardcoded a `8` in entrambi i branch della ternaria, disallineato dalla logica reale (`Math.ceil(list.length/2)`) se il mazzo ha meno domande del previsto | `index.html:1075,1271` (logica reale: `index.html:572`) | Calcolare dinamicamente il numero mostrato invece di hardcodarlo |
-| 9 | Architettura | Basso | Blocchi HTML duplicati verbatim tra `renderTeam` e `renderDisplay` per le fasi checkpoint/tiebreak | `index.html:1068-1098` vs `1264-1293` | Estrarre una funzione condivisa, come già fatto per `renderTeamQuestion`/`renderProvisionalStandings` |
-| 10 | Performance | Basso | Upload audio senza limiti di dimensione/formato lato client | `index.html:286-292,1649,1759` | Aggiungere validazione dimensione massima file prima dell'upload |
-| 11 | Mobile/UX | Basso | Tabelle Admin (stato squadre, classifica generale) senza contenitore `overflow-x:auto`, rischio overflow orizzontale su schermi stretti | `index.html:146-148,1409-1427,1523-1535` | Avvolgere le `<table>` in un contenitore con scroll orizzontale |
-| 12 | Qualità codice | Basso | Nessuno dei 45 call-site di `safeGet/safeSet/safeDelete` controlla il valore di ritorno; fallimenti silenziosi | intero file (`index.html:294-314` + 45 chiamate) | Almeno per le azioni critiche (join squadra, invio risposta), mostrare un messaggio di errore se la scrittura fallisce |
-| 13 | Game design | Basso (assenza di feature) | Nessun bonus punteggio legato alla velocità di risposta, nonostante il timestamp venga registrato e mai usato | `index.html:400-421` (scoring), `815` (ts salvato ma inutilizzato) | Se desiderato, introdurre un bonus/malus basato su `ts - questionStartedAt` nella pipeline di scoring esistente |
-| 14 | UX | Basso | Nessuna schermata di regole/tutorial per i nuovi giocatori | intero file (assenza confermata) | Aggiungere una card informativa opzionale nella schermata di ingresso squadra |
+| # | Area | Severità | Descrizione | File/riga (`main`) | Raccomandazione | Stato `main` · PR #4 · PR #3 |
+|---|---|---|---|---|---|---|
+| 1 | Dati / affidabilità | **Critico** | Lo snapshot di undo contiene lo snapshot precedente: lo stato raddoppia a ogni azione annullabile e supera i 10 MB in una partita normale (✅) | `js/actions.js:25-35` (riga 27); azioni a `:220-222`, `:128-134`, `:334-344` | Salvare lo snapshot senza `history` (`{...before, history:null}`) o solo i campi cambiati; aggiungere un test che misuri la dimensione dopo 20 azioni | ❌ · ❌ · ❌ |
+| 2 | Game design | **Critico** | Pari al 1° posto → `qualifiedSoFar` vuoto non salvato → `TypeError` su "Assegna" → partita bloccata (✅) | `js/actions.js:248-252`, `:280` | Usare `(state.tiebreak.qualifiedSoFar \|\| [])`; permettere di assegnare più posti dallo stesso spareggio (decisione B4); correggere la condizione `above+tied > finalistCount` | ❌ · 🟡 (solo 3+ pari) · ❌ |
+| 3 | Game design | **Critico** | Lo spareggio non si gioca dai telefoni (`active=false`); chiave risposte sbagliata con domande diverse dalla prima; risposte vecchie non azzerate (✅) | `js/render.js:344`; `js/state.js:350`; `js/render.js:1023`; `js/actions.js:258-264` | Portare nella PR #3 la correzione della PR #4 | ❌ · ✅ · ❌ |
+| 4 | Sicurezza | **Critico** (da verificare) | Nessuna auth, regole non versionate: con regole aperte chiunque può cancellare tutto | `js/firebase-init.js:8-23`; `firebase.json` | Esportare e versionare `database.rules.json`/`storage.rules` (FT-02); valutare l'auth anonima per i team | ⚠️ · ⚠️ · ⚠️ |
+| 5 | Sicurezza | **Alto** | XSS sui nomi squadra (✅) | `js/render.js:31,334,831,954,1073`… | Già corretto nelle PR: unirne una | ❌ · ✅ · ✅ |
+| 6 | Tempo | **Alto** | Orologi dei dispositivi: un telefono avanti chiude la domanda per tutti; bonus velocità falsato (✅) | `js/actions.js:9,112`; `js/render.js:12`; `js/state.js:271-273` | Già corretto nelle PR | ❌ · ✅ · ✅ |
+| 7 | UX regia | **Alto** | Form admin azzerati: tick a 250 ms, ogni evento in lobby, e nella PR #3 il battito del Display ogni 2,5 s (✅) | `js/state.js:279`; `js/render.js:1217`; PR #3 `js/state.js:460-470` | Aggiornare solo il timer (come nella PR #4); non ridisegnare la Sala mentre ha il focus, oppure salvare e ripristinare i valori; nella PR #3 togliere il battito dal ramo ascoltato da tutti | ❌ · 🟡 · ❌ (peggiorato) |
+| 8 | Dati | **Alto** | Scritture a stato intero: due admin si cancellano le azioni a vicenda (✅) | `js/actions.js` (es. `:203,221,312`) | Usare `update()` sui soli campi toccati (`state/standingsVisible`…) o transazioni | ❌ · ❌ · ❌ |
+| 9 | Affidabilità | **Alto** | Invio risposta non atomico; ingresso e avvio senza controllo degli esiti; pagina vuota se Firebase tace (✅) | `js/actions.js:677-689,582`; `js/render.js:305` | Già corretto nelle PR | ❌ · ✅ · ✅ |
+| 10 | Infrastruttura | **Alto** (da verificare) | Lo Storage risponde "quota exceeded" all'upload | `js/firebase-init.js:25-31` | Controllare piano e bucket in console Firebase; senza Blaze gli audio non si caricano | ⚠️ · ⚠️ · ⚠️ |
+| 11 | Deploy | **Medio** | Due PR divergenti sugli stessi file; nessuna CI | — | Vedi §5 passo 0; aggiungere una GitHub Action con Playwright ed emulatore | — |
+| 12 | Game design | **Medio** | La rivincita conserva squadre di prova e risposte vecchie, che valgono nella nuova partita (✅) | `js/actions.js:447-462` | Nella rivincita cancellare anche le risposte delle squadre di prova, o rimuovere le squadre di prova | ❌ · ❌ · ❌ |
+| 13 | Game design | **Medio** | Podio delle statistiche (totale) e vincitore (solo finale) possono non coincidere (📖) | `js/actions.js:294` vs `js/state.js:449` | Usare la stessa classifica in tutte le schermate di fine partita | ❌ · ❌ · ⚠️ da verificare dopo PL-16 |
+| 14 | Configurazione | **Medio** | Opzioni visibili ma senza effetto: punti in ingresso in finale, blocco duplicati, spareggio "a oltranza"/"numerico"; codice serata mai richiesto (📖) | `js/render.js:712-718,766,769,71-89` | Implementarle o nasconderle; decidere se il codice va chiesto all'ingresso | ❌ · ❌ · 🟡 (ingresso in finale sì, il resto no) |
+| 15 | Game design | **Medio** | L'ingresso tardivo può rispondere alla domanda già aperta (✅) | `js/actions.js:563-588`; `js/render.js:339-341` | Salvare `joinedAt` col tempo del server e ignorare le domande aperte prima | ❌ · ❌ · ❌ |
+| 16 | Performance | **Medio** | Ogni client scarica tutto l'albero (banca, statistiche, mazzi) e ridisegna tutta la pagina a ogni evento | `js/state.js:188` | Listener separati per ruolo (piano §2.3, Fase 7) | ❌ · ❌ · ❌ |
+| 17 | Mobile | **Medio** | La pagina admin sborda su smartphone: la griglia `1fr` non si restringe e le tabelle non scorrono (✅ 531px su 375) | `quizzettone.html:63-66`; `js/render.js:946,1071` | `minmax(0,1fr)` + `.table-wrap` (come nella PR #4) | ❌ · ✅ · ❌ |
+| 18 | Migrazione | **Medio** (PR #3) | Dopo la migrazione a `sessions/`, i client vecchi ancora aperti scrivono su chiavi ignorate | PR #3 `js/state.js:410-440` | Unire e pubblicare solo lontano da una serata, dopo un backup; far ricaricare tutti i dispositivi | n/a · n/a · ⚠️ |
+| 19 | Identità | **Medio** | Rientro per nome = chiunque può prendere il posto di un'altra squadra | `js/actions.js:552-588` | Decisione B3 (rientro solo dal proprio dispositivo o con un codice) | ❌ · ❌ · 🟡 (niente doppioni) |
+| 20 | Media | **Basso** | Upload audio senza limiti | `js/firebase-init.js:25-31` | Già corretto nelle PR | ❌ · ✅ · ✅ |
+| 21 | Qualità | **Basso** | Mescolamento `sort(()=>Math.random()-0.5)` non uniforme | `js/state.js:598,609` | Fisher-Yates (come nella PR #4) | ❌ · ✅ · ❌ |
+| 22 | UX testi | **Basso** | "Due squadre si giocano…", "Secondo posto…", classifica live senza ex aequo | `js/render.js:348,618,426,27-34` | Testi calcolati da `candidates`/posizione; numerazione con pari merito | ❌ · 🟡 · ❌ |
+| 23 | Accessibilità | **Basso** | `user-scalable=no` impedisce lo zoom a chi vede poco | `index.html:5`; `quizzettone.html:6` | Togliere `maximum-scale`/`user-scalable` | ❌ · ❌ · ❌ |
+| 24 | Sicurezza | **Basso** (accettato) | PIN admin `2468` in chiaro nel sorgente | `js/actions.js:601` | Come da piano §2.4: è solo una barriera contro i tocchi accidentali | — |
+| 25 | Chiarezza | **Basso** | Nessuna schermata con le regole per i giocatori | — | Regole sul Display in lobby, generate dalla configurazione | ❌ · ❌ · ❌ |
+| 26 | Architettura | **Basso** | Markup Squadra/Display duplicato (checkpoint, spareggio); CSS duplicato tra le pagine | `js/render.js:359-392` vs `:627-660` | Estrarre funzioni condivise quando si toccano | ❌ · 🟡 · ❌ |
 
 ## 5. Roadmap consigliata
 
-Prima di costruire una nuova modalità (es. "Top Dieci", mai menzionata nel codice attuale — verificato per assenza), l'ordine di priorità consigliato è:
-
-1. **Sicurezza prima di tutto**: correggere la XSS (finding #1) — è a costo bassissimo (wrapping con `escapeHtml`) e rischio altissimo per un'app usata dal vivo con ospiti reali. Verificare in parallelo le regole Firebase reali (finding #2): se sono permissive globali, è il rischio più grave dell'intero sistema perché espone tutto il DB a chiunque abbia l'URL del progetto Firebase.
-2. **Robustezza dello stato di gioco**: aggiungere fallback UI per mancata connessione iniziale (#4) e gestione presenza/disconnessione (#3) — sono le due lacune che più probabilmente causano imprevisti visibili durante una serata dal vivo con ospiti reali.
-3. **Consolidare la state machine prima di estenderla**: la logica di fase (`state.phase`) è già abbastanza articolata (9 fasi distinte); prima di aggiungere una modalità come "Top Dieci" — che quasi certamente richiederebbe nuove fasi e nuove regole di punteggio — vale la pena estrarre la logica di scoring e di transizione di fase in funzioni ancora più isolate e testabili, dato che oggi non esiste **nessun test automatico** (nessun `package.json`, nessuna suite di test) e ogni verifica è manuale.
-4. **Eliminare la duplicazione Team/Display** (#9) prima di aggiungere altre viste condivise, così che una nuova modalità non triplichi ulteriormente lo stesso markup.
-5. **Decidere esplicitamente le regole di pareggio** (#7) e la presenza/assenza di bonus velocità (#13): sono scelte di game design che una nuova modalità erediterebbe automaticamente se non chiarite ora.
-6. Solo a questo punto, introdurre la nuova modalità di gioco, riusando la pipeline di scoring e la state machine esistenti invece di duplicarle.
+0. **Scegliere la base, prima di tutto.** Consiglio la **PR #3**, che è più completa, segue il piano approvato e ha 64 test verdi. Poi:
+   - portarci dalla PR #4 solo ciò che le manca: spareggio giocabile e chiave delle risposte (#3), condizione del pari al taglio (#2), tick che aggiorna solo il timer (#7), griglia e tabelle (#17), Fisher-Yates (#21) e i relativi test;
+   - chiudere la PR #4 senza unirla;
+   - correggere titolo e descrizione della PR #3, che oggi dice "solo documentazione".
+1. **Prima della prossima serata, in qualunque versione:**
+   - correggere #1 (dimensione dell'undo) e #2 (blocco dello spareggio), con test;
+   - verificare in console regole e Storage (#4, #10).
+2. **Unione della PR #3.** Va fatta lontano da una serata e dopo un'esportazione JSON del database (#18). Poi si apre l'admin una volta per migrare e si fanno ricaricare tutti i dispositivi.
+3. **Robustezza della regia:**
+   - #7: niente form azzerati e niente battito nel ramo ascoltato da tutti;
+   - #8: `update()` sui singoli campi invece della riscrittura dell'intero stato.
+4. **Coerenza delle regole:** #12 (rivincita), #13 (podio e vincitore), #14 (implementare o nascondere le opzioni), #15 (ingresso tardivo) e la decisione su B4 (3 o più pari).
+5. **Processo:** una GitHub Action che esegua la suite Playwright con l'emulatore su ogni PR (#11).
+6. **Solo dopo, nuove modalità.** "Top Dieci" è nel piano come arcade P5-C, da costruire riusando un motore di "Ordinamento" che ancora non esiste (piano §4.15, Fase 8). Va affrontata dopo la Fase 4 (tipologie di domanda), non prima.
 
 ---
 
-## Domande aperte che richiedono conferma
+## Domande aperte che richiedono una tua conferma
 
-1. **Le regole del Realtime Database sono davvero permissive (`read/write: true`)?** Non essendo versionate nel repo, non è verificabile dal codice: va controllato in console Firebase. Da questo dipende la reale severità del finding #2.
-2. **L'assenza di Firebase Auth (nemmeno anonima) è voluta?** La richiesta di audit partiva dal presupposto che l'autenticazione fosse anonima, ma il codice non ne contiene traccia: è uno stato transitorio (rimossa/mai implementata) o una scelta consapevole per semplicità?
-3. **Il pareggio nel punteggio finale (`winner:'TIE'` con scelta manuale dell'Admin, `index.html:654`) è comportamento voluto o una lacuna da colmare con una domanda di spareggio come nelle altre fasi?**
-4. **L'assenza di bonus/malus legato alla velocità di risposta è intenzionale** (punteggio puramente binario corretto/sbagliato) **o una feature mai completata?** Il campo `ts` viene salvato ma non è mai letto da nessuna funzione di scoring.
-5. **La "musica di sottofondo" citata nella richiesta di audit**: nel codice attuale l'audio è sempre event-driven (cue legati a una domanda specifica o a un effetto sonoro attivato manualmente), non esiste una musica continua/loop di sottofondo. Si tratta di una funzionalità futura non ancora implementata, o si intendeva l'attuale sistema di audio per domanda?
-6. **Il PIN admin hardcoded in chiaro nel client (`2468`, `index.html:742`) è accettato come "barriera anti-goliardata" e non come misura di sicurezza reale?** Se serve una vera protezione, va spostata la logica di autorizzazione lato server/regole DB, non lato client.
+1. **Quale PR è la base?** Confermi la PR #3, con il trasferimento delle correzioni mancanti dalla PR #4? Oppure preferisci unire prima la #4 (più piccola) e poi riallineare la #3?
+2. **Regole Firebase e Storage:** cosa c'è oggi in console (Realtime Database → Regole, Storage → piano/bucket)? Lo Storage "quota exceeded" dipende dal piano Spark?
+3. **3 o più squadre pari al 1° posto:** si assegnano più posti dallo stesso spareggio, o si gioca una domanda per ogni posto?
+4. **Ingresso tardivo:** chi entra a domanda aperta può rispondere, oppure partecipa dalla domanda successiva come dice il piano?
+5. **Codice serata:** va chiesto all'ingresso, così da bloccare chi ha solo il link, o è solo decorativo?
+6. **Opzioni inerti** ("blocca duplicati", spareggio "a oltranza" e "numerico"): le implemento o le nascondo finché non esistono?
+7. **Classifica di fine partita:** con "Azzera", il podio delle statistiche deve seguire la finale (come il vincitore) o il totale della serata?
+8. **Rivincita dopo una prova:** le squadre fittizie vanno rimosse automaticamente?
+9. **Due dispositivi admin** (es. portatile + telefono) sono uno scenario che vuoi supportare? Da questo dipende la priorità del finding #8.
+10. **Rientro con lo stesso nome:** resta libero (comodo ma permette di prendere il posto di altri) o va legato al dispositivo o a un codice?
