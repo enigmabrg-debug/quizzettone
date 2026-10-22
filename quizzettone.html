@@ -60,11 +60,9 @@
     gap:16px;
   }
   #app.admin-wide{max-width:1280px;}
-  /* minmax(0,…): senza, una tabella larga allarga la colonna oltre lo schermo
-     invece di scorrere dentro il suo .table-wrap. */
-  .admin-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;}
+  .admin-grid{display:grid;grid-template-columns:1fr;gap:16px;}
   @media (min-width:980px){
-    .admin-grid{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start;}
+    .admin-grid{grid-template-columns:1.6fr 1fr;align-items:start;}
   }
   h1,h2,h3{font-family:'Space Grotesk',sans-serif;margin:0;}
   .eyebrow{
@@ -159,7 +157,6 @@
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);}
   th{color:var(--ink-dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
-  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   .status-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;}
   .dot-wait{background:#8b83ab;}
   .dot-ok{background:var(--green);}
@@ -233,7 +230,6 @@
 <script>
 /* ================== AVVIO ================== */
 (async function boot(){
-  showLoadingUntilReady();
   const restored = await restoreFromUrl();
   if(!restored) renderRoleSelect();
 })();

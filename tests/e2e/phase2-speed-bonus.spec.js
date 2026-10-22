@@ -38,6 +38,7 @@ test('speed bonus is announced before answering and applied to a fast correct an
   await expect(admin.locator('.team-tag', { hasText: 'Team Veloce' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
 
   // Announced BEFORE answering: the team sees the bonus is active up front.
   await expect(team.locator('.pill', { hasText: 'Bonus velocità attivo' })).toBeVisible();
@@ -88,6 +89,7 @@ test('speed bonus does not apply to wrong answers or when disabled', async ({ br
   await expect(admin.locator('.team-tag', { hasText: 'Team Sbagliato' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   const correctIdx = await admin.evaluate(() => getQuestion(1, 0).correctIndex);
   const wrongIdx = (correctIdx + 1) % 4;
   await team.locator('.opt').nth(wrongIdx).click();

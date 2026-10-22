@@ -58,6 +58,7 @@ test('1-round game: end-of-round checkpoint goes straight to "Svela finaliste"',
   await expect(admin.locator('.team-tag', { hasText: 'Solo Team' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toContainText('Domanda 1/4');
 
   // Q1 -> Q2
@@ -107,6 +108,7 @@ test('3-round game: checkpoint text is dynamic and progresses past round 2', asy
   await expect(admin.locator('.team-tag', { hasText: 'Trio Team' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
 
   // Round 1: 3 questions, no mid-checkpoint (list.length < 4), straight to end-of-round-1.
   await expect(admin.locator('.qmeta').first()).toContainText('Domanda 1/3');
