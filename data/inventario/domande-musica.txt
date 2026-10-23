@@ -1,0 +1,48 @@
+# Musica
+f|Chi canta "Albachiara"?|Vasco Rossi|Ligabue|Zucchero|Eros Ramazzotti
+f|Quante corde ha una chitarra classica?|6|4|5|7
+f|Di quale band faceva parte John Lennon?|The Beatles|The Rolling Stones|The Who|Queen
+f|Chi è conosciuto come "il Re del Pop"?|Michael Jackson|Elvis Presley|Prince|Freddie Mercury
+f|In quale città italiana si svolge il Festival della canzone italiana?|Sanremo|Milano|Napoli|Venezia
+f|Chi era il cantante dei Queen?|Freddie Mercury|Brian May|Roger Taylor|David Bowie
+f|Quante sono le note musicali nella scala di do maggiore, senza ripetere il do?|7|8|5|12
+f|Quale strumento suonava principalmente Ludwig van Beethoven?|Pianoforte|Violino|Flauto|Violoncello
+f|Chi è conosciuto come "il Re del Rock and Roll"?|Elvis Presley|Chuck Berry|Little Richard|Jerry Lee Lewis
+f|Quale band italiana ha vinto l'Eurovision 2021 con "Zitti e buoni"?|Måneskin|Negramaro|Pinguini Tattici Nucleari|Il Volo
+f|Chi canta "Nel blu dipinto di blu" (Volare)?|Domenico Modugno|Adriano Celentano|Gianni Morandi|Lucio Dalla
+f|Quale strumento ha i tasti bianchi e neri?|Pianoforte|Arpa|Fisarmonica a bottoni|Xilofono
+f|Chi canta "La solitudine", vincitrice tra le Nuove proposte di Sanremo 1993?|Laura Pausini|Giorgia|Elisa|Irene Grandi
+f|Quale cantante è noto come "il Molleggiato"?|Adriano Celentano|Gianni Morandi|Little Tony|Bobby Solo
+m|Chi ha composto "Le quattro stagioni"?|Antonio Vivaldi|Johann Sebastian Bach|Wolfgang Amadeus Mozart|Giuseppe Verdi
+m|Di quale nazionalità era Wolfgang Amadeus Mozart?|Austriaca|Tedesca|Svizzera|Ungherese
+m|Chi ha composto l'opera "Aida"?|Giuseppe Verdi|Giacomo Puccini|Gioachino Rossini|Gaetano Donizetti
+m|Quale band ha pubblicato l'album "The Dark Side of the Moon"?|Pink Floyd|Led Zeppelin|The Doors|Genesis
+m|Chi canta "Bohemian Rhapsody"?|Queen|Aerosmith|Kiss|Bon Jovi
+m|Quante sinfonie ha composto Beethoven?|9|7|10|12
+m|Chi ha scritto "La donna è mobile"?|Giuseppe Verdi|Giacomo Puccini|Vincenzo Bellini|Pietro Mascagni
+m|Quale cantautore genovese ha scritto "La canzone di Marinella"?|Fabrizio De André|Luigi Tenco|Gino Paoli|Bruno Lauzi
+m|Di che nazionalità era Frédéric Chopin?|Polacca|Francese|Russa|Ungherese
+m|Quale gruppo ha cantato "Smells Like Teen Spirit"?|Nirvana|Pearl Jam|Soundgarden|Foo Fighters
+m|Chi canta "Rolling in the Deep"?|Adele|Amy Winehouse|Duffy|Florence Welch
+m|In quale città ha sede il Teatro alla Scala?|Milano|Venezia|Napoli|Torino
+m|Chi ha composto "Il barbiere di Siviglia"?|Gioachino Rossini|Giuseppe Verdi|Gaetano Donizetti|Vincenzo Bellini
+m|Come si chiama l'album più venduto di Michael Jackson?|Thriller|Bad|Off the Wall|Dangerous
+m|Quale cantante italiano ha inciso "Caruso"?|Lucio Dalla|Lucio Battisti|Andrea Bocelli|Luciano Pavarotti
+m|Chi era il batterista dei Beatles?|Ringo Starr|George Harrison|Paul McCartney|Pete Best
+m|Quale cantautore ha scritto "Il cielo in una stanza"?|Gino Paoli|Luigi Tenco|Sergio Endrigo|Umberto Bindi
+m|Quale band irlandese ha come cantante Bono?|U2|The Cranberries|Thin Lizzy|The Pogues
+m|Chi ha composto l'opera "La Bohème"?|Giacomo Puccini|Giuseppe Verdi|Ruggero Leoncavallo|Pietro Mascagni
+m|Quale cantante ha pubblicato l'album "Purple Rain"?|Prince|Michael Jackson|Stevie Wonder|Lionel Richie
+m|Quanti tasti ha un pianoforte moderno standard?|88|76|92|64
+m|Quale tenore italiano è famoso per "Nessun dorma" ai Mondiali del 1990?|Luciano Pavarotti|Andrea Bocelli|Plácido Domingo|José Carreras
+m|Chi ha cantato "Vita spericolata"?|Vasco Rossi|Ligabue|Gianna Nannini|Piero Pelù
+d|In quale paese è nato Lucio Battisti?|Poggio Bustone|Rieti|Roma|Milano
+d|Chi ha composto il "Bolero"?|Maurice Ravel|Claude Debussy|Erik Satie|Camille Saint-Saëns
+d|Quale compositore divenne sordo e continuò comunque a comporre?|Ludwig van Beethoven|Johann Sebastian Bach|Franz Schubert|Joseph Haydn
+d|Quale opera di Mozart ha per protagonista un seduttore punito?|Don Giovanni|Le nozze di Figaro|Così fan tutte|Il flauto magico
+d|Di quale band era il chitarrista Jimmy Page?|Led Zeppelin|Deep Purple|Black Sabbath|The Who
+d|Chi ha composto "Il trillo del diavolo"?|Giuseppe Tartini|Niccolò Paganini|Arcangelo Corelli|Antonio Vivaldi
+d|Quale compositore è autore della "Cavalleria rusticana"?|Pietro Mascagni|Ruggero Leoncavallo|Umberto Giordano|Francesco Cilea
+d|In che anno si è tenuto il festival di Woodstock?|1969|1967|1971|1965
+d|Quale cantautore ha scritto "Sfiorivano le viole"?|Rino Gaetano|Francesco De Gregori|Antonello Venditti|Edoardo Bennato
+d|Quale violinista genovese era famoso per i suoi "Capricci"?|Niccolò Paganini|Giuseppe Tartini|Arcangelo Corelli|Antonio Vivaldi

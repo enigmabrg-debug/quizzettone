@@ -1,0 +1,49 @@
+# Sport
+f|Quanti giocatori ha in campo una squadra di calcio?|11|10|9|12
+f|In quale sport si usa la racchetta e una pallina gialla su un campo con la rete?|Tennis|Badminton|Squash|Ping pong
+f|Ogni quanti anni si disputano i Giochi olimpici estivi?|4|2|3|5
+f|Di che colore è la maglia del leader del Giro d'Italia?|Rosa|Gialla|Verde|Bianca
+f|Quale nazione ha vinto i Mondiali di calcio del 2006?|Italia|Francia|Germania|Brasile
+f|In quale sport si fa "canestro"?|Pallacanestro|Pallavolo|Pallamano|Rugby
+f|Quanti punti vale un canestro da oltre la linea dei tre punti?|3|2|4|1
+f|Come si chiama il campionato di calcio di massima serie in Italia?|Serie A|Premier League|Liga|Bundesliga
+f|In quale sport si disputa il Tour de France?|Ciclismo|Automobilismo|Atletica|Motociclismo
+f|Qual è la squadra di calcio di Torino con la maglia bianconera?|Juventus|Torino|Pro Vercelli|Novara
+f|Quanti set bisogna vincere per aggiudicarsi una partita di pallavolo maschile?|3|2|4|5
+f|In quale sport si usa la "mazza" e la "base"?|Baseball|Cricket|Hockey|Golf
+f|Come si chiama la scuderia di Formula 1 con il cavallino rampante?|Ferrari|Lamborghini|Maserati|Alfa Romeo
+f|Quale sport pratica Jannik Sinner?|Tennis|Sci|Formula 1|Golf
+m|Quanti anelli ci sono nel simbolo olimpico?|5|4|6|7
+m|In quale città si sono svolte le Olimpiadi estive del 1960?|Roma|Tokyo|Città del Messico|Melbourne
+m|Chi detiene il record del mondo dei 100 metri piani maschili?|Usain Bolt|Carl Lewis|Tyson Gay|Yohan Blake
+m|Quanti minuti dura una partita di calcio regolamentare, esclusi i recuperi?|90|80|100|70
+m|In quale sport è famoso Valentino Rossi?|Motociclismo|Formula 1|Ciclismo|Rally
+m|Quale nazione ha vinto più Mondiali di calcio?|Brasile|Germania|Italia|Argentina
+m|In quale sport si effettua lo "slalom gigante"?|Sci alpino|Snowboard|Sci di fondo|Pattinaggio
+m|Quanti giocatori ha in campo una squadra di pallacanestro?|5|6|7|4
+m|Qual è la distanza di una maratona?|42,195 km|40 km|45 km|38,5 km
+m|In quale torneo di tennis si gioca sull'erba a Londra?|Wimbledon|Roland Garros|US Open|Australian Open
+m|Chi ha vinto il Pallone d'oro nel 2007 giocando nel Milan?|Kaká|Andrea Pirlo|Ronaldinho|Andrij Ševčenko
+m|In quale città ha sede lo stadio Maracanã?|Rio de Janeiro|San Paolo|Buenos Aires|Brasilia
+m|Quanti punti vale una meta nel rugby a 15?|5|3|7|4
+m|Quale pilota tedesco ha vinto 7 titoli mondiali di Formula 1, record condiviso con Lewis Hamilton?|Michael Schumacher|Sebastian Vettel|Ayrton Senna|Alain Prost
+m|Come si chiama la competizione europea per club più importante nel calcio?|Champions League|Europa League|Conference League|Supercoppa
+m|In quale anno l'Italia ha vinto gli Europei di calcio a Wembley?|2021|2016|2012|2000
+m|In quale sport si usa il termine "strike"?|Bowling|Golf|Tennis|Pallavolo
+m|Quale nuotatrice italiana ha vinto l'oro olimpico nei 200 stile libero a Pechino 2008?|Federica Pellegrini|Alessia Filippi|Novella Calligaris|Benedetta Pilato
+m|Ogni quanti anni si disputa la Coppa del Mondo di calcio?|4|2|3|5
+m|Qual è il numero massimo di mazze ammesse in una sacca da golf in gara?|14|10|12|18
+m|In quale città si corre il Gran Premio d'Italia di Formula 1?|Monza|Imola|Mugello|Misano
+m|Quale squadra di calcio è soprannominata "la Lupa"?|Roma|Lazio|Atalanta|Fiorentina
+m|Quanto dura un round nel pugilato professionistico?|3 minuti|2 minuti|5 minuti|4 minuti
+m|Chi è soprannominato "Tomba la bomba"?|Alberto Tomba|Kristian Ghedina|Giorgio Rocca|Dominik Paris
+d|In quale città si sono svolte le prime Olimpiadi moderne nel 1896?|Atene|Parigi|Londra|Olimpia
+d|Chi è il calciatore con più presenze nella storia della Nazionale italiana maschile?|Gianluigi Buffon|Fabio Cannavaro|Paolo Maldini|Daniele De Rossi
+d|Quante buche si giocano in un giro completo di golf?|18|9|12|21
+d|In quale nazione è nato il judo?|Giappone|Cina|Corea del Sud|Thailandia
+d|Chi ha vinto il primo Giro d'Italia nel 1909?|Luigi Ganna|Fausto Coppi|Gino Bartali|Costante Girardengo
+d|Quale ciclista italiano era soprannominato "il Pirata"?|Marco Pantani|Gianni Bugno|Francesco Moser|Felice Gimondi
+d|In quale sport si assegna la Stanley Cup?|Hockey su ghiaccio|Football americano|Baseball|Pallacanestro
+d|Come si chiama la posizione del giocatore che lancia la palla nel baseball?|Lanciatore (pitcher)|Ricevitore (catcher)|Interbase|Esterno
+d|Quale nazionale ha vinto i Mondiali di calcio del 2010?|Spagna|Paesi Bassi|Germania|Italia
+d|Quale scuderia ha vinto il primo campionato costruttori di Formula 1 nel 1958?|Vanwall|Ferrari|Cooper|Maserati

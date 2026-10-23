@@ -1,0 +1,48 @@
+# Videogiochi
+f|Come si chiama l'idraulico più famoso di Nintendo?|Mario|Luigi|Wario|Toad
+f|Di che colore è Sonic?|Blu|Rosso|Verde|Giallo
+f|In quale gioco si costruisce con blocchi cubici e si combattono i Creeper?|Minecraft|Roblox|Terraria|Fortnite
+f|Come si chiama il Pokémon giallo elettrico mascotte della serie?|Pikachu|Raichu|Jigglypuff|Psyduck
+f|Quale azienda produce la console PlayStation?|Sony|Microsoft|Nintendo|Sega
+f|In quale gioco dei pezzi geometrici cadono e bisogna completare le righe?|Tetris|Pac-Man|Space Invaders|Arkanoid
+f|Come si chiama la principessa del Regno dei Funghi?|Peach|Zelda|Daisy|Rosalinda
+f|Quale personaggio giallo mangia puntini in un labirinto inseguito dai fantasmi?|Pac-Man|Q*bert|Kirby|Dig Dug
+f|Quale azienda produce la console Xbox?|Microsoft|Sony|Nintendo|Valve
+f|In quale gioco battle royale si costruiscono strutture e compare un "bus della battaglia"?|Fortnite|PUBG|Apex Legends|Warzone
+f|Come si chiama l'eroe con la tunica verde della saga di "The Legend of Zelda"?|Link|Zelda|Ganon|Navi
+f|Quale serie di giochi ha come protagonisti dei giocatori di calcio con licenze FIFA fino al 2022?|FIFA|PES|Football Manager|Rocket League
+f|Di che colore è il cappello di Luigi, il fratello di Mario?|Verde|Rosso|Blu|Giallo
+f|In quale gioco si catturano creature con le Poké Ball?|Pokémon|Digimon|Yo-kai Watch|Monster Hunter
+m|In che anno è uscita la prima PlayStation in Giappone?|1994|1990|1998|1996
+m|Come si chiama il nemico storico di Mario, una tartaruga gigante?|Bowser|Ganondorf|Dr. Eggman|King K. Rool
+m|Quale casa ha creato la serie "Grand Theft Auto"?|Rockstar Games|Ubisoft|Electronic Arts|Activision
+m|Come si chiama il protagonista della serie "Halo"?|Master Chief|Marcus Fenix|Commander Shepard|Doomguy
+m|In quale città immaginaria è ambientato "GTA V"?|Los Santos|Liberty City|Vice City|San Fierro
+m|Quale console portatile Nintendo del 1989 includeva spesso Tetris?|Game Boy|Nintendo DS|Game Gear|Virtual Boy
+m|Come si chiama il nemico di Sonic?|Dr. Eggman|Bowser|Dr. Wily|Dr. Neo Cortex
+m|Quale saga ha come protagonista l'assassino Ezio Auditore?|Assassin's Creed|Hitman|Dishonored|Prince of Persia
+m|Quale gioco di Nintendo del 2017 ha portato Link in un mondo aperto?|Breath of the Wild|Ocarina of Time|Twilight Princess|Skyward Sword
+m|Come si chiama la cacciatrice di tesori protagonista di "Tomb Raider"?|Lara Croft|Jill Valentine|Samus Aran|Aloy
+m|Quale gioco ha come protagonista un cacciatore di mostri di nome Geralt di Rivia?|The Witcher|Skyrim|Dragon Age|Dark Souls
+m|Quale console Nintendo del 2006 si controllava muovendo il telecomando?|Wii|GameCube|Wii U|Switch
+m|Come si chiama il gioco di simulazione di vita in cui si controllano i "Sims"?|The Sims|SimCity|Second Life|Animal Crossing
+m|In quale gioco si combatte nell'arena di "Summoner's Rift"?|League of Legends|Dota 2|Smite|Heroes of the Storm
+m|Quale società ha sviluppato "Minecraft" originariamente?|Mojang|Microsoft|Valve|Blizzard
+m|Quale personaggio rosa di Nintendo aspira i nemici per copiarne i poteri?|Kirby|Jigglypuff|Yoshi|Toadette
+m|Come si chiama la principessa della serie di Link?|Zelda|Peach|Midna|Impa
+m|Qual è il titolo del primo gioco della serie "Super Mario" per NES del 1985?|Super Mario Bros.|Mario Bros.|Donkey Kong|Super Mario World
+m|In quale gioco online si costruiscono ed esplorano mondi creati dagli utenti, con la valuta Robux?|Roblox|Minecraft|Fortnite|Garry's Mod
+m|Quale casa ha sviluppato "The Last of Us"?|Naughty Dog|Insomniac Games|Guerrilla Games|Santa Monica Studio
+m|Quale gioco sparatutto ha resa famosa la mappa "Dust II"?|Counter-Strike|Call of Duty|Valorant|Rainbow Six Siege
+m|Come si chiama il dinosauro verde amico di Mario?|Yoshi|Rex|Birdo|Dino
+m|Qual è il nome della console Nintendo uscita nel 2017, usabile sia in TV sia portatile?|Switch|Wii U|3DS|Stadia
+d|Come si chiama il creatore di Super Mario e The Legend of Zelda?|Shigeru Miyamoto|Hideo Kojima|Satoru Iwata|Yuji Naka
+d|Quale gioco del 1972 di Atari è considerato il primo successo commerciale dei videogiochi?|Pong|Space Invaders|Asteroids|Breakout
+d|In quale gioco di Hideo Kojima compare Solid Snake?|Metal Gear Solid|Death Stranding|Silent Hill|Resident Evil
+d|Quale Pokémon ha il numero 151 nel Pokédex originale?|Mew|Mewtwo|Dragonite|Celebi
+d|Come si chiama il mondo fantasy di "World of Warcraft"?|Azeroth|Tamriel|Thedas|Hyrule
+d|Quale studio italiano ha sviluppato la serie "Mario + Rabbids"?|Ubisoft Milano|Milestone|Kunos Simulazioni|Storm in a Teacup
+d|In quale anno è uscito in Europa il primo "Super Mario Bros."?|1987|1985|1983|1990
+d|Come si chiama il protagonista silenzioso di "Half-Life"?|Gordon Freeman|Alyx Vance|Chell|Isaac Clarke
+d|Quale gioco di FromSoftware del 2022 è ambientato nell'Interregno?|Elden Ring|Bloodborne|Sekiro|Dark Souls III
+d|Quale studio italiano sviluppa i videogiochi ufficiali di MotoGP?|Milestone|Kunos Simulazioni|Ubisoft Milano|Digital Bros

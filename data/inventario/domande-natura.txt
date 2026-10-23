@@ -1,0 +1,48 @@
+# Natura e Animali
+f|Qual è il mammifero più grande del mondo?|Balenottera azzurra|Elefante africano|Squalo balena|Capodoglio
+f|Quante zampe ha un ragno?|8|6|10|12
+f|Quale animale è considerato il re della savana?|Leone|Elefante|Ghepardo|Rinoceronte
+f|Quale animale produce il miele?|Ape|Vespa|Calabrone|Formica
+f|Di che cosa si nutre principalmente il panda gigante?|Bambù|Eucalipto|Pesce|Bacche
+f|Qual è l'animale terrestre più veloce?|Ghepardo|Leone|Antilope|Cavallo
+f|Quale uccello non può volare ed è simbolo dell'Antartide?|Pinguino|Struzzo|Kiwi|Emù
+f|Come si chiama il cucciolo della mucca?|Vitello|Puledro|Agnello|Capretto
+f|Quante zampe ha un insetto?|6|8|4|10
+f|Quale animale cambia colore per mimetizzarsi ed è un rettile?|Camaleonte|Geco|Iguana|Varano
+f|Di che cosa si nutrono principalmente i koala?|Foglie di eucalipto|Bambù|Insetti|Frutta
+f|Quale animale ha il collo più lungo?|Giraffa|Struzzo|Cammello|Lama
+f|Come si chiama la casa delle api?|Alveare|Formicaio|Nido|Tana
+f|Quale animale è noto per avere la proboscide?|Elefante|Tapiro|Rinoceronte|Ippopotamo
+m|Quanti cuori ha un polpo?|3|1|2|4
+m|Qual è l'uccello più grande del mondo?|Struzzo|Emù|Condor|Albatro
+m|Come si chiama il processo con cui un bruco diventa farfalla?|Metamorfosi|Mutazione|Muta|Germinazione
+m|Quale albero produce le ghiande?|Quercia|Faggio|Castagno|Noce
+m|Qual è il più grande felino del mondo?|Tigre|Leone|Giaguaro|Leopardo
+m|Quale mammifero è capace di volare davvero?|Pipistrello|Scoiattolo volante|Petauro|Colugo
+m|Come si chiamano gli animali che si nutrono sia di piante sia di carne?|Onnivori|Erbivori|Carnivori|Insettivori
+m|Qual è l'animale nazionale dell'Australia raffigurato nello stemma insieme all'emù?|Canguro|Koala|Ornitorinco|Vombato
+m|Quale mammifero depone le uova?|Ornitorinco|Canguro|Riccio|Talpa
+m|Di quale colore è la pelle dell'orso polare sotto il pelo?|Nera|Bianca|Rosa|Grigia
+m|Quale pesce risale i fiumi per deporre le uova?|Salmone|Tonno|Merluzzo|Sardina
+m|Qual è il fiore simbolo dell'Olanda?|Tulipano|Rosa|Girasole|Margherita
+m|Quanti anni può vivere una tartaruga gigante delle Galápagos?|Oltre 100|Circa 20|Circa 40|Circa 60
+m|Come si chiama il piccolo del canguro?|Joey|Wallaby|Cub|Kit
+m|Qual è il serpente più lungo del mondo?|Pitone reticolato|Anaconda verde|Cobra reale|Mamba nero
+m|Quale animale ha le strisce bianche e nere ed è un equide africano?|Zebra|Okapi|Tapiro|Gnu
+m|In quale continente vivono i lemuri allo stato selvatico?|Africa (Madagascar)|Asia|Sud America|Oceania
+m|Quale gas assorbono le piante durante la fotosintesi?|Anidride carbonica|Ossigeno|Azoto|Metano
+m|Come si chiama l'insieme delle piante di un territorio?|Flora|Fauna|Biocenosi|Habitat
+m|Quale uccello è famoso per ripetere le parole umane?|Pappagallo|Corvo|Gazza|Merlo
+m|Qual è l'unico mammifero che non può saltare tra questi?|Elefante|Canguro|Gatto|Cavallo
+m|Quante sono le specie di orsi viventi?|8|4|12|15
+m|Come si chiama la pianta carnivora con foglie a trappola che si chiudono?|Dionea (Venere acchiappamosche)|Drosera|Nepenthes|Sarracenia
+d|Qual è l'albero più alto del mondo per specie?|Sequoia sempreverde|Eucalipto regnans|Abete di Douglas|Baobab
+d|Quanti stomaci (compartimenti) ha lo stomaco di una mucca?|4|2|3|1
+d|Come si chiama il più grande pesce vivente?|Squalo balena|Squalo bianco|Manta|Pesce luna
+d|Quale animale ha il morso più forte tra quelli misurati?|Coccodrillo marino|Squalo bianco|Leone|Iena
+d|Qual è il nome scientifico dell'essere umano?|Homo sapiens|Homo erectus|Homo habilis|Australopithecus
+d|Quale uccello ha l'apertura alare più grande?|Albatro urlatore|Condor delle Ande|Aquila reale|Pellicano
+d|Quanti anni circa vive in media un'ape operaia d'estate?|Poche settimane|Un anno|Tre anni|Cinque anni
+d|Quale albero italiano è famoso per essere uno dei più antichi d'Europa, sull'Etna?|Castagno dei Cento Cavalli|Olivo di Luras|Quercia delle Streghe|Cipresso di San Francesco
+d|Come si chiamano gli animali senza colonna vertebrale?|Invertebrati|Vertebrati|Cordati|Anfibi
+d|Quale mammifero marino è chiamato anche "unicorno del mare"?|Narvalo|Beluga|Dugongo|Tricheco

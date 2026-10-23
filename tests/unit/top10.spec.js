@@ -125,3 +125,39 @@ test('game type filters which questions are drawn', () => {
   assert.deepEqual(drawQuestionsForGame('manche', 5).map(q=>q.id).sort(), ['t1','t2']);
   assert.equal(questionMatchesGameType(quizQ), false);
 });
+
+test('numbers and roman numerals must be typed exactly', () => {
+  const kings = top10BankEntry('k', {pool:'manche', category:'Storia', title:'Re', items:[
+    'Guglielmo I','Guglielmo II','Enrico I','Stefano','Enrico II','Riccardo I','Giovanni','Enrico III','Edoardo I','Edoardo II'].map(name=>({name}))});
+  assert.equal(matchTop10Answer(kings, {}, 'Enrico II').index, 4);
+  assert.equal(matchTop10Answer(kings, {}, 'enrico 2').kind, 'wrong');
+  assert.equal(matchTop10Answer(kings, {}, 'Enrico IV').kind, 'wrong');
+  assert.equal(matchTop10Answer(kings, {}, 'Guglielmo').kind, 'wrong');
+  assert.equal(matchTop10Answer(kings, {}, 'Riccardo II').kind, 'wrong');
+  // Il refuso nel nome resta tollerato se il numero è giusto.
+  assert.equal(matchTop10Answer(kings, {}, 'Ricardo I').index, 5);
+  const years = top10BankEntry('y', {pool:'manche', category:'Sport', title:'Anni', items:
+    ['1934','1938','1982','2006','1990','1968','1970','1994','2021','2000'].map(name=>({name}))});
+  assert.equal(matchTop10Answer(years, {}, '1998').kind, 'wrong');
+  assert.equal(matchTop10Answer(years, {}, '1982').index, 2);
+});
+
+test('a surname alone is not accepted when it names another item too', () => {
+  const q = top10BankEntry('s', {pool:'manche', category:'Sport', title:'Tenniste', items:[
+    'Serena Williams','Venus Williams','Leopard','Snow Leopard','Steffi Graf','Martina Navratilova','Chris Evert','Monica Seles','Justine Henin','Kim Clijsters'].map(name=>({name}))});
+  assert.equal(matchTop10Answer(q, {}, 'Williams').kind, 'wrong');
+  assert.equal(matchTop10Answer(q, {}, 'Serena Williams').index, 0);
+  assert.equal(matchTop10Answer(q, {}, 'Leopard').index, 2);
+  assert.equal(matchTop10Answer(q, {}, 'Snow Leopard').index, 3);
+  assert.equal(matchTop10Answer(q, {}, 'Graf').index, 4);
+});
+
+test('items spelled almost the same need the exact spelling, no typo can cross over', () => {
+  const q = top10BankEntry('e', {pool:'manche', category:'Scienze', title:'Elementi', items:[
+    'Cesio','Bario','Lantanio','Cerio','Titano','Titania','Esagono','Eptagono','Venere','Cerere'].map(name=>({name}))});
+  assert.equal(matchTop10Answer(q, {}, 'cerio').index, 3);
+  assert.equal(matchTop10Answer(q, {}, 'cesio').index, 0);
+  ['cecio','titani','titanio','estagono'].forEach(a => assert.equal(matchTop10Answer(q, {}, a).kind, 'wrong', a));
+  // Lontano da tutte le altre voci il refuso passa ancora.
+  assert.equal(matchTop10Answer(q, {}, 'lantamio').index, 2);
+});

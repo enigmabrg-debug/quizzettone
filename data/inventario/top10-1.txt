@@ -1,0 +1,578 @@
+# Classifiche Top Dieci (1/2)
+# Formato: "## Titolo | pool | Categoria | fonte", poi 10 righe "Nome / alternativa = dato" dalla 1ª alla 10ª.
+
+## I 10 paesi più grandi del mondo per superficie | manche | Geografia | CIA World Factbook, superficie totale
+Russia / Federazione Russa = ≈17,1 milioni di km²
+Canada = ≈9,98 milioni di km²
+Stati Uniti / USA / Stati Uniti d America / America = ≈9,83 milioni di km²
+Cina = ≈9,60 milioni di km²
+Brasile = ≈8,52 milioni di km²
+Australia = ≈7,74 milioni di km²
+India = ≈3,29 milioni di km²
+Argentina = ≈2,78 milioni di km²
+Kazakistan / Kazakhstan = ≈2,72 milioni di km²
+Algeria = ≈2,38 milioni di km²
+
+## Le 10 isole più grandi del mondo | manche | Geografia | Superficie, esclusa l'Australia (continente)
+Groenlandia = ≈2.130.800 km²
+Nuova Guinea = ≈785.750 km²
+Borneo = ≈748.170 km²
+Madagascar = ≈587.040 km²
+Isola di Baffin / Baffin = ≈507.450 km²
+Sumatra = ≈443.070 km²
+Honshu / Honshū = ≈227.960 km²
+Isola Victoria / Victoria = ≈217.290 km²
+Gran Bretagna = ≈209.330 km²
+Isola di Ellesmere / Ellesmere = ≈196.240 km²
+
+## I 10 laghi più grandi del mondo per superficie | manche | Geografia | Superficie attuale
+Mar Caspio / Caspio = ≈371.000 km²
+Lago Superiore / Superiore = ≈82.100 km²
+Lago Vittoria / Vittoria = ≈68.870 km²
+Lago Huron / Huron = ≈59.600 km²
+Lago Michigan / Michigan = ≈58.000 km²
+Lago Tanganica / Tanganica / Tanganyika = ≈32.600 km²
+Lago Bajkal / Bajkal / Baikal = ≈31.500 km²
+Grande Lago degli Orsi / Lago degli Orsi = ≈31.000 km²
+Lago Malawi / Malawi / Lago Niassa = ≈29.500 km²
+Grande Lago degli Schiavi / Lago degli Schiavi = ≈27.000 km²
+
+## Le 10 regioni italiane meno estese (1° = la più piccola) | manche | Geografia | Superficie, ISTAT (valori arrotondati)
+Valle d'Aosta / Val d Aosta = ≈3.260 km²
+Molise = ≈4.460 km²
+Liguria = ≈5.420 km²
+Friuli-Venezia Giulia / Friuli = ≈7.930 km²
+Umbria = ≈8.460 km²
+Marche = ≈9.400 km²
+Basilicata / Lucania = ≈10.070 km²
+Abruzzo = ≈10.830 km²
+Trentino-Alto Adige / Trentino / Alto Adige = ≈13.600 km²
+Campania = ≈13.670 km²
+
+## I 10 stati USA più estesi | manche | Geografia | Superficie totale, U.S. Census Bureau
+Alaska = ≈1.723.000 km²
+Texas = ≈695.700 km²
+California = ≈424.000 km²
+Montana = ≈380.800 km²
+Nuovo Messico / New Mexico = ≈314.900 km²
+Arizona = ≈295.200 km²
+Nevada = ≈286.400 km²
+Colorado = ≈269.600 km²
+Oregon = ≈254.800 km²
+Wyoming = ≈253.300 km²
+
+## Le 10 capitali europee più a nord | manche | Geografia | Latitudine delle capitali degli stati sovrani
+Reykjavík / Reykjavik = 64,1° N
+Helsinki = 60,2° N
+Oslo = 59,9° N
+Tallinn = 59,4° N
+Stoccolma / Stockholm = 59,3° N
+Riga = 56,9° N
+Mosca = 55,8° N
+Copenaghen / Copenhagen = 55,7° N
+Vilnius = 54,7° N
+Minsk = 53,9° N
+
+## I 10 stati più piccoli del mondo | manche | Geografia | Superficie degli stati sovrani
+Città del Vaticano / Vaticano = 0,44 km²
+Principato di Monaco / Monaco = 2,02 km²
+Nauru = 21 km²
+Tuvalu = 26 km²
+San Marino = 61 km²
+Liechtenstein = 160 km²
+Isole Marshall / Marshall = 181 km²
+Saint Kitts e Nevis / Saint Kitts = 261 km²
+Maldive = 298 km²
+Malta = 316 km²
+
+## I 10 stati USA più popolosi | manche | Geografia | Stime U.S. Census Bureau 2023
+California = ≈39,0 milioni
+Texas = ≈30,5 milioni
+Florida = ≈22,6 milioni
+New York / Stato di New York = ≈19,6 milioni
+Pennsylvania = ≈13,0 milioni
+Illinois = ≈12,5 milioni
+Ohio = ≈11,8 milioni
+Georgia = ≈11,0 milioni
+Carolina del Nord / North Carolina = ≈10,8 milioni
+Michigan = ≈10,0 milioni
+
+## I 10 paesi più grandi dell'Africa | manche | Geografia | Superficie totale
+Algeria = ≈2,38 milioni di km²
+Repubblica Democratica del Congo / RD Congo / Congo = ≈2,34 milioni di km²
+Sudan = ≈1,86 milioni di km²
+Libia = ≈1,76 milioni di km²
+Ciad = ≈1,28 milioni di km²
+Niger = ≈1,27 milioni di km²
+Angola = ≈1,25 milioni di km²
+Mali = ≈1,24 milioni di km²
+Sudafrica = ≈1,22 milioni di km²
+Etiopia = ≈1,10 milioni di km²
+
+## I 10 paesi più grandi del Sud America | manche | Geografia | Superficie totale
+Brasile = ≈8,52 milioni di km²
+Argentina = ≈2,78 milioni di km²
+Perù / Peru = ≈1,29 milioni di km²
+Colombia = ≈1,14 milioni di km²
+Bolivia = ≈1,10 milioni di km²
+Venezuela = ≈916.000 km²
+Cile = ≈756.000 km²
+Paraguay = ≈407.000 km²
+Ecuador = ≈284.000 km²
+Guyana = ≈215.000 km²
+
+## I 10 capoluoghi di regione più a nord | manche | Geografia | Latitudine dei capoluoghi di regione
+Trento = 46,07° N
+Aosta = 45,74° N
+Trieste = 45,65° N
+Milano = 45,46° N
+Venezia = 45,44° N
+Torino = 45,07° N
+Bologna = 44,49° N
+Genova = 44,41° N
+Firenze = 43,77° N
+Ancona = 43,62° N
+
+## Gli ultimi 10 stati entrati negli Stati Uniti (1° = il più recente) | finale | Geografia | Data di ammissione nell'Unione
+Hawaii = 21 agosto 1959
+Alaska = 3 gennaio 1959
+Arizona = 14 febbraio 1912
+Nuovo Messico / New Mexico = 6 gennaio 1912
+Oklahoma = 16 novembre 1907
+Utah = 4 gennaio 1896
+Wyoming = 10 luglio 1890
+Idaho = 3 luglio 1890
+Washington / Stato di Washington = 11 novembre 1889
+Montana = 8 novembre 1889
+
+## I 10 stati USA più piccoli (1° = il più piccolo) | finale | Geografia | Superficie totale, U.S. Census Bureau
+Rhode Island = ≈4.000 km²
+Delaware = ≈6.450 km²
+Connecticut = ≈14.360 km²
+New Jersey = ≈22.590 km²
+New Hampshire = ≈24.210 km²
+Vermont = ≈24.910 km²
+Massachusetts = ≈27.340 km²
+Hawaii = ≈28.310 km²
+Maryland = ≈32.130 km²
+Virginia Occidentale / West Virginia = ≈62.760 km²
+
+## I primi 10 imperatori romani | manche | Storia | In ordine di salita al trono
+Augusto / Ottaviano / Ottaviano Augusto = 27 a.C.
+Tiberio = 14 d.C.
+Caligola = 37 d.C.
+Claudio = 41 d.C.
+Nerone = 54 d.C.
+Galba = 68 d.C.
+Otone = 69 d.C.
+Vitellio = 69 d.C.
+Vespasiano = 69 d.C.
+Tito = 79 d.C.
+
+## I primi 10 presidenti degli Stati Uniti | manche | Storia | In ordine di mandato
+George Washington / Washington = 1789
+John Adams = 1797
+Thomas Jefferson / Jefferson = 1801
+James Madison / Madison = 1809
+James Monroe / Monroe = 1817
+John Quincy Adams / Quincy Adams = 1825
+Andrew Jackson / Jackson = 1829
+Martin Van Buren / Van Buren = 1837
+William Henry Harrison / Harrison = 1841
+John Tyler / Tyler = 1841
+
+## I presidenti degli Stati Uniti dall'11° al 20° | finale | Storia | In ordine di mandato (1° = 11° presidente)
+James K. Polk / Polk = 1845
+Zachary Taylor / Taylor = 1849
+Millard Fillmore / Fillmore = 1850
+Franklin Pierce / Pierce = 1853
+James Buchanan / Buchanan = 1857
+Abraham Lincoln / Lincoln = 1861
+Andrew Johnson = 1865
+Ulysses S. Grant / Grant = 1869
+Rutherford B. Hayes / Hayes = 1877
+James A. Garfield / Garfield = 1881
+
+## I presidenti degli Stati Uniti dal 26° al 35° | manche | Storia | In ordine di mandato (1° = 26° presidente)
+Theodore Roosevelt / Teddy Roosevelt = 1901
+William H. Taft / Taft = 1909
+Woodrow Wilson / Wilson = 1913
+Warren G. Harding / Harding = 1921
+Calvin Coolidge / Coolidge = 1923
+Herbert Hoover / Hoover = 1929
+Franklin Delano Roosevelt / Franklin Roosevelt / FDR = 1933
+Harry S. Truman / Truman = 1945
+Dwight D. Eisenhower / Eisenhower = 1953
+John F. Kennedy / Kennedy / JFK = 1961
+
+## I presidenti degli Stati Uniti dal 36° al 45° | manche | Storia | In ordine di mandato (1° = 36° presidente)
+Lyndon B. Johnson / Lyndon Johnson = 1963
+Richard Nixon / Nixon = 1969
+Gerald Ford / Ford = 1974
+Jimmy Carter / Carter = 1977
+Ronald Reagan / Reagan = 1981
+George H. W. Bush / Bush padre = 1989
+Bill Clinton / Clinton = 1993
+George W. Bush / Bush figlio = 2001
+Barack Obama / Obama = 2009
+Donald Trump / Trump = 2017
+
+## Gli ultimi 10 papi (1° = il più recente) | manche | Storia | Anno di elezione
+Leone XIV = 2025
+Francesco / Papa Francesco = 2013
+Benedetto XVI = 2005
+Giovanni Paolo II = 1978
+Giovanni Paolo I = 1978
+Paolo VI = 1963
+Giovanni XXIII = 1958
+Pio XII = 1939
+Pio XI = 1922
+Benedetto XV = 1914
+
+## I papi dall'11° al 20° più recente | finale | Storia | Anno di elezione (1° = Pio X)
+Pio X = 1903
+Leone XIII = 1878
+Pio IX = 1846
+Gregorio XVI = 1831
+Pio VIII = 1829
+Leone XII = 1823
+Pio VII = 1800
+Pio VI = 1775
+Clemente XIV = 1769
+Clemente XIII = 1758
+
+## I primi 10 re d'Inghilterra dopo la conquista normanna | finale | Storia | In ordine di regno, dal 1066
+Guglielmo I / Guglielmo il Conquistatore = 1066
+Guglielmo II / Guglielmo il Rosso = 1087
+Enrico I = 1100
+Stefano / Stefano di Blois = 1135
+Enrico II = 1154
+Riccardo I / Riccardo Cuor di Leone = 1189
+Giovanni / Giovanni Senzaterra = 1199
+Enrico III = 1216
+Edoardo I = 1272
+Edoardo II = 1307
+
+## I re d'Inghilterra dall'11° al 20° dopo il 1066 | finale | Storia | In ordine di salita al trono (1° = Edoardo III)
+Edoardo III = 1327
+Riccardo II = 1377
+Enrico IV = 1399
+Enrico V = 1413
+Enrico VI = 1422
+Edoardo IV = 1461
+Edoardo V = 1483
+Riccardo III = 1483
+Enrico VII = 1485
+Enrico VIII = 1509
+
+## Gli ultimi 10 sovrani del Regno Unito (1° = il più recente) | manche | Storia | Anno di salita al trono
+Carlo III = 2022
+Elisabetta II = 1952
+Giorgio VI = 1936
+Edoardo VIII = 1936
+Giorgio V = 1910
+Edoardo VII = 1901
+Vittoria / Regina Vittoria = 1837
+Guglielmo IV = 1830
+Giorgio IV = 1820
+Giorgio III = 1760
+
+## I cancellieri della Germania dal 1949 | manche | Storia | In ordine di mandato
+Konrad Adenauer / Adenauer = 1949
+Ludwig Erhard / Erhard = 1963
+Kurt Georg Kiesinger / Kiesinger = 1966
+Willy Brandt / Brandt = 1969
+Helmut Schmidt / Schmidt = 1974
+Helmut Kohl / Kohl = 1982
+Gerhard Schröder / Schroder / Schroeder = 1998
+Angela Merkel / Merkel = 2005
+Olaf Scholz / Scholz = 2021
+Friedrich Merz / Merz = 2025
+
+## Gli ultimi 10 primi ministri del Regno Unito (1° = il più recente) | manche | Storia | Anno di inizio mandato
+Keir Starmer / Starmer = 2024
+Rishi Sunak / Sunak = 2022
+Liz Truss / Truss = 2022
+Boris Johnson / Johnson = 2019
+Theresa May / May = 2016
+David Cameron / Cameron = 2010
+Gordon Brown / Brown = 2007
+Tony Blair / Blair = 1997
+John Major / Major = 1990
+Margaret Thatcher / Thatcher = 1979
+
+## I primi 10 stati a ratificare la Costituzione degli Stati Uniti | finale | Storia | Data di ratifica
+Delaware = 7 dicembre 1787
+Pennsylvania = 12 dicembre 1787
+New Jersey = 18 dicembre 1787
+Georgia = 2 gennaio 1788
+Connecticut = 9 gennaio 1788
+Massachusetts = 6 febbraio 1788
+Maryland = 28 aprile 1788
+Carolina del Sud / South Carolina = 23 maggio 1788
+New Hampshire = 21 giugno 1788
+Virginia = 25 giugno 1788
+
+## I primi 10 paesi ad aver ospitato i Mondiali di calcio | manche | Sport | Edizioni dal 1930
+Uruguay = 1930
+Italia = 1934
+Francia = 1938
+Brasile = 1950
+Svizzera = 1954
+Svezia = 1958
+Cile = 1962
+Inghilterra = 1966
+Messico = 1970
+Germania Ovest / Germania / RFT = 1974
+
+## Gli ultimi 10 paesi ad aver ospitato i Mondiali di calcio (1° = il più recente) | manche | Sport | Edizioni fino al 2022
+Qatar = 2022
+Russia = 2018
+Brasile = 2014
+Sudafrica = 2010
+Germania = 2006
+Corea del Sud e Giappone / Corea e Giappone / Giappone e Corea / Corea del Sud / Giappone = 2002
+Francia = 1998
+Stati Uniti / USA / America = 1994
+Italia = 1990
+Messico = 1986
+
+## Le città delle Olimpiadi estive dal 1988 al 2024 (1° = la più recente) | manche | Sport | Edizioni dei Giochi olimpici estivi
+Parigi = 2024
+Tokyo = 2020 (giocata nel 2021)
+Rio de Janeiro / Rio = 2016
+Londra = 2012
+Pechino = 2008
+Atene = 2004
+Sydney = 2000
+Atlanta = 1996
+Barcellona = 1992
+Seul / Seoul = 1988
+
+## Le città delle Olimpiadi estive dal 1948 al 1984 | manche | Sport | In ordine di edizione (1° = 1948)
+Londra = 1948
+Helsinki = 1952
+Melbourne = 1956
+Roma = 1960
+Tokyo = 1964
+Città del Messico / Messico = 1968
+Monaco di Baviera / Monaco = 1972
+Montréal / Montreal = 1976
+Mosca = 1980
+Los Angeles = 1984
+
+## Le città delle Olimpiadi invernali dal 1992 al 2026 (1° = la più recente) | manche | Sport | Edizioni dei Giochi olimpici invernali
+Milano-Cortina / Milano Cortina / Milano / Cortina = 2026
+Pechino = 2022
+Pyeongchang / PyeongChang = 2018
+Soči / Sochi / Soci = 2014
+Vancouver = 2010
+Torino = 2006
+Salt Lake City = 2002
+Nagano = 1998
+Lillehammer = 1994
+Albertville = 1992
+
+## I vincitori del Giro d'Italia dal 2015 al 2024 (1° = 2024) | manche | Sport | Albo d'oro del Giro d'Italia
+Tadej Pogačar / Pogacar = 2024
+Primož Roglič / Roglic = 2023
+Jai Hindley / Hindley = 2022
+Egan Bernal / Bernal = 2021
+Tao Geoghegan Hart / Geoghegan Hart = 2020
+Richard Carapaz / Carapaz = 2019
+Chris Froome / Froome = 2018
+Tom Dumoulin / Dumoulin = 2017
+Vincenzo Nibali / Nibali = 2016
+Alberto Contador / Contador = 2015
+
+## I primi 10 elementi dall'11 al 20 della tavola periodica | manche | Scienze | Ordine per numero atomico (1° = Z 11)
+Sodio / Na = Z = 11
+Magnesio / Mg = Z = 12
+Alluminio / Al = Z = 13
+Silicio / Si = Z = 14
+Fosforo / P = Z = 15
+Zolfo / S = Z = 16
+Cloro / Cl = Z = 17
+Argon / Ar = Z = 18
+Potassio / K = Z = 19
+Calcio / Ca = Z = 20
+
+## Gli elementi dal 21 al 30 della tavola periodica | finale | Scienze | Ordine per numero atomico (1° = Z 21)
+Scandio / Sc = Z = 21
+Titanio / Ti = Z = 22
+Vanadio / V = Z = 23
+Cromo / Cr = Z = 24
+Manganese / Mn = Z = 25
+Ferro / Fe = Z = 26
+Cobalto / Co = Z = 27
+Nichel / Ni / Nickel = Z = 28
+Rame / Cu = Z = 29
+Zinco / Zn = Z = 30
+
+## Gli elementi dal 31 al 40 della tavola periodica | finale | Scienze | Ordine per numero atomico (1° = Z 31)
+Gallio / Ga = Z = 31
+Germanio / Ge = Z = 32
+Arsenico / As = Z = 33
+Selenio / Se = Z = 34
+Bromo / Br = Z = 35
+Kripton / Kr / Cripto = Z = 36
+Rubidio / Rb = Z = 37
+Stronzio / Sr = Z = 38
+Ittrio / Y = Z = 39
+Zirconio / Zr = Z = 40
+
+## Gli elementi dal 41 al 50 della tavola periodica | finale | Scienze | Ordine per numero atomico (1° = Z 41)
+Niobio / Nb = Z = 41
+Molibdeno / Mo = Z = 42
+Tecnezio / Tc = Z = 43
+Rutenio / Ru = Z = 44
+Rodio / Rh = Z = 45
+Palladio / Pd = Z = 46
+Argento / Ag = Z = 47
+Cadmio / Cd = Z = 48
+Indio / In = Z = 49
+Stagno / Sn = Z = 50
+
+## Gli elementi dal 51 al 60 della tavola periodica | finale | Scienze | Ordine per numero atomico (1° = Z 51)
+Antimonio / Sb = Z = 51
+Tellurio / Te = Z = 52
+Iodio / I = Z = 53
+Xeno / Xe / Xenon = Z = 54
+Cesio / Cs = Z = 55
+Bario / Ba = Z = 56
+Lantanio / La = Z = 57
+Cerio / Ce = Z = 58
+Praseodimio / Pr = Z = 59
+Neodimio / Nd = Z = 60
+
+## I 10 satelliti naturali più grandi del Sistema solare | manche | Scienze | Diametro medio
+Ganimede = 5.268 km
+Titano = 5.150 km
+Callisto = 4.821 km
+Io = 3.643 km
+Luna = 3.475 km
+Europa = 3.122 km
+Tritone = 2.707 km
+Titania = 1.578 km
+Rea = 1.527 km
+Oberon = 1.523 km
+
+## I 10 corpi più grandi del Sistema solare tra pianeti e pianeti nani | manche | Scienze | Diametro equatoriale
+Giove = 139.820 km
+Saturno = 116.460 km
+Urano = 50.724 km
+Nettuno = 49.244 km
+Terra = 12.742 km
+Venere = 12.104 km
+Marte = 6.779 km
+Mercurio = 4.879 km
+Plutone = 2.377 km
+Eris = 2.326 km
+
+## Pianeti e pianeti nani in ordine di distanza dal Sole, fino a Plutone | manche | Scienze | Distanza media dal Sole
+Mercurio = 0,39 UA
+Venere = 0,72 UA
+Terra = 1 UA
+Marte = 1,52 UA
+Cerere = 2,77 UA
+Giove = 5,20 UA
+Saturno = 9,58 UA
+Urano = 19,2 UA
+Nettuno = 30,1 UA
+Plutone = 39,5 UA
+
+## Le 10 lune più grandi di Saturno | finale | Scienze | Diametro medio
+Titano = 5.150 km
+Rea = 1.527 km
+Giapeto = 1.469 km
+Dione = 1.123 km
+Teti = 1.062 km
+Encelado = 504 km
+Mimas = 396 km
+Iperione = 270 km
+Febe = 213 km
+Giano = 179 km
+
+## La scala di Mohs (1° = il minerale più tenero) | manche | Scienze | Scala di durezza di Mohs
+Talco = Durezza 1
+Gesso = Durezza 2
+Calcite = Durezza 3
+Fluorite = Durezza 4
+Apatite = Durezza 5
+Ortoclasio / Feldspato / Ortoclase = Durezza 6
+Quarzo = Durezza 7
+Topazio = Durezza 8
+Corindone = Durezza 9
+Diamante = Durezza 10
+
+## I 10 elementi più abbondanti nella crosta terrestre | finale | Scienze | Percentuale in massa, CRC Handbook
+Ossigeno / O = ≈46%
+Silicio / Si = ≈28%
+Alluminio / Al = ≈8,2%
+Ferro / Fe = ≈5,6%
+Calcio / Ca = ≈4,2%
+Sodio / Na = ≈2,4%
+Magnesio / Mg = ≈2,3%
+Potassio / K = ≈2,1%
+Titanio / Ti = ≈0,57%
+Idrogeno / H = ≈0,14%
+
+## I prefissi del Sistema internazionale per i multipli | manche | Scienze | In ordine crescente da 10¹
+Deca / da = 10¹
+Etto / h = 10²
+Chilo / Kilo / k = 10³
+Mega / M = 10⁶
+Giga / G = 10⁹
+Tera / T = 10¹²
+Peta / P = 10¹⁵
+Exa / E = 10¹⁸
+Zetta / Z = 10²¹
+Yotta / Y = 10²⁴
+
+## I prefissi del Sistema internazionale per i sottomultipli | manche | Scienze | In ordine decrescente da 10⁻¹
+Deci / d = 10⁻¹
+Centi / c = 10⁻²
+Milli / m = 10⁻³
+Micro = 10⁻⁶
+Nano / n = 10⁻⁹
+Pico / p = 10⁻¹²
+Femto / f = 10⁻¹⁵
+Atto / a = 10⁻¹⁸
+Zepto / z = 10⁻²¹
+Yocto / y = 10⁻²⁴
+
+## I periodi geologici del Fanerozoico dal più antico | finale | Scienze | Commissione internazionale di stratigrafia, inizio del periodo
+Cambriano = ≈539 milioni di anni fa
+Ordoviciano = ≈485 milioni di anni fa
+Siluriano = ≈444 milioni di anni fa
+Devoniano = ≈419 milioni di anni fa
+Carbonifero = ≈359 milioni di anni fa
+Permiano = ≈299 milioni di anni fa
+Triassico = ≈252 milioni di anni fa
+Giurassico = ≈201 milioni di anni fa
+Cretaceo / Cretacico = ≈145 milioni di anni fa
+Paleogene = ≈66 milioni di anni fa
+
+## I 10 generi di nubi | manche | Natura e Animali | Atlante internazionale delle nubi (OMM), ordine ufficiale
+Cirro / Cirri = Nube alta
+Cirrocumulo / Cirrocumuli = Nube alta
+Cirrostrato / Cirrostrati = Nube alta
+Altocumulo / Altocumuli = Nube media
+Altostrato / Altostrati = Nube media
+Nembostrato / Nembostrati = Nube media
+Stratocumulo / Stratocumuli = Nube bassa
+Strato / Strati = Nube bassa
+Cumulo / Cumuli = Sviluppo verticale
+Cumulonembo / Cumulonembi = Sviluppo verticale
+
+## La scala Beaufort del vento, dal grado 1 al 10 | manche | Natura e Animali | Denominazioni italiane della scala Beaufort
+Bava di vento = Grado 1
+Brezza leggera = Grado 2
+Brezza tesa = Grado 3
+Vento moderato = Grado 4
+Vento teso = Grado 5
+Vento fresco = Grado 6
+Vento forte = Grado 7
+Burrasca moderata = Grado 8
+Burrasca forte = Grado 9
+Tempesta = Grado 10

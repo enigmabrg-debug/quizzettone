@@ -137,23 +137,52 @@ function editDistance(a, b){
   return prev[b.length];
 }
 function top10Tolerance(len){ return len<=4 ? 0 : len<=7 ? 1 : 2; }
-function top10Candidates(item){
-  const out = [item.name, ...item.alts].map(normalizeTop10Text).filter(Boolean);
-  // Il cognome da solo vale come risposta ("Pertini" per "Sandro Pertini").
+function top10Surname(item){
   const words = normalizeTop10Text(item.name).split(' ');
-  if(words.length>1 && words[words.length-1].length>=4) out.push(words[words.length-1]);
+  return words.length>1 && words[words.length-1].length>=4 ? words[words.length-1] : null;
+}
+function top10Candidates(item, items){
+  const out = [item.name, ...item.alts].map(normalizeTop10Text).filter(Boolean);
+  // Il cognome da solo vale come risposta ("Pertini" per "Sandro Pertini"),
+  // ma non se è anche il nome di un'altra voce ("Leopard" e "Snow Leopard")
+  // o il cognome di un'altra voce (Venus e Serena Williams).
+  const surname = top10Surname(item);
+  const clash = surname && (items||[]).some(o=> o!==item
+    && (top10Surname(o)===surname || [o.name, ...o.alts].some(n=>normalizeTop10Text(n)===surname)));
+  if(surname && !clash) out.push(surname);
   return out;
 }
+/* Numeri e numeri romani devono essere scritti esatti: l'errore di battitura
+   tollerato non deve trasformare "Enrico II" in "Enrico IV" o "1990" in
+   "1998". Le parole italiane brevi che sembrano numeri romani non contano. */
+const TOP10_ROMAN = /^(?=[mdclxvi])m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/;
+const TOP10_NOT_ROMAN = new Set(['di','ci','mi','li','dci','mix','mic','dim','lim','vim']);
+function top10Numerals(t){
+  return t.split(' ').filter(w=> /^\d+$/.test(w) || (TOP10_ROMAN.test(w) && !TOP10_NOT_ROMAN.has(w))).join(' ');
+}
 /* {kind:'ok'|'dup'|'wrong', index}: 'dup' = voce già scoperta. A parità di
-   distanza vince una voce ancora da scoprire. */
+   distanza vince una voce ancora da scoprire.
+   Quando due voci si scrivono quasi uguali (Cerio e Cesio, Titano e Titania)
+   la tolleranza si restringe finché nessun errore di battitura può stare a
+   metà strada tra le due: in quel caso bisogna scrivere la voce esatta. */
 function matchTop10Answer(q, found, text){
   const answer = normalizeTop10Text(text);
   if(!answer) return {kind:'wrong', index:null};
+  const answerNumerals = top10Numerals(answer);
+  const items = top10Items(q);
+  const cands = items.map(item=>top10Candidates(item, items));
   let best = null;
-  top10Items(q).forEach((item, index)=>{
-    top10Candidates(item).forEach(c=>{
+  items.forEach((item, index)=>{
+    cands[index].forEach(c=>{
       const d = editDistance(answer, c);
-      if(d > top10Tolerance(c.length)) return;
+      let tol = top10Tolerance(c.length);
+      if(d > tol) return;
+      cands.forEach((others, j)=>{
+        if(j===index || !tol) return;
+        others.forEach(o=>{ tol = Math.min(tol, Math.floor((editDistance(c, o)-1)/2)); });
+      });
+      if(d > Math.max(0, tol)) return;
+      if(d>0 && top10Numerals(c)!==answerNumerals) return;
       const isFound = !!top10FoundAt(found, index);
       if(!best || d < best.d || (d===best.d && best.isFound && !isFound)) best = {d, index, isFound};
     });
@@ -1461,6 +1490,48 @@ async function bulkAddQuestions(list){
   await db.ref(DB_ROOT).update(updates);
 }
 
+/* Inventario pronto (data/inventario.json, generato da
+   scripts/build-inventario.js): 1000 domande e 100 classifiche Top Dieci.
+   Si importa più volte senza doppioni: salta le voci il cui id è già nel
+   mazzo e quelle con lo stesso testo (o titolo) di una domanda esistente,
+   comprese quelle scritte a mano. Le voci importate mantengono l'id
+   dell'inventario, così un secondo import le riconosce subito. */
+const INVENTORY_URL = 'data/inventario.json';
+function inventoryTextKey(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g, ' '); }
+function planInventoryImport(data, bank){
+  const existing = Object.values(bank||{});
+  const ids = new Set(existing.map(q=>q.id));
+  const texts = new Set(existing.map(q=> inventoryTextKey(q.answerType==='top10' ? (q.top10 && q.top10.title) : q.question)));
+  const entries = [];
+  let skipped = 0;
+  const take = (id, text, entry)=>{
+    const k = inventoryTextKey(text);
+    if(ids.has(id) || texts.has(k)){ skipped++; return; }
+    ids.add(id); texts.add(k); entries.push(entry);
+  };
+  ((data && data.questions) || []).forEach(q=> take(q.id, q.question, withQuestionDefaults({
+    id:q.id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex,
+    difficulty:q.difficulty, adminNote:null, audioUrl:null, lastUsedAt:null
+  })));
+  ((data && data.top10) || []).forEach(t=> take(t.id, t.title, top10BankEntry(t.id, t)));
+  return {
+    entries, skipped,
+    quiz: entries.filter(e=>e.answerType!=='top10').length,
+    top10: entries.filter(e=>e.answerType==='top10').length
+  };
+}
+async function importInventory(){
+  const res = await fetch(INVENTORY_URL, {cache:'no-cache'});
+  if(!res.ok) throw new Error('inventario non trovato ('+res.status+')');
+  const plan = planInventoryImport(await res.json(), questionBank);
+  if(plan.entries.length){
+    const updates = {};
+    plan.entries.forEach(e=>{ updates[questionBankPath(e.id)] = e; });
+    await db.ref(DB_ROOT).update(updates);
+  }
+  return plan;
+}
+
 /* ================== EFFETTI SONORI (Firebase, persistono tra le partite) ================== */
 function newEffectId(){ return 'fx_' + Math.random().toString(36).slice(2,10); }
 async function addEffect(name, url){
@@ -1699,6 +1770,7 @@ if(typeof module !== 'undefined' && module.exports){
     TOP10_SEED, DEFAULT_TOP10_CONFIG, isValidTop10, top10Items, normalizeTop10Text, matchTop10Answer,
     top10TeamPoints, top10BoardDefaults, top10CurrentTeam, top10FoundAt, parseTop10ItemLine, top10ItemLine, isAnswerCorrect,
     parseBulkQuestions, questionMatchesGameType, drawQuestionsForGame, drawTiebreakCandidates, top10BankEntry,
+    planInventoryImport, CATEGORIES,
     __setTestState: (s)=>{ state = s; },
     __setTestQuestionBank: (qb)=>{ questionBank = qb; },
     __setTestGameQuestions: (gq)=>{ gameQuestions = gq; },

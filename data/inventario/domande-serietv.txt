@@ -1,0 +1,48 @@
+# Serie TV
+f|In quale serie compaiono i draghi di Daenerys Targaryen?|Il Trono di Spade|The Witcher|Vikings|The Last Kingdom
+f|Come si chiama il professore di chimica protagonista di "Breaking Bad"?|Walter White|Jesse Pinkman|Saul Goodman|Hank Schrader
+f|In quale città è ambientata la serie "Friends"?|New York|Los Angeles|Chicago|Boston
+f|Come si chiama la famiglia gialla protagonista della serie animata di Springfield?|Simpson|Griffin|Smith|Belcher
+f|In quale serie i ragazzi di Hawkins affrontano il "Sottosopra"?|Stranger Things|Dark|The OA|Locke & Key
+f|Chi interpreta Sherlock Holmes nella serie BBC "Sherlock"?|Benedict Cumberbatch|Martin Freeman|Robert Downey Jr.|Tom Hiddleston
+f|Quale serie spagnola racconta una rapina alla Zecca di Madrid?|La casa di carta|Élite|Vis a vis|Narcos
+f|Come si chiama il bar in cui si ritrovano i protagonisti di "Friends"?|Central Perk|MacLaren's|Monk's Café|Luke's Diner
+f|Quale serie coreana di Netflix ha come gioco "Un, due, tre, stella"?|Squid Game|Alice in Borderland|Kingdom|Sweet Home
+f|In quale serie compare il commissario Montalbano?|Il commissario Montalbano|Don Matteo|Il capitano Maria|Rocco Schiavone
+f|Come si chiama il prete detective interpretato da Terence Hill?|Don Matteo|Padre Brown|Don Camillo|Padre Pio
+f|In quale serie lavorano i medici del Seattle Grace Hospital?|Grey's Anatomy|Dr. House|ER - Medici in prima linea|Scrubs
+f|Chi è il protagonista di "Dr. House"?|Gregory House|James Wilson|Derek Shepherd|John Carter
+f|Quale serie racconta la vita della regina Elisabetta II?|The Crown|Victoria|Downton Abbey|The Tudors
+m|In quale città è ambientata "Gomorra - La serie"?|Napoli|Roma|Palermo|Bari
+m|In quale casata è cresciuto Jon Snow ne "Il Trono di Spade"?|Stark|Lannister|Baratheon|Tyrell
+m|Quale serie ha come protagonista un gruppo di sopravvissuti agli zombie guidato da Rick Grimes?|The Walking Dead|Z Nation|Fear the Walking Dead|The Last of Us
+m|In "La casa di carta", come si fa chiamare la mente della banda?|Il Professore|Berlino|Tokyo|Il Dottore
+m|Quale serie italiana racconta la banda della Magliana a Roma?|Romanzo criminale - La serie|Suburra|Gomorra|ZeroZeroZero
+m|In quale serie il protagonista Ted Mosby racconta ai figli come ha conosciuto la loro madre?|How I Met Your Mother|Friends|The Big Bang Theory|New Girl
+m|Come si chiama il fisico interpretato da Jim Parsons in "The Big Bang Theory"?|Sheldon Cooper|Leonard Hofstadter|Howard Wolowitz|Raj Koothrappali
+m|Quale serie racconta la storia del narcotrafficante Pablo Escobar?|Narcos|El Chapo|Breaking Bad|Ozark
+m|In quale serie compare la Dunder Mifflin?|The Office|Parks and Recreation|Brooklyn Nine-Nine|Scrubs
+m|Quale serie di fantascienza ha l'astronave Enterprise?|Star Trek|Battlestar Galactica|The Expanse|Firefly
+m|In quale serie compare il Demogorgone?|Stranger Things|Supernatural|Teen Wolf|Buffy l'ammazzavampiri
+m|Chi ha scritto i romanzi da cui è tratta "Il Trono di Spade"?|George R. R. Martin|J. R. R. Tolkien|Robert Jordan|Terry Pratchett
+m|Quale serie ambientata nel 1960 ha per protagonista il pubblicitario Don Draper?|Mad Men|Boardwalk Empire|Suits|The Americans
+m|In quale serie i Byers, i Wheeler e gli Henderson sono famiglie di Hawkins?|Stranger Things|Dark|Yellowjackets|The Umbrella Academy
+m|Come si chiama l'avvocato spin-off di "Breaking Bad"?|Better Call Saul|Suits|The Good Wife|Ally McBeal
+m|Quale serie ha come protagonisti la famiglia Crawley e i loro domestici?|Downton Abbey|The Crown|Bridgerton|Peaky Blinders
+m|In quale città è ambientata "Peaky Blinders"?|Birmingham|Londra|Manchester|Liverpool
+m|Quale serie tedesca di Netflix ruota attorno a viaggi nel tempo a Winden?|Dark|Babylon Berlin|Barbari|Dogs of Berlin
+m|Come si chiama il protagonista della serie "The Mandalorian" oltre al bambino Grogu?|Din Djarin|Boba Fett|Cassian Andor|Cad Bane
+m|Quale serie italiana di Rai è ambientata ad Aosta con il vicequestore Schiavone?|Rocco Schiavone|Il commissario Ricciardi|Imma Tataranni|Nero a metà
+m|In quale serie i Bridgerton cercano marito e moglie nella Londra della Reggenza?|Bridgerton|Sanditon|Poldark|Outlander
+m|Quale serie racconta la vita di un gruppo di ragazzi in un liceo spagnolo d'élite?|Élite|Skam|Baby|Sex Education
+m|Come si chiama il pianeta natale di Superman nella serie "Smallville"?|Krypton|Daxam|Apokolips|Thanagar
+d|In quale anno è andato in onda negli USA il primo episodio dei Simpson come serie autonoma?|1989|1992|1985|1995
+d|Quale serie è ambientata nel carcere femminile di Litchfield?|Orange Is the New Black|Prison Break|Vis a vis|Wentworth
+d|Come si chiama il personaggio che dice "Winter is coming" più spesso, capo di Grande Inverno?|Ned Stark|Robb Stark|Jon Snow|Theon Greyjoy
+d|Quale serie racconta il disastro della centrale nucleare del 1986?|Chernobyl|The Day After|Fukushima|Meltdown
+d|Chi interpreta Tony Soprano ne "I Soprano"?|James Gandolfini|Robert De Niro|Steve Buscemi|Michael Imperioli
+d|In quale serie compare la cittadina di Twin Peaks?|Twin Peaks|Northern Exposure|Fargo|True Detective
+d|Quale serie animata ha per protagonisti Rick e il nipote Morty?|Rick and Morty|Futurama|BoJack Horseman|Solar Opposites
+d|Come si chiama il dottore alieno che viaggia nel TARDIS?|Il Dottore|Il Maestro|Il Viaggiatore|Il Guardiano
+d|Quale serie di HBO segue la famiglia Roy, proprietaria di un impero dei media?|Succession|Billions|Dallas|Empire
+d|In quale città è ambientata la serie "The Wire"?|Baltimora|Detroit|Chicago|Filadelfia

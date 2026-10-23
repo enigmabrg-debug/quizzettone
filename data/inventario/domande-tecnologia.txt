@@ -1,0 +1,48 @@
+# Tecnologia
+f|Quale azienda produce l'iPhone?|Apple|Samsung|Google|Microsoft
+f|Cosa significa la sigla "www" negli indirizzi web?|World Wide Web|World Web Wide|Wide World Web|Web World Wide
+f|Quale sistema operativo è sviluppato da Microsoft?|Windows|macOS|Android|Linux
+f|Come si chiama il motore di ricerca più usato al mondo?|Google|Bing|Yahoo|DuckDuckGo
+f|Quale social network è noto per il limite iniziale di 140 caratteri?|Twitter|Facebook|Instagram|LinkedIn
+f|Che cosa indica la sigla "USB"?|Universal Serial Bus|Unità Sistema Base|United Serial Board|Universal System Backup
+f|Quale tasto si preme di solito per andare a capo in un documento?|Invio|Esc|Tab|Alt
+f|Quale azienda ha creato il sistema operativo Android?|Google|Apple|Nokia|Samsung
+f|Come si chiama l'assistente vocale di Apple?|Siri|Alexa|Cortana|Bixby
+f|Quale unità di misura indica la quantità di memoria di un computer?|Byte|Hertz|Watt|Pixel
+f|Quale social network è di proprietà di Meta insieme a Facebook e WhatsApp?|Instagram|TikTok|Telegram|Snapchat
+f|Che cosa si usa per collegarsi a Internet senza fili in casa?|Wi-Fi|Bluetooth|NFC|Infrarossi
+f|Come si chiama l'azienda di Jeff Bezos nata come libreria online?|Amazon|eBay|Alibaba|Zalando
+f|Quale dispositivo serve a stampare su carta?|Stampante|Scanner|Router|Proiettore
+m|Chi ha fondato Microsoft insieme a Paul Allen?|Bill Gates|Steve Jobs|Steve Wozniak|Larry Page
+m|In che anno è stato presentato il primo iPhone?|2007|2005|2009|2010
+m|Quanti bit ci sono in un byte?|8|4|16|10
+m|Quale linguaggio si usa per strutturare le pagine web?|HTML|Python|SQL|C++
+m|Come si chiama il fondatore di Facebook?|Mark Zuckerberg|Elon Musk|Jack Dorsey|Larry Ellison
+m|Cosa significa la sigla "CPU"?|Central Processing Unit|Computer Power Unit|Central Program Utility|Core Processing Utility
+m|Quale scienziato italiano è considerato il padre della radio?|Guglielmo Marconi|Antonio Meucci|Alessandro Volta|Enrico Fermi
+m|Quale azienda produce le schede grafiche GeForce?|NVIDIA|AMD|Intel|Qualcomm
+m|Quale italiano costruì un primo prototipo di telefono, il "telettrofono"?|Antonio Meucci|Guglielmo Marconi|Alessandro Volta|Galileo Ferraris
+m|Che cosa indica la sigla "PDF"?|Portable Document Format|Print Document File|Public Data Format|Personal Document File
+m|Come si chiama il browser web sviluppato da Google?|Chrome|Firefox|Safari|Edge
+m|Quale azienda ha prodotto il Walkman?|Sony|Panasonic|Philips|Toshiba
+m|Quanti megabyte ci sono in un gigabyte, secondo il sistema binario tradizionale?|1024|1000|100|512
+m|Quale nome ha la valuta digitale creata nel 2009 da Satoshi Nakamoto?|Bitcoin|Ethereum|Litecoin|Dogecoin
+m|Quale azienda automobilistica è guidata da Elon Musk?|Tesla|Rivian|Lucid|Polestar
+m|Quale azienda ha sviluppato ChatGPT?|OpenAI|Google DeepMind|Anthropic|Meta
+m|Che cosa indica la sigla "GPS"?|Global Positioning System|General Position Service|Global Path Sensor|Geographic Position Signal
+m|Quale linguaggio di programmazione ha il nome di un serpente?|Python|Cobra|Viper|Anaconda
+m|Come si chiama la tecnologia per pagare avvicinando il telefono al POS?|NFC|Bluetooth|RFID UHF|Infrarossi
+m|Quale azienda produce i processori Ryzen?|AMD|Intel|NVIDIA|ARM
+m|Quale combinazione di tasti si usa su Windows per copiare?|Ctrl + C|Ctrl + V|Ctrl + X|Ctrl + Z
+m|Chi ha cofondato Apple con Steve Jobs nel 1976?|Steve Wozniak|Bill Gates|Tim Cook|Paul Allen
+m|Come si chiama il sistema operativo open source creato da Linus Torvalds?|Linux|Unix|FreeBSD|Minix
+d|In che anno è stato inviato il primo messaggio su ARPANET, antenata di Internet?|1969|1975|1983|1991
+d|Chi ha inventato il World Wide Web al CERN?|Tim Berners-Lee|Vint Cerf|Alan Turing|Ted Nelson
+d|Come si chiamava il primo computer elettronico general purpose del 1946?|ENIAC|UNIVAC|Colossus|Z3
+d|Quale matematico britannico ha ideato un celebre test sull'intelligenza delle macchine?|Alan Turing|John von Neumann|Charles Babbage|Claude Shannon
+d|Quale italiano ha guidato il progetto del primo microprocessore Intel 4004?|Federico Faggin|Pier Giorgio Perotto|Massimo Banzi|Roberto Olivetti
+d|Come si chiamava il primo personal computer da tavolo prodotto dall'Olivetti nel 1965?|Programma 101|Lettera 22|M24|Elea 9003
+d|Che cosa afferma la legge di Moore?|Il numero di transistor nei chip raddoppia circa ogni due anni|La velocità di Internet raddoppia ogni anno|Il prezzo dei computer dimezza ogni anno|La memoria raddoppia ogni sei mesi
+d|Quale protocollo indica il lucchetto nella barra degli indirizzi?|HTTPS|FTP|SMTP|HTTP
+d|Quanti bit ha un indirizzo IPv4?|32|64|128|16
+d|Quale codice usava la macchina tedesca violata a Bletchley Park nella Seconda guerra mondiale?|Enigma|Lorenz|Purple|Navajo

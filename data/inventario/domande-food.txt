@@ -1,0 +1,50 @@
+# Food e Bevande
+f|Qual è l'ingrediente principale del guacamole?|Avocado|Pomodoro|Peperone|Cetriolo
+f|Da quale paese proviene il sushi?|Giappone|Cina|Corea del Sud|Thailandia
+f|Quale formaggio si usa nella pizza Margherita?|Mozzarella|Gorgonzola|Parmigiano|Pecorino
+f|Da quale frutto si ottiene il vino?|Uva|Mela|Prugna|Ciliegia
+f|In quale città è nata la pizza Margherita, secondo la tradizione?|Napoli|Roma|Palermo|Bari
+f|Qual è l'ingrediente principale del pesto alla genovese?|Basilico|Prezzemolo|Rucola|Menta
+f|Da quale pianta si ottiene il cioccolato?|Cacao|Caffè|Vaniglia|Carruba
+f|Quale pasta ripiena è tipica di Bologna?|Tortellini|Ravioli|Agnolotti|Cappellacci
+f|Da quale animale si ottiene il prosciutto crudo?|Maiale|Mucca|Pecora|Capra
+f|Quale bevanda si ottiene dai chicchi tostati di una pianta tropicale ed è servita in tazzina?|Caffè|Tè|Cacao|Orzo
+f|Qual è il principale ingrediente delle patatine fritte?|Patate|Mais|Riso|Carote
+f|Quale dolce siciliano ha la cialda fritta ripiena di ricotta?|Cannolo|Cassata|Babà|Sfogliatella
+f|Da quale cereale si ottiene il risotto?|Riso|Grano|Orzo|Farro
+f|Quale salsa si prepara con uova e olio montati?|Maionese|Ketchup|Senape|Besciamella
+m|Quale vino toscano si produce nella zona del Chianti?|Chianti|Barolo|Amarone|Nero d'Avola
+m|Quale formaggio veneto è un DOP prodotto anche in Trentino, a pasta semicotta?|Asiago|Fontina|Taleggio|Castelmagno
+m|Quale ingrediente rende verdi le lasagne alla bolognese tradizionali?|Spinaci|Basilico|Piselli|Zucchine
+m|Da quale regione proviene il Parmigiano Reggiano?|Emilia-Romagna|Lombardia|Veneto|Piemonte
+m|Qual è la base dell'hummus?|Ceci|Lenticchie|Fagioli|Piselli
+m|Quale spezia dà il colore giallo al risotto alla milanese?|Zafferano|Curcuma|Paprika|Curry
+m|Qual è il formaggio tradizionale della carbonara romana?|Pecorino romano|Parmigiano|Grana Padano|Caciocavallo
+m|In quale regione si coltiva il pistacchio verde di Bronte DOP?|Sicilia|Calabria|Puglia|Sardegna
+m|Quale liquore italiano si prepara con le scorze di limone?|Limoncello|Amaretto|Sambuca|Nocino
+m|Quale piatto spagnolo a base di riso è tipico di Valencia?|Paella|Gazpacho|Tortilla|Tapas
+m|Quale vitigno è alla base del Barolo?|Nebbiolo|Sangiovese|Barbera|Dolcetto
+m|In quale regione italiana è tipico il pesto alla trapanese?|Sicilia|Liguria|Campania|Calabria
+m|Quale cocktail italiano è fatto con Campari, vermut rosso e gin?|Negroni|Spritz|Bellini|Americano
+m|Quale bevanda alcolica si ottiene dalla fermentazione del malto d'orzo con il luppolo?|Birra|Sidro|Sake|Idromele
+m|Quale carne si usa per l'ossobuco alla milanese?|Vitello|Maiale|Agnello|Pollo
+m|Qual è il formaggio usato nel tiramisù?|Mascarpone|Ricotta|Philadelphia|Stracchino
+m|Quale frutto secco si usa per il marzapane?|Mandorla|Nocciola|Pistacchio|Noce
+m|Da quale paese proviene il piatto "goulash"?|Ungheria|Austria|Polonia|Repubblica Ceca
+m|Quale cocktail è a base di Aperol, prosecco e soda?|Spritz|Bellini|Mimosa|Rossini
+m|Quale pianta aromatica è l'ingrediente principale del mojito insieme a rum e lime?|Menta|Basilico|Salvia|Melissa
+m|Quale verdura è la base della parmigiana tradizionale?|Melanzane|Zucchine|Peperoni|Carciofi
+m|Quale cibo giapponese è fatto con pesce crudo tagliato a fette senza riso?|Sashimi|Nigiri|Tempura|Ramen
+m|Quale dolce piemontese è fatto con nocciole e cioccolato in forma di cioccolatino?|Gianduiotto|Baci|Torrone|Amaretto
+m|Quale prosciutto crudo DOP è prodotto in Friuli?|Prosciutto di San Daniele|Prosciutto di Parma|Prosciutto di Norcia|Culatello
+d|Quale vino veneto si ottiene da uve messe ad appassire?|Amarone della Valpolicella|Prosecco|Soave|Bardolino
+d|Quale città è famosa per l'aceto balsamico tradizionale DOP, insieme a Reggio Emilia?|Modena|Parma|Bologna|Ferrara
+d|Da quale latte si produce la mozzarella di bufala campana DOP?|Latte di bufala|Latte vaccino|Latte di capra|Latte di pecora
+d|Quale distillato si ricava dalle vinacce?|Grappa|Brandy|Vodka|Rum
+d|Quale scala misura la piccantezza dei peperoncini?|Scala di Scoville|Scala di Mohs|Scala Mercalli|Scala Brix
+d|Quale formaggio francese è a crosta fiorita della Normandia?|Camembert|Roquefort|Comté|Reblochon
+d|Da quale pianta si ottiene la tequila?|Agave blu|Cactus|Canna da zucchero|Mais
+d|Quale paese è il maggior produttore mondiale di caffè?|Brasile|Colombia|Vietnam|Etiopia
+d|Quale fungo pregiato si raccoglie ad Alba, in Piemonte?|Tartufo bianco|Porcino|Ovolo|Tartufo nero
+d|Quale dolce napoletano ha la forma di un fungo ed è bagnato nel rum?|Babà|Sfogliatella|Pastiera|Zeppola
+d|Quale vino spumante si produce in Lombardia con il metodo classico nella zona del lago d'Iseo?|Franciacorta|Prosecco|Asti|Trento DOC

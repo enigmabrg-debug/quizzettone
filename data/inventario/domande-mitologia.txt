@@ -1,0 +1,48 @@
+# Mitologia
+f|Chi è il re degli dei nella mitologia greca?|Zeus|Poseidone|Ade|Apollo
+f|Chi è il dio del mare nella mitologia greca?|Poseidone|Zeus|Ermes|Efesto
+f|Come si chiama il dio del tuono della mitologia norrena?|Thor|Odino|Loki|Freyr
+f|Quale eroe greco era vulnerabile solo al tallone?|Achille|Ercole|Ulisse|Perseo
+f|Quale creatura aveva serpenti al posto dei capelli e pietrificava con lo sguardo?|Medusa|Chimera|Sfinge|Arpia
+f|Chi è la dea dell'amore nella mitologia romana?|Venere|Minerva|Diana|Giunone
+f|Quale eroe compì le dodici fatiche?|Ercole|Teseo|Giasone|Achille
+f|Come si chiama il cavallo alato della mitologia greca?|Pegaso|Bucefalo|Centauro|Grifone
+f|Chi è il dio degli inferi nella mitologia greca?|Ade|Ares|Crono|Dioniso
+f|Con quale animale di legno i Greci entrarono a Troia?|Cavallo|Toro|Leone|Aquila
+f|Chi è il dio romano della guerra?|Marte|Giove|Mercurio|Nettuno
+f|Quale mostro metà uomo e metà toro viveva nel labirinto di Creta?|Minotauro|Centauro|Ciclope|Cerbero
+f|Come si chiama il re di Itaca protagonista dell'Odissea?|Ulisse|Agamennone|Menelao|Aiace
+f|Quale cane a tre teste custodiva l'ingresso degli inferi?|Cerbero|Ortro|Argo|Fenrir
+m|Chi rubò il fuoco agli dei per donarlo agli uomini?|Prometeo|Epimeteo|Atlante|Icaro
+m|Quale dea greca è nata dalla testa di Zeus?|Atena|Afrodite|Era|Artemide
+m|Chi è il messaggero degli dei con i sandali alati?|Ermes|Apollo|Dioniso|Efesto
+m|Come si chiama il padre degli dei nella mitologia norrena?|Odino|Thor|Baldr|Týr
+m|Chi uccise Medusa?|Perseo|Teseo|Bellerofonte|Giasone
+m|Quale eroe guidò gli Argonauti alla ricerca del vello d'oro?|Giasone|Ercole|Teseo|Orfeo
+m|Chi scese agli inferi per riportare in vita Euridice?|Orfeo|Ulisse|Enea|Ercole
+m|Come si chiama la dea greca della caccia?|Artemide|Atena|Demetra|Estia
+m|Quale figlio di Dedalo volò troppo vicino al Sole?|Icaro|Fetonte|Talos|Ganimede
+m|Chi uccise il Minotauro con l'aiuto del filo di Arianna?|Teseo|Perseo|Ercole|Minosse
+m|Come si chiama il dio greco del vino?|Dioniso|Apollo|Pan|Eros
+m|Quale gigante con un occhio solo fu accecato da Ulisse?|Polifemo|Argo|Tifone|Anteo
+m|Come si chiama la moglie di Zeus?|Era|Demetra|Afrodite|Latona
+m|Quale dio greco forgiava le armi degli dei?|Efesto|Ares|Ermes|Apollo
+m|Come si chiama il dio dell'inganno nella mitologia norrena?|Loki|Heimdall|Njörðr|Ullr
+m|Chi era la regina di Sparta il cui rapimento causò la guerra di Troia?|Elena|Penelope|Andromaca|Cassandra
+m|Quale dio egizio aveva la testa di sciacallo ed era legato ai morti?|Anubi|Horus|Ra|Osiride
+m|Come si chiama il dio egizio del Sole?|Ra|Anubi|Seth|Thot
+m|Quale titano era condannato a reggere il cielo sulle spalle?|Atlante|Crono|Prometeo|Iperione
+m|Quale eroe troiano fuggì in Italia secondo l'Eneide?|Enea|Ettore|Paride|Priamo
+m|Come si chiama la moglie fedele di Ulisse?|Penelope|Circe|Calipso|Nausicaa
+m|Quale dea romana corrisponde ad Atena?|Minerva|Diana|Vesta|Cerere
+m|Come si chiama il martello di Thor?|Mjöllnir|Gungnir|Excalibur|Gram
+d|Come si chiama la sala dei guerrieri caduti nella mitologia norrena?|Valhalla|Asgard|Midgard|Yggdrasil
+d|Quale indovina troiana era condannata a non essere mai creduta?|Cassandra|Pizia|Sibilla|Medea
+d|Come si chiamava il fiume dell'oblio negli inferi greci?|Lete|Stige|Acheronte|Cocito
+d|Chi era il traghettatore delle anime sul fiume Acheronte?|Caronte|Minosse|Ade|Ermes
+d|Come si chiama l'albero cosmico che unisce i nove mondi norreni?|Yggdrasil|Bifröst|Ginnungagap|Mímisbrunnr
+d|Quale re fu condannato a spingere per sempre un masso su per un monte?|Sisifo|Tantalo|Issione|Minosse
+d|Quale dea egizia era sposa di Osiride e madre di Horus?|Iside|Nefti|Hathor|Bastet
+d|Chi aveva il tocco che trasformava tutto in oro?|Re Mida|Creso|Minosse|Priamo
+d|Quale ninfa, condannata a ripetere le ultime parole altrui, si innamorò di Narciso?|Eco|Dafne|Aretusa|Calisto
+d|Come si chiama il serpente gigante che circonda Midgard?|Jörmungandr|Fenrir|Níðhöggr|Sleipnir

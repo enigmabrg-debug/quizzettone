@@ -1,0 +1,49 @@
+# Arte
+f|Chi ha dipinto la Gioconda?|Leonardo da Vinci|Michelangelo|Raffaello|Caravaggio
+f|In quale città si trova il Colosseo?|Roma|Verona|Napoli|Milano
+f|Chi ha dipinto "La notte stellata"?|Vincent van Gogh|Claude Monet|Pablo Picasso|Paul Cézanne
+f|In quale museo è esposta la Gioconda?|Louvre|Uffizi|Prado|British Museum
+f|Chi ha scolpito il David conservato a Firenze?|Michelangelo|Donatello|Bernini|Canova
+f|In quale città si trova la Torre pendente?|Pisa|Bologna|Firenze|Siena
+f|Quale artista spagnolo è tra i fondatori del cubismo?|Pablo Picasso|Salvador Dalí|Joan Miró|Francisco Goya
+f|Chi ha dipinto "L'ultima cena" a Milano?|Leonardo da Vinci|Giotto|Tiziano|Mantegna
+f|Quale artista surrealista è famoso per gli orologi molli?|Salvador Dalí|René Magritte|Max Ernst|Joan Miró
+f|In quale città si trova il Duomo con la Madonnina?|Milano|Torino|Firenze|Genova
+f|Chi ha dipinto la "Nascita di Venere"?|Sandro Botticelli|Raffaello|Tiziano|Piero della Francesca
+f|In quale città si trova la basilica di San Marco?|Venezia|Padova|Firenze|Ravenna
+f|Chi ha dipinto il soffitto della Cappella Sistina?|Michelangelo|Raffaello|Perugino|Botticelli
+f|Quale pittore olandese si tagliò un orecchio?|Vincent van Gogh|Rembrandt|Vermeer|Mondrian
+m|Chi ha dipinto "Ragazza con l'orecchino di perla"?|Jan Vermeer|Rembrandt|Frans Hals|Rubens
+m|Quale movimento artistico prende il nome da un quadro di Monet?|Impressionismo|Espressionismo|Futurismo|Cubismo
+m|Chi ha dipinto "L'urlo"?|Edvard Munch|Gustav Klimt|Egon Schiele|Wassily Kandinsky
+m|In quale città si trova la Galleria degli Uffizi?|Firenze|Roma|Venezia|Milano
+m|Chi ha scolpito "Apollo e Dafne" alla Galleria Borghese?|Gian Lorenzo Bernini|Antonio Canova|Michelangelo|Benvenuto Cellini
+m|Quale artista ha dipinto "Guernica"?|Pablo Picasso|Joan Miró|Salvador Dalí|Diego Velázquez
+m|Chi ha affrescato la Cappella degli Scrovegni a Padova?|Giotto|Cimabue|Masaccio|Duccio di Buoninsegna
+m|Quale pittore lombardo è famoso per il chiaroscuro e la "Vocazione di San Matteo"?|Caravaggio|Tiziano|Correggio|Tintoretto
+m|In quale città si trova il Museo del Prado?|Madrid|Barcellona|Lisbona|Siviglia
+m|Chi ha dipinto "Il bacio" con fondi dorati?|Gustav Klimt|Egon Schiele|Francesco Hayez|Alfons Mucha
+m|Chi ha dipinto "Il bacio" del 1859 conservato a Brera?|Francesco Hayez|Gustav Klimt|Giovanni Fattori|Antonio Canova
+m|Quale architetto ha progettato la cupola di Santa Maria del Fiore a Firenze?|Filippo Brunelleschi|Leon Battista Alberti|Michelangelo|Donato Bramante
+m|Quale movimento artistico italiano celebrava velocità e macchine?|Futurismo|Metafisica|Divisionismo|Macchiaioli
+m|Chi ha dipinto "La scuola di Atene" in Vaticano?|Raffaello|Michelangelo|Perugino|Leonardo da Vinci
+m|Quale artista pop ha ritratto Marilyn Monroe in serie colorate?|Andy Warhol|Roy Lichtenstein|Keith Haring|Jasper Johns
+m|Chi ha scolpito "Amore e Psiche"?|Antonio Canova|Gian Lorenzo Bernini|Michelangelo|Bertel Thorvaldsen
+m|In quale città si trova la Sagrada Família?|Barcellona|Madrid|Valencia|Bilbao
+m|Quale architetto ha progettato la Sagrada Família?|Antoni Gaudí|Le Corbusier|Santiago Calatrava|Renzo Piano
+m|Chi ha dipinto "Le ninfee"?|Claude Monet|Pierre-Auguste Renoir|Édouard Manet|Edgar Degas
+m|In quale museo di New York è esposta "La notte stellata" di Van Gogh?|MoMA|Metropolitan Museum|Guggenheim|Whitney Museum
+m|Quale pittore veneziano è noto per le vedute del Canal Grande?|Canaletto|Tiziano|Giorgione|Bellini
+m|Chi ha progettato il Centre Pompidou insieme a Richard Rogers?|Renzo Piano|Gae Aulenti|Zaha Hadid|Frank Gehry
+m|Quale artista ha dipinto la "Primavera" agli Uffizi?|Sandro Botticelli|Filippo Lippi|Ghirlandaio|Verrocchio
+m|Chi ha dipinto "Il quarto stato"?|Giuseppe Pellizza da Volpedo|Giovanni Segantini|Umberto Boccioni|Giovanni Fattori
+d|Quale pittore spagnolo ha dipinto "Las Meninas"?|Diego Velázquez|Francisco Goya|El Greco|Bartolomé Murillo
+d|Chi ha dipinto "La zattera della Medusa"?|Théodore Géricault|Eugène Delacroix|Jacques-Louis David|Gustave Courbet
+d|Quale artista italiano è il padre della pittura metafisica?|Giorgio de Chirico|Carlo Carrà|Giorgio Morandi|Amedeo Modigliani
+d|Chi ha dipinto "La Tempesta" conservata alle Gallerie dell'Accademia di Venezia?|Giorgione|Tiziano|Lorenzo Lotto|Paolo Veronese
+d|Quale architetto ha progettato la Basilica di Superga a Torino?|Filippo Juvarra|Guarino Guarini|Bernardo Vittone|Luigi Vanvitelli
+d|Chi ha realizzato le porte del Battistero di Firenze chiamate "Porta del Paradiso"?|Lorenzo Ghiberti|Donatello|Andrea Pisano|Brunelleschi
+d|Quale pittore ha realizzato il "Cristo morto" con lo scorcio dai piedi?|Andrea Mantegna|Giovanni Bellini|Antonello da Messina|Piero della Francesca
+d|Quale artista ha realizzato "Fontana" (l'orinatoio) nel 1917?|Marcel Duchamp|Man Ray|Francis Picabia|Jean Arp
+d|Chi ha progettato la Reggia di Caserta?|Luigi Vanvitelli|Filippo Juvarra|Ferdinando Fuga|Carlo Fontana
+d|Quale scultore ha realizzato "Forme uniche della continuità nello spazio"?|Umberto Boccioni|Giacomo Balla|Arturo Martini|Medardo Rosso

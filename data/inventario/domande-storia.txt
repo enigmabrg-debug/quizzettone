@@ -1,0 +1,48 @@
+# Storia
+f|In che anno Cristoforo Colombo arrivò in America?|1492|1488|1500|1515
+f|Chi fu il primo imperatore romano?|Augusto|Giulio Cesare|Nerone|Traiano
+f|In che anno è iniziata la Seconda guerra mondiale?|1939|1914|1945|1936
+f|In che anno è caduto il Muro di Berlino?|1989|1991|1985|1979
+f|Chi era il dittatore della Germania nazista?|Adolf Hitler|Benito Mussolini|Francisco Franco|Iosif Stalin
+f|In che anno l'uomo è sbarcato per la prima volta sulla Luna?|1969|1965|1972|1959
+f|Quale civiltà costruì le piramidi di Giza?|Egizia|Romana|Maya|Greca
+f|Chi guidò la spedizione dei Mille?|Giuseppe Garibaldi|Camillo Cavour|Giuseppe Mazzini|Vittorio Emanuele II
+f|In che anno è nata la Repubblica Italiana con il referendum?|1946|1948|1945|1861
+f|Quale città fu distrutta dall'eruzione del Vesuvio del 79 d.C.?|Pompei|Ostia|Paestum|Capua
+f|Chi fu il primo presidente degli Stati Uniti?|George Washington|Abraham Lincoln|Thomas Jefferson|Benjamin Franklin
+f|In quale anno è stata proclamata l'Unità d'Italia?|1861|1848|1870|1915
+f|Quale nave affondò nel 1912 dopo aver urtato un iceberg?|Titanic|Lusitania|Britannic|Andrea Doria
+f|Chi fu il fondatore leggendario di Roma?|Romolo|Remo|Enea|Numa Pompilio
+m|In che anno è scoppiata la Rivoluzione francese?|1789|1776|1799|1804
+m|Chi scoprì la penicillina?|Alexander Fleming|Louis Pasteur|Robert Koch|Marie Curie
+m|In quale battaglia fu sconfitto definitivamente Napoleone?|Waterloo|Austerlitz|Lipsia|Trafalgar
+m|Quale città divenne capitale d'Italia nel 1871?|Roma|Firenze|Torino|Milano
+m|Chi era il re d'Italia durante la Prima guerra mondiale?|Vittorio Emanuele III|Umberto I|Vittorio Emanuele II|Umberto II
+m|Come si chiamava la nave di Charles Darwin?|Beagle|Endeavour|Victory|Mayflower
+m|In che anno terminò la Prima guerra mondiale?|1918|1917|1919|1920
+m|Quale imperatore romano fece costruire un vallo nella Britannia settentrionale?|Adriano|Traiano|Claudio|Vespasiano
+m|Chi fu il primo uomo a volare nello spazio?|Jurij Gagarin|Neil Armstrong|Alan Shepard|John Glenn
+m|Quale popolo fondò la città di Cartagine?|Fenici|Greci|Egizi|Etruschi
+m|In che anno fu firmato il Trattato di Roma che istituì la CEE?|1957|1951|1949|1962
+m|Chi era il leader dell'Unione Sovietica durante la crisi dei missili di Cuba?|Nikita Chruščëv|Iosif Stalin|Leonid Brežnev|Michail Gorbačëv
+m|Come si chiamava la regina d'Egitto amante di Marco Antonio?|Cleopatra|Nefertiti|Hatshepsut|Berenice
+m|In che anno fu assassinato John F. Kennedy?|1963|1968|1961|1965
+m|Quale città greca era rivale di Atene nella guerra del Peloponneso?|Sparta|Corinto|Tebe|Argo
+m|Chi dipinse la Cappella Sistina mentre era papa Giulio II?|Michelangelo|Raffaello|Leonardo da Vinci|Botticelli
+m|In quale città venne firmata la pace che chiuse la Prima guerra mondiale con la Germania?|Versailles|Vienna|Ginevra|Locarno
+m|Quale esploratore portoghese circumnavigò per primo l'Africa raggiungendo l'India via mare?|Vasco da Gama|Ferdinando Magellano|Bartolomeu Dias|Amerigo Vespucci
+m|Chi fu il primo presidente della Repubblica Italiana eletto dal Parlamento nel 1948?|Luigi Einaudi|Enrico De Nicola|Alcide De Gasperi|Giovanni Gronchi
+m|In quale anno avvenne la marcia su Roma?|1922|1919|1925|1929
+m|Quale dinastia regnava in Francia al momento della Rivoluzione?|Borbone|Valois|Asburgo|Capetingi diretti
+m|Chi pronunciò il discorso "I have a dream"?|Martin Luther King|Malcolm X|Nelson Mandela|Barack Obama
+m|Quale imperatore bizantino fece costruire la basilica di Santa Sofia del 537?|Giustiniano|Costantino|Teodosio|Eraclio
+d|In che anno fu firmata la Magna Carta?|1215|1066|1302|1492
+d|Chi era il generale cartaginese che attraversò le Alpi con gli elefanti?|Annibale|Asdrubale|Amilcare|Massinissa
+d|Quale battaglia del 1571 vide la Lega Santa sconfiggere la flotta ottomana?|Lepanto|Azio|Preveza|Navarino
+d|In che anno cadde l'Impero romano d'Occidente?|476|410|395|493
+d|Chi fu l'ultimo re d'Italia?|Umberto II|Vittorio Emanuele III|Umberto I|Amedeo d'Aosta
+d|Quale trattato del 1494 divise le nuove terre tra Spagna e Portogallo?|Trattato di Tordesillas|Trattato di Utrecht|Pace di Westfalia|Trattato di Saragozza
+d|Quale battaglia del 1066 segnò la conquista normanna dell'Inghilterra?|Hastings|Agincourt|Crécy|Bosworth
+d|In quale anno fu firmata la pace di Westfalia?|1648|1618|1713|1555
+d|Chi fu il primo imperatore della Cina unificata?|Qin Shi Huang|Kublai Khan|Liu Bang|Wu Zetian
+d|Quale città fu capitale del Regno di Sardegna prima dell'Unità?|Torino|Cagliari|Genova|Chambéry
