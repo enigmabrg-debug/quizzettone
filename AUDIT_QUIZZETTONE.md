@@ -4,7 +4,7 @@
 
 ## Stato dopo le correzioni (branch `claude/quizzettone-full-audit-i4x1e8`, PR #4)
 
-Il branch della PR #4 ora parte dalla **PR #3** come base (passo 0 della roadmap). Ci sono state portate le correzioni della vecchia PR #4 e sono stati corretti i finding ancora aperti. Le righe citate più sotto si riferiscono ancora a `main`. Test: **86 e2e + 43 unitari verdi**. Di questi, `tests/e2e/audit-fixes.spec.js` (16 test) fallisce in 14 casi sulla PR #3 originale; `tests/e2e/top10.spec.js` e `tests/unit/top10.spec.js` coprono la nuova modalità.
+Il branch della PR #4 ora parte dalla **PR #3** come base (passo 0 della roadmap). Ci sono state portate le correzioni della vecchia PR #4 e sono stati corretti i finding ancora aperti. Le righe citate più sotto si riferiscono ancora a `main`. Test: **93 e2e + 51 unitari verdi**. Di questi, `tests/e2e/audit-fixes.spec.js` (16 test) fallisce in 14 casi sulla PR #3 originale; `tests/e2e/top10.spec.js` e `tests/unit/top10.spec.js` coprono la nuova modalità.
 
 | # | Stato | Come |
 |---|---|---|
@@ -35,6 +35,14 @@ Il branch della PR #4 ora parte dalla **PR #3** come base (passo 0 della roadmap
 - La checklist pre-partita contava come valide le domande Vero/Falso con 4 opzioni, e non teneva conto del tipo di gioco.
 - Il Display mandava un battito ogni 2,5 s sul ramo ascoltato da tutti i client, quindi ridisegnava tutto su ogni dispositivo.
 - Spareggio: se il pool finale era esaurito non c'erano domande. Ora si attinge al pool manche e, in Top Dieci, a una nuova estrazione di una classifica già giocata (`drawTiebreakCandidates`).
+
+**Schermo condiviso e domande già giocate (2026-10-23)**
+- **Schermo condiviso:** la proposta `PROPOSTA_SCHERMO_CONDIVISO_completa.md` è ora implementata per intero. Lo stato punto per punto è in fondo al documento.
+- **Finding #16 (prestazioni):** resta aperto. Il battito del Display però non fa più ridisegnare i telefoni.
+- **Domande già giocate:** una domanda (o classifica) mostrata in una partita con squadre vere viene scartata dalle partite successive.
+  - Se le nuove non bastano, si riprendono quelle giocate da più tempo, con un avviso nella checklist e nel riepilogo prima dell'avvio.
+  - Il gestore domande ha "Rimetti in gioco" (per il quiz e per Top Dieci) e mostra quante domande sono nuove e quante già giocate.
+  - Le prove con sole squadre fittizie non consumano il mazzo.
 
 **Top Dieci (nuova modalità, regolamento fornito il 2026-10-22)**
 - **Si gioca a turno.** La squadra di turno scrive una voce della classifica sul telefono, entro il tempo del turno (30 s di default).

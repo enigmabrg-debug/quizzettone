@@ -31,6 +31,15 @@ function timeRemaining(){
   if(t.status!=='running' || !t.startedAt) return 0;
   return Math.max(0, t.durationMs - (serverNow() - t.startedAt)); // PL-11: tempo autorevole condiviso
 }
+/* Contenuto del timer: cerchio, sola barra (timer "solo barra" sui telefoni, §14) o niente. */
+function timerSlotContent(kind, remainingMs, total){
+  if(kind==='none') return '';
+  if(kind==='bar'){
+    const pct = Math.max(0, Math.min(1, remainingMs/total));
+    return `<div class="timer-bar ${remainingMs<6000?'urgent':''}"><div style="width:${(pct*100).toFixed(1)}%"></div></div>`;
+  }
+  return circleTimer(remainingMs, total);
+}
 function circleTimer(remainingMs, total){
   const pct = Math.max(0, Math.min(1, remainingMs/total));
   const r = 52, c = 2*Math.PI*r;
@@ -270,6 +279,12 @@ function playPendingAudioCueIfAny(){
     console.warn('audio non disponibile', cue.url);
     if(role==='admin') reportAudioLoadFailure(cue.nonce);
   };
+  // §8.4: a fine audio il Display lo segnala (e la regia, se ha la politica "a fine audio", apre le risposte).
+  el.onended = ()=>{
+    const rev = (state.presentation && state.presentation.revision) || 0;
+    if(role==='display') reportDisplayStatus({mediaEndedRevision: rev});
+    if(role==='admin') checkAfterMediaUnlock(true);
+  };
   const seekAndPlay = ()=>{
     try{ el.currentTime = cue.startAt||0; }catch(e){}
     el.play().catch(err=>console.warn('audio bloccato dal browser', err));
@@ -363,7 +378,7 @@ function renderRoleSelect(){
   app.innerHTML = `
     <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
       <div class="eyebrow">Party Quiz</div>
-      <h1 class="brand">${brandName().toUpperCase()}</h1>
+      ${brandLogoHtml()}
     </div>
     <div class="card stack" style="margin-top:20px;">
       <button class="btn" id="btnTeam">Sono una squadra 🎉</button>
@@ -384,7 +399,7 @@ function renderAdminPinEntry(){
   app.innerHTML = `
     <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
       <div class="eyebrow">Party Quiz</div>
-      <h1 class="brand">${brandName().toUpperCase()}</h1>
+      ${brandLogoHtml()}
     </div>
     <div class="card stack" style="margin-top:20px;">
       <h3>Codice admin</h3>
@@ -418,7 +433,7 @@ function renderTeamJoin(){
   app.innerHTML = `
     <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
       <div class="eyebrow">Party Quiz</div>
-      <h1 class="brand">${brandName().toUpperCase()}</h1>
+      ${brandLogoHtml()}
     </div>
     <div class="card stack" style="margin-top:20px;">
       <h3>Nome squadra</h3>
@@ -465,7 +480,7 @@ function renderBootScreen(){
     app.innerHTML = `
       <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
         <div class="eyebrow">Party Quiz</div>
-        <h1 class="brand">${brandName().toUpperCase()}</h1>
+        ${brandLogoHtml()}
       </div>
       <div class="card center stack" style="margin-top:20px;">
         <h3>Connessione non riuscita</h3>
@@ -480,7 +495,7 @@ function renderBootScreen(){
   app.innerHTML = `
     <div class="header" style="align-items:center;text-align:center;margin-top:40px;">
       <div class="eyebrow">Party Quiz</div>
-      <h1 class="brand">${brandName().toUpperCase()}</h1>
+      ${brandLogoHtml()}
     </div>
     <div class="card center stack" style="margin-top:20px;">
       <p class="muted">Connessione in corso...</p>
@@ -645,6 +660,13 @@ function renderTeam(){
   if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ disarmPresence(teamId); clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
+/* Logo del gioco nelle schermate d'ingresso (img/logo-*.png). Se il file
+   non c'è, resta il nome in testo di sempre. */
+function brandLogoHtml(){
+  const name = brandName();
+  const src = name==='Top Dieci' ? 'img/logo-top10.png' : 'img/logo-quizzettone.png';
+  return `<img class="brand-logo" src="${src}" alt="${escapeHtml(name)}" onerror="this.hidden=true;this.nextElementSibling.hidden=false;"><h1 class="brand" hidden>${escapeHtml(name.toUpperCase())}</h1>`;
+}
 /* Nome del gioco nelle intestazioni: "Top Dieci" se la partita è di quel tipo,
    o se la pagina è stata aperta dal link dell'hub (?gioco=topdieci). */
 const URL_GAME = new URLSearchParams(location.search).get('gioco');
@@ -957,9 +979,19 @@ function renderSpectatorFinal(s){
       ${answerHtml}
     </div>`;
   }).join('');
+  // §20: con "Mostra sempre contenuto completo" (default) lo spettatore vede
+  // la domanda anche quando la partita la tiene sul Display; mai i pulsanti.
+  const p = s.presentation || {};
+  const fullContent = q && p.displayStatus!=='preparing' && (sharedScreenConfig().spectatorContentMode==='always_full' || !sharedScreenActive());
+  const contentHtml = fullContent ? `<div class="stack" style="text-align:left;">
+      <div class="qtext">${escapeHtml(q.question)}</div>
+      ${questionImageHtml(q)}
+      <div class="options">${q.options.map((opt,i)=>`<div class="opt-static ${s.solutionRevealed && i===q.correctIndex ? 'correct' : ''}"><span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span></div>`).join('')}</div>
+    </div>` : '';
   return `<div class="card center stack">
     <div class="eyebrow pill gold">Modalità spettatore</div>
     <h2>Siete eliminati, seguite la finale 🍿</h2>
+    ${contentHtml}
     <div class="stack">${rows}</div>
   </div>`;
 }
@@ -983,36 +1015,49 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
   const expired = active && !timerIdle && remaining<=0 && !myAnswer;
   const showCorrectness = round!=='tiebreak' && !active && !!state.solutionRevealed;
   const lateForThis = role==='team' && !teamEligibleForQuestion(teamId, round, idx);
-  // PL-11 (item 6): con sblocco manuale (schermo condiviso/ibrido) e input
-  // ancora bloccato, la domanda non va mostrata sul telefono — solo un
-  // rimando allo schermo condiviso — a meno che l'admin non abbia attivato
-  // il fallback per-domanda (item 7).
-  const resolvedMode = (state.presentation && state.presentation.resolvedMode) || 'team_devices';
-  const fallbackActive = !!(state.presentation && state.presentation.fallbackActive);
-  const sharedScreenLocked = timerIdle && answerUnlockPolicyFor(resolvedMode)==='manual' && !fallbackActive;
-  if(sharedScreenLocked){
-    const roundLabelLocked = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
-    return `
+  // Schermo condiviso (§13): sul telefono il contenuto comune non c'è, solo
+  // lo stato e, a risposte aperte, i controlli. Display e regia vedono tutto.
+  const p = state.presentation || {};
+  const shared = role==='team' && active && sharedScreenActive();
+  const ss = sharedScreenConfig();
+  const roundLabelShort = round==='final' ? 'FINALE' : round==='tiebreak' ? 'SPAREGGIO' : `MANCHE ${round}`;
+  const statusCard = (title, sub)=> `
       <div class="card stack">
         <div class="qmeta">
-          <span class="pill gold">${roundLabelLocked}</span>
+          <span class="pill gold">${roundLabelShort}</span>
           <span class="pill">Domanda ${idx+1}/${getList(round).length}</span>
         </div>
-        <div class="status-banner">📺 Guarda lo schermo condiviso</div>
-      </div>
-    `;
+        <div class="status-banner">${title}</div>
+        ${sub ? `<p class="muted center">${sub}</p>` : ''}
+      </div>`;
+  if(role==='team' && active && p.displayStatus==='preparing' && !p.fallbackActive) return statusCard('Prossima domanda in arrivo…', '');
+  if(shared && timerIdle){
+    const sub = p.autoUnlockAt ? `Le risposte si aprono tra <b id="autoUnlockCountdown">${Math.max(0, Math.ceil((p.autoUnlockAt - serverNow())/1000))}</b> secondi.`
+      : p.unlockPolicy==='after_media' ? "Le risposte si aprono alla fine dell'audio." : 'Le risposte non sono ancora aperte.';
+    return statusCard('📺 Guarda lo schermo condiviso', sub);
   }
+  // Cosa mostra il telefono: deciso dalla domanda o dal tipo di attività (contentDistribution).
+  let visibility = 'full';
+  if(shared){
+    const qv = q.presentation && q.presentation.teamContentVisibility;
+    visibility = (qv && qv!=='auto') ? qv : (activityContract(q).contentDistribution.team || 'answers_only');
+    if(visibility==='controller_only') visibility = 'answers_only'; // per le domande a scelta il controller sono i pulsanti
+  }
+  if(visibility==='hidden' && !myAnswer) return statusCard('📺 Seguite lo schermo condiviso', 'Questa attività si gioca sullo schermo.');
+  const lettersOnly = shared && ss.teamOptionLabels==='letters';
+  const timerKind = !shared ? 'circle' : ss.teamTimer==='hidden' ? 'none' : ss.teamTimer==='progress_only' ? 'bar' : 'circle';
+  const instanceAttr = (getList(round)[idx] && getList(round)[idx].instanceId) || '';
 
   const optsDisabled = readOnly || !active || !!myAnswer || timerIdle || remaining<=0 || submitPending || lateForThis;
   let optionsHtml = q.options.map((opt,i)=>{
-    let cls = 'opt';
+    let cls = 'opt' + (lettersOnly ? ' letter-only' : '');
     if(myAnswer && myAnswer.optionIndex===i) cls += ' selected';
     if(showCorrectness){
       if(i===q.correctIndex) cls += ' correct';
       else if(myAnswer && myAnswer.optionIndex===i && i!==q.correctIndex) cls += ' wrong';
     }
-    return `<button class="${cls}" data-idx="${i}" ${optsDisabled?'disabled':''}>
-      <span class="letter">${letter(i)}</span><span>${escapeHtml(opt)}</span>
+    return `<button class="${cls}" data-idx="${i}" data-instance="${escapeHtml(instanceAttr)}" ${optsDisabled?'disabled':''}>
+      <span class="letter">${letter(i)}</span>${lettersOnly ? '' : `<span>${escapeHtml(opt)}</span>`}
     </button>`;
   }).join('');
 
@@ -1087,10 +1132,10 @@ function renderTeamQuestion(round, idx, active, isTiebreak, readOnly){
         ${comebackPill}
         ${audioStatusPill}
       </div>
-      ${active ? `<div class="timer-wrap"><div id="timerSlot">${circleTimer(remaining, state.timer.durationMs)}</div></div>` : ''}
-      <div class="qtext">${escapeHtml(q.question)}</div>
-      ${questionImageHtml(q)}
-      <div class="options">${optionsHtml}</div>
+      ${active && timerKind!=='none' ? `<div class="timer-wrap"><div id="timerSlot" data-kind="${timerKind}">${timerSlotContent(timerKind, remaining, state.timer.durationMs)}</div></div>` : ''}
+      ${visibility==='answers_only' ? `<div class="eyebrow">${active && !timerIdle ? 'Scegliete la risposta' : 'La domanda è sullo schermo condiviso'}</div>` : `<div class="qtext">${escapeHtml(q.question)}</div>
+      ${questionImageHtml(q)}`}
+      <div class="options ${lettersOnly ? 'letters-grid' : ''}">${optionsHtml}</div>
       ${banner}
     </div>
   `;
@@ -1105,7 +1150,7 @@ function attachTeamOptionHandlers(){
       const key = qkey(round, qIdx);
       pendingSubmitKey = key; // blocca subito tutte le opzioni, anche prima che la transazione risponda
       render();
-      await teamSubmitAnswer(round, qIdx, idx);
+      await teamSubmitAnswer(round, qIdx, idx, btn.getAttribute('data-instance') || null);
       if(pendingSubmitKey === key) pendingSubmitKey = null;
       render();
     };
@@ -1155,6 +1200,14 @@ function renderDisplay(){
   }
   else if((s.phase==='question' || s.phase==='closed') && isTop10(getQuestion(s.round, s.qIndex))){
     body = renderTop10Play(s.round, s.qIndex, 'display');
+  }
+  else if(s.phase==='question' && !inTiebreak && (s.presentation||{}).displayStatus==='preparing'){
+    // §9 fase 1: la domanda è ancora privata della regia.
+    const lbl = s.round==='final' ? 'Finale' : 'Manche '+s.round;
+    body = `<div class="card center stack">
+      <div class="eyebrow pill gold">${escapeHtml(lbl)} · domanda ${s.qIndex+1}/${getList(s.round).length}</div>
+      <h2>Prossima domanda in arrivo…</h2>
+    </div>`;
   }
   else if(s.phase==='question' && !inTiebreak){
     body = renderTeamQuestion(s.round, s.qIndex, true, false, true);
@@ -1233,6 +1286,23 @@ function renderDisplay(){
   `;
   wireAudioUnlockOverlay();
   playPendingAudioCueIfAny();
+  reportDisplaySync();
+}
+/* §19: il Display conferma la revisione che ha sullo schermo e se i media
+   (immagini, audio della domanda) sono caricati. */
+function reportDisplaySync(){
+  if(role!=='display' || !state) return;
+  const p = state.presentation || {};
+  const q = (state.phase==='question' || state.phase==='closed') ? getQuestion(state.round, state.qIndex) : null;
+  const imgs = Array.from(document.querySelectorAll('#app img'));
+  imgs.forEach(img=>{ if(!img.complete) img.addEventListener('load', reportDisplaySync, {once:true}); });
+  const imagesReady = imgs.every(img=>img.complete);
+  const el = document.getElementById('gameAudioEl');
+  const audioNeeded = !!(q && q.audioUrl && p.displayStatus==='visible');
+  const audioFailed = !!(state.audioCue && state.audioCue.loadFailed);
+  const audioReady = !audioNeeded || audioFailed || (el && el.readyState>=3);
+  if(audioNeeded && !audioReady && el) el.addEventListener('canplay', reportDisplaySync, {once:true});
+  reportDisplayStatus({revision: p.revision || 0, mediaReady: imagesReady && audioReady});
 }
 
 /* Checklist pre-partita: puramente informativa, non blocca mai l'avvio. */
@@ -1301,6 +1371,16 @@ function applyPresetValuesToForm(values){
   }
   if(values.timerStartMode) byId('setupTimerStartMode').value = values.timerStartMode;
   if(values.displayMode) byId('setupDisplayMode').value = values.displayMode;
+  if(values.sharedScreen){
+    const ss = values.sharedScreen;
+    if(ss.answerUnlockPolicy) byId('setupUnlockPolicy').value = ss.answerUnlockPolicy;
+    if(ss.readingDelayMs) byId('setupReadingDelay').value = Math.round(ss.readingDelayMs/1000);
+    if(ss.teamTimer) byId('setupTeamTimer').value = ss.teamTimer;
+    if(ss.teamOptionLabels) byId('setupTeamOptionLabels').value = ss.teamOptionLabels;
+    if(ss.emergency) byId('setupEmergency').value = ss.emergency;
+    if(ss.spectatorContentMode) byId('setupSpectatorContent').value = ss.spectatorContentMode;
+    if(ss.prepareStep!=null) byId('setupPrepareStep').checked = ss.prepareStep!==false;
+  }
   if(values.scoringProfile) byId('setupScoringProfile').value = values.scoringProfile;
   if(values.tiebreakRule){
     if(values.tiebreakRule.qualification) byId('setupTiebreakQualification').value = values.tiebreakRule.qualification;
@@ -1365,7 +1445,17 @@ function collectSetupPatchFromForm(includeAdvancedAlways){
     tiebreakRule: { qualification: byId('setupTiebreakQualification').value },
     lateJoin: { policy: byId('setupLateJoinPolicy').value },
     timerStartMode: byId('setupTimerStartMode').value,
-    displayMode: byId('setupDisplayMode').value
+    displayMode: byId('setupDisplayMode').value,
+    sharedScreen: {
+      ...DEFAULT_SHARED_SCREEN,
+      answerUnlockPolicy: byId('setupUnlockPolicy').value,
+      readingDelayMs: (intVal('setupReadingDelay') || 5) * 1000,
+      teamTimer: byId('setupTeamTimer').value,
+      teamOptionLabels: byId('setupTeamOptionLabels').value,
+      emergency: byId('setupEmergency').value,
+      spectatorContentMode: byId('setupSpectatorContent').value,
+      prepareStep: byId('setupPrepareStep').checked
+    }
   };
   if(includeAdvancedAlways || showAdvancedSetup){
     patch.scoringProfile = byId('setupScoringProfile').value;
@@ -1425,7 +1515,11 @@ function showStartSummaryModal(cfg, onConfirm){
   const overlay = document.createElement('div');
   overlay.id = 'startSummaryOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;';
-  const displayModeLabels = {team_devices:'solo dispositivi squadra', shared_screen:'schermo condiviso', hybrid:'ibrida'};
+  const displayModeLabels = {team_devices:'sui telefoni', shared_screen:'schermo condiviso', hybrid:'mista'};
+  const unlockLabels = {manual:'manuale', immediate:'immediata', delayed:'dopo il tempo di lettura', after_media:"a fine audio"};
+  const ss = {...DEFAULT_SHARED_SCREEN, ...(cfg.sharedScreen||{})};
+  const mancheNeeded = (cfg.questionsPerRound||[]).reduce((a,b)=>a+b, 0);
+  const mancheFresh = freshQuestionCount('manche'), finaleFresh = freshQuestionCount('finale');
   const carryoverLabels = {reset:'azzerati', keep:'mantenuti', convert:'convertiti'};
   const profileLabels = {classico:'Classico', dinamico:'Dinamico (bonus per ordine, penalità a fasce, bonus rimonta)', personalizzato:'Personalizzato'};
   const lines = [
@@ -1434,7 +1528,11 @@ function showStartSummaryModal(cfg, onConfirm){
     `Finale: ${cfg.finalistCount} finalisti, ${cfg.finalQuestionCount} domande`,
     `Punteggio: corretta +${cfg.scoring.correct}, sbagliata ${cfg.scoring.wrong}, non data ${cfg.scoring.noAnswer} (profilo: ${profileLabels[cfg.scoringProfile]||cfg.scoringProfile||'Classico'})`,
     `Timer: ${Math.round(cfg.questionDurationMs/1000)}s, avvio ${cfg.timerStartMode==='manual'?'manuale':'automatico'}`,
-    `Presentazione: ${displayModeLabels[cfg.displayMode]||cfg.displayMode}`,
+    `Presentazione: ${displayModeLabels[cfg.displayMode]||cfg.displayMode}` + (cfg.displayMode && cfg.displayMode!=='team_devices'
+      ? `, apertura risposte ${unlockLabels[ss.answerUnlockPolicy]||ss.answerUnlockPolicy} · Display ${displayReady() ? 'connesso' : 'NON connesso: finché non lo apri le domande vanno sui telefoni'}` : ''),
+    mancheFresh>=mancheNeeded && finaleFresh>=cfg.finalQuestionCount
+      ? `Mazzo: tutte domande mai giocate`
+      : `⚠ Mazzo: ${mancheFresh}/${mancheNeeded} domande nuove per le manche, ${finaleFresh}/${cfg.finalQuestionCount} per la finale: le mancanti saranno riprese tra quelle già giocate`,
     `Punti in ingresso finale: ${carryoverLabels[cfg.scoreCarryover]||cfg.scoreCarryover}`
   ];
   overlay.innerHTML = `
@@ -1451,6 +1549,29 @@ function showStartSummaryModal(cfg, onConfirm){
   document.body.appendChild(overlay);
   document.getElementById('startSummaryConfirm').onclick = ()=>{ overlay.remove(); onConfirm(); };
   document.getElementById('startSummaryCancel').onclick = ()=> overlay.remove();
+}
+/* §26: opzioni dello schermo condiviso. Valgono quando una domanda è
+   risolta sul Display; senza Display tutto resta come sempre. */
+function renderSharedScreenSetup(s, cfg){
+  const ss = {...DEFAULT_SHARED_SCREEN, ...(cfg.sharedScreen||{})};
+  const dis = s.setupLocked ? 'disabled' : '';
+  const sel = (id, value, options)=> `<select id="${id}" ${dis}>${options.map(([v,label])=>`<option value="${v}" ${String(v)===String(value)?'selected':''}>${label}</option>`).join('')}</select>`;
+  return `<div class="stack shared-setup">
+    <div class="eyebrow">Con lo schermo condiviso</div>
+    <div class="row">
+      <label class="stack">Apertura risposte${sel('setupUnlockPolicy', ss.answerUnlockPolicy, [['manual','Manualmente (premi "Apri risposte")'],['immediate','Immediatamente'],['delayed','Dopo il tempo di lettura'],['after_media','A fine audio (o manualmente)']])}</label>
+      <label class="stack">Tempo di lettura${sel('setupReadingDelay', Math.round(ss.readingDelayMs/1000), [[3,'3 secondi'],[5,'5 secondi'],[8,'8 secondi'],[10,'10 secondi']])}</label>
+    </div>
+    <div class="row">
+      <label class="stack">Timer sui telefoni${sel('setupTeamTimer', ss.teamTimer, [['visible','Visibile'],['progress_only','Solo barra'],['hidden','Nascosto']])}</label>
+      <label class="stack">Pulsanti sui telefoni${sel('setupTeamOptionLabels', ss.teamOptionLabels, [['letters_text','Lettere + testo'],['letters','Solo lettere']])}</label>
+    </div>
+    <div class="row">
+      <label class="stack">Emergenza Display${sel('setupEmergency', ss.emergency, [['confirm','Chiedi sempre conferma'],['allow','Consenti il passaggio automatico ai telefoni'],['block_incompatible','Blocca le attività solo-schermo']])}</label>
+      <label class="stack">Spettatori${sel('setupSpectatorContent', ss.spectatorContentMode, [['always_full','Mostra sempre il contenuto completo'],['follow_session','Segui la modalità della partita']])}</label>
+    </div>
+    <label class="row" style="align-items:center;"><input type="checkbox" id="setupPrepareStep" ${ss.prepareStep!==false?'checked':''} ${dis}> Prepara ogni domanda in privato e mostrala con "Mostra domanda"</label>
+  </div>`;
 }
 function renderSalaPrePartita(s, cfg){
   const questionsPerRound = cfg.questionsPerRound[0] || 15;
@@ -1521,11 +1642,12 @@ function renderSalaPrePartita(s, cfg){
         <option value="auto" ${cfg.timerStartMode==='auto'?'selected':''}>Automatico all'apertura della domanda</option>
         <option value="manual" ${cfg.timerStartMode==='manual'?'selected':''}>Manuale (parte solo quando clicchi "Avvia timer")</option>
       </select></label>
-      <label class="stack">Modalità di presentazione<select id="setupDisplayMode" ${s.setupLocked?'disabled':''}>
-        <option value="team_devices" ${(cfg.displayMode||'team_devices')==='team_devices'?'selected':''}>Solo dispositivi squadra (oggi)</option>
-        <option value="shared_screen" ${cfg.displayMode==='shared_screen'?'selected':''}>Schermo condiviso: le risposte restano bloccate finché non premi "Apri risposte"</option>
-        <option value="hybrid" ${cfg.displayMode==='hybrid'?'selected':''}>Ibrida: come schermo condiviso, sblocco sempre manuale</option>
+      <label class="stack">Dove verranno mostrate le domande?<select id="setupDisplayMode" ${s.setupLocked?'disabled':''}>
+        <option value="team_devices" ${(cfg.displayMode||'team_devices')==='team_devices'?'selected':''}>Sui telefoni (senza schermo condiviso)</option>
+        <option value="shared_screen" ${cfg.displayMode==='shared_screen'?'selected':''}>Sullo schermo condiviso (i telefoni fanno da pulsantiera)</option>
+        <option value="hybrid" ${cfg.displayMode==='hybrid'?'selected':''}>Modalità mista (decide ogni domanda)</option>
       </select></label>
+      ${renderSharedScreenSetup(s, cfg)}
 
       <button class="btn ghost small" id="btnToggleAdvancedSetup">${showAdvancedSetup?'▲ Nascondi impostazioni avanzate':'▼ Impostazioni avanzate'}</button>
       <div id="salaAdvancedSection" style="display:${showAdvancedSetup?'flex':'none'};flex-direction:column;gap:10px;">
@@ -1653,6 +1775,81 @@ function syncStandingsAutoPlay(s){
   }
 }
 
+/* ================== REGIA · SCHERMO CONDIVISO (§11, §27) ================== */
+const PRESENTATION_MODE_LABELS = {team_devices:'Sui telefoni', shared_screen:'Schermo condiviso', blocked:'Ferma: serve lo schermo condiviso'};
+const PRESENTATION_SOURCE_LABELS = {partita:'impostazione della partita', domanda:'scelta della domanda', requisito:"richiesto dall'attività", display_assente:'Display non pronto all\'apertura'};
+const FALLBACK_REASON_LABELS = {manual:"scelta dell'admin", display_disconnect:'Display disconnesso', display_required_missing:'variante sui telefoni'};
+function renderDisplayStatusLine(){
+  const d = displaySyncStatus();
+  if(!d.connected) return '<span style="color:var(--pink);">○ Non connesso</span>';
+  const p = (state && state.presentation) || {};
+  const sync = p.displayStatus==='preparing' ? 'pronto, in attesa della domanda' : d.synced ? (d.mediaReady ? 'Sincronizzato ✓' : 'Sta caricando i media…') : 'Sincronizzazione in corso…';
+  return `<span style="color:var(--green);">● Connesso</span> · ${d.audioUnlocked ? 'Audio attivo' : 'Audio non attivato'} · ${sync}`;
+}
+function renderPresentationPanel(s, q, t){
+  const p = s.presentation || {};
+  const shared = p.resolvedMode==='shared_screen' && !p.fallbackActive;
+  const d = displaySyncStatus();
+  const blocked = p.resolvedMode==='blocked';
+  const preparing = p.displayStatus==='preparing';
+  const modeText = p.fallbackActive
+    ? `Sui telefoni · fallback (${FALLBACK_REASON_LABELS[p.fallbackReason] || p.fallbackReason || 'manuale'})`
+    : `${PRESENTATION_MODE_LABELS[p.resolvedMode] || 'Sui telefoni'}${p.source ? ' · '+(PRESENTATION_SOURCE_LABELS[p.source] || p.source) : ''}`;
+  const questionText = blocked ? 'In attesa: non è stata mostrata' : preparing ? 'In preparazione: la vedi solo tu' : shared ? 'Visibile sul Display' : 'Visibile sui telefoni';
+  const answersText = t.closed ? 'Chiuse' : t.idle
+    ? (p.autoUnlockAt ? `Si aprono da sole tra <b id="autoUnlockCountdown">${Math.max(0, Math.ceil((p.autoUnlockAt - serverNow())/1000))}</b> s` : p.unlockPolicy==='after_media' ? "Si aprono alla fine dell'audio" : 'Bloccate')
+    : t.paused ? 'Aperte · timer in pausa' : 'Aperte';
+  const statusRows = [
+    ['Modalità', modeText],
+    ['Display', `<span id="displayStatusSlot">${renderDisplayStatusLine()}</span>`],
+    ['Domanda', questionText],
+    ['Risposte', answersText]
+  ].map(([k,v])=>`<div class="pres-row"><span class="muted">${k}</span><span>${v}</span></div>`).join('');
+
+  let warning = '';
+  if(!t.closed){
+    if(blocked){
+      warning = `<div class="status-banner expired">Questa attività richiede uno schermo condiviso.${d.connected ? ' Il Display è di nuovo pronto.' : ''}</div>
+        <div class="row">
+          <button class="btn ${d.connected?'':'secondary'}" id="btnRetryDisplay" ${d.connected?'':'disabled'}>${d.connected ? '📺 Usa il Display' : 'Attendi riconnessione…'}</button>
+          <button class="btn ghost small" id="btnSkipActivity">Salta attività</button>
+          ${teamVariantAllowed(q) ? '<button class="btn ghost small" id="btnUseTeamVariant">Usa variante sui telefoni</button>' : ''}
+        </div>`;
+    } else if(p.source==='display_assente' && !p.fallbackActive){
+      warning = `<div class="status-banner">⚠ Il Display non era pronto all'apertura: questa domanda è sui telefoni.</div>`;
+    } else if(shared && !d.connected){
+      const auto = sharedScreenConfig().emergency==='allow' && p.requirement!=='required';
+      warning = `<div class="status-banner expired">Display disconnesso. ${t.idle ? 'Le risposte sono ancora chiuse.' : 'Il timer continua.'}${auto ? ' Se non torna, la domanda passa da sola sui telefoni.' : ''}</div>
+        <div class="row">
+          ${p.requirement!=='required' ? '<button class="btn small" id="btnActivateTeamFallback">Mostra domanda sui telefoni</button>' : '<span class="muted">Attività solo su schermo: metti in pausa o annullala.</span>'}
+          ${t.idle ? '<button class="btn ghost small" id="btnSkipActivity">Salta</button>' : '<span class="muted">Puoi anche mettere in pausa qui sotto.</span>'}
+        </div>`;
+    }
+  }
+
+  let controls = '';
+  if(!t.closed && !blocked){
+    const mediaBlock = shared && p.requirement==='required' && !d.mediaReady;
+    controls = `<div class="row">
+      ${preparing ? '<button class="btn" id="btnShowQuestion">📺 Mostra domanda</button><button class="btn ghost small" id="btnActivateTeamFallback">Mostra direttamente sui telefoni</button>' : ''}
+      ${!preparing && t.idle ? `<button class="btn" id="btnStartTimer" ${mediaBlock?'disabled':''}>${shared || p.resolvedMode==='shared_screen' ? '🔓 Apri risposte e avvia timer' : '▶ Avvia timer'}</button>` : ''}
+      ${!preparing && t.idle && mediaBlock ? '<button class="btn ghost small" id="btnStartTimerAnyway">Apri comunque</button>' : ''}
+      ${!preparing && t.idle && p.autoUnlockAt ? '<button class="btn ghost small" id="btnDelayUnlock">+5 s di lettura</button><button class="btn ghost small" id="btnCancelAutoUnlock">Apri a mano</button>' : ''}
+      ${!preparing && t.idle && shared && !(warning) ? '<button class="btn ghost small" id="btnActivateTeamFallback">Mostra anche sui telefoni</button>' : ''}
+      ${p.fallbackActive && p.resolvedMode==='shared_screen' && d.connected ? '<button class="btn ghost small" id="btnRestoreSharedScreen">Ripristina modalità schermo</button>' : ''}
+      ${!t.idle && s.timer.status==='running' ? '<button class="btn secondary small" id="btnPauseTimer">⏸ Pausa</button>' : ''}
+      ${t.paused ? '<button class="btn secondary small" id="btnResumeTimer">▶ Riprendi</button>' : ''}
+      ${!t.idle ? '<button class="btn ghost small" id="btnTimerMinus5">-5s</button><button class="btn ghost small" id="btnTimerPlus5">+5s</button>' : ''}
+    </div>`;
+  }
+  const showStatus = (s.config && s.config.displayMode && s.config.displayMode!=='team_devices') || p.resolvedMode!=='team_devices' || d.connected;
+  return `
+    ${showStatus ? `<div class="pres-status">${statusRows}</div>` : ''}
+    ${warning}
+    ${!t.closed ? `<div class="timer-wrap"><div id="timerSlot">${circleTimer(t.remaining, s.timer.durationMs)}</div>${t.idle && !shared && !preparing && !blocked ? '<div class="pill">In attesa di avvio</div>' : ''}${t.paused ? '<div class="pill">⏸ In pausa</div>' : ''}</div>` : ''}
+    ${controls}`;
+}
+
 function renderAdmin(){
   const app = document.getElementById('app');
   app.className = 'admin-wide';
@@ -1733,12 +1930,7 @@ function renderAdmin(){
     const answeredIdsForCount = activeTeams.filter(id=>answersByTeam[id] && answersByTeam[id][questionKey]);
     const missingIdsForCount = activeTeams.filter(id=>!answeredIdsForCount.includes(id));
     const offlineMissingCount = missingIdsForCount.filter(id=>!isTeamOnline(id)).length;
-    // PL-11: se lo sblocco delle risposte è manuale (schermo condiviso/ibrido),
-    // il pulsante idle è lo stesso btnStartTimer di sempre ma con un'etichetta
-    // diversa, più il fallback per-domanda "Mostra domanda sui telefoni".
-    const resolvedMode = (s.presentation && s.presentation.resolvedMode) || 'team_devices';
-    const manualUnlock = answerUnlockPolicyFor(resolvedMode) === 'manual';
-    const fallbackActive = !!(s.presentation && s.presentation.fallbackActive);
+    // Stato e comandi di presentazione/sblocco/timer: renderPresentationPanel().
 
     controlPanel = `
       <div class="card stack">
@@ -1750,14 +1942,7 @@ function renderAdmin(){
           <span class="pill">${missingIdsForCount.length} mancanti</span>
           ${offlineMissingCount>0?`<span class="pill" style="color:var(--pink);">${offlineMissingCount} offline</span>`:''}
         </div>
-        ${!closed?`<div class="timer-wrap"><div id="timerSlot">${circleTimer(remaining, s.timer.durationMs)}</div>${idle?`<div class="pill">${manualUnlock?'Risposte bloccate: in attesa dello schermo condiviso':'In attesa di avvio'}</div>`:''}${paused?'<div class="pill">⏸ In pausa</div>':''}</div>`:''}
-        ${!closed?`<div class="row">
-          ${idle?`<button class="btn" id="btnStartTimer">${manualUnlock?'🔓 Apri risposte':'▶ Avvia timer'}</button>`:''}
-          ${idle && manualUnlock && !fallbackActive?`<button class="btn ghost small" id="btnActivateTeamFallback">Mostra domanda sui telefoni</button>`:''}
-          ${!idle && s.timer.status==='running'?`<button class="btn secondary small" id="btnPauseTimer">⏸ Pausa</button>`:''}
-          ${paused?`<button class="btn secondary small" id="btnResumeTimer">▶ Riprendi</button>`:''}
-          ${!idle?`<button class="btn ghost small" id="btnTimerMinus5">-5s</button><button class="btn ghost small" id="btnTimerPlus5">+5s</button>`:''}
-        </div>`:''}
+        ${renderPresentationPanel(s, q, {closed, idle, paused, remaining})}
         <div class="qtext">${escapeHtml(q.question)}</div>
         ${questionImageHtml(q)}
         <div class="options">
@@ -2197,6 +2382,7 @@ function renderPartyPopup(){
   </div>`;
 }
 
+let qmResetNote = '';
 function renderQuestionManager(){
   const all = Object.values(questionBank);
   const pools = ['manche','finale'];
@@ -2215,7 +2401,8 @@ function renderQuestionManager(){
       return `<div class="row" style="justify-content:space-between;"><span>${escapeHtml(c)}</span><span class="pill ${n<10?'':'gold'}">${n}</span></div>`;
     }).join('') || '<p class="muted">Nessuna domanda in questo pool.</p>';
     const total = all.filter(q=>q.pool===pool).length;
-    return `<div class="stack"><h3>${pool==='manche'?'Manche':'Finale'} (${total} totali)</h3>${rows}</div>`;
+    const usedN = all.filter(q=>q.pool===pool && isQuestionUsed(q)).length;
+    return `<div class="stack"><h3>${pool==='manche'?'Manche':'Finale'} (${total} totali · ${total-usedN} nuove · ${usedN} già giocate)</h3>${rows}</div>`;
   }).join('<div class="divider"></div>');
 
   const listHtml = pools.map(pool=>{
@@ -2233,6 +2420,7 @@ function renderQuestionManager(){
             <div style="margin-top:4px;">
               <span class="pill" style="font-size:11px;">Top Dieci</span>
               ${isValidTop10(q) ? '' : '<span class="pill" style="font-size:11px;color:var(--pink);">⚠ incompleta</span>'}
+              ${isQuestionUsed(q) ? '<span class="pill" style="font-size:11px;color:var(--ink-dim);">già giocata</span>' : ''}
             </div>
           </div>
           <button class="btn danger small" data-delete-question="${q.id}">Elimina</button>
@@ -2251,6 +2439,8 @@ function renderQuestionManager(){
               ${q.answerPolicy==='modificabile' ? `<span class="pill" style="font-size:11px;">Modificabile</span>` : ''}
               ${q.imageUrl ? `<span class="pill" style="font-size:11px;">📷</span>` : ''}
               ${q.audioUrl ? `<span class="pill" style="font-size:11px;">🎵</span>` : ''}
+              ${effectiveRequirement(q)==='required' ? `<span class="pill" style="font-size:11px;">📺 solo schermo</span>` : ''}
+              ${isQuestionUsed(q) ? `<span class="pill" style="font-size:11px;color:var(--ink-dim);">già giocata</span>` : ''}
             </div>
           </div>
           <button class="btn danger small" data-delete-question="${q.id}">Elimina</button>
@@ -2266,6 +2456,15 @@ function renderQuestionManager(){
       <h3>Riepilogo mazzo</h3>
       <p class="note">Le categorie sotto le 10 domande sono evidenziate in oro: potrebbero ripetersi spesso finché non ne aggiungi altre.</p>
       ${countsHtml}
+    </div>
+    <div class="card stack">
+      <h3>Domande già giocate</h3>
+      <p class="note">Una domanda (o classifica Top Dieci) mostrata in una partita viene scartata dalle partite successive, così chi rigioca non la ritrova. Le prove con sole squadre fittizie non la consumano. Se le nuove non bastano, il gioco riprende quelle giocate da più tempo e te lo segnala prima dell'avvio.</p>
+      <div class="row">
+        <button class="btn ghost small" id="btnResetUsedQuiz">↺ Rimetti in gioco le domande quiz</button>
+        <button class="btn ghost small" id="btnResetUsedTop10">↺ Rimetti in gioco le classifiche Top Dieci</button>
+      </div>
+      <div id="qmResetMsg" class="note" style="color:var(--green);">${escapeHtml(qmResetNote)}</div>
     </div>
     <div class="card stack">
       <h3>Aggiungi una domanda</h3>
@@ -2325,6 +2524,33 @@ function renderQuestionManager(){
         </select></label>
       </div>
       <label class="stack">Tolleranza (solo per "Numero", facoltativa)<input type="text" inputmode="decimal" id="qmTolerance" placeholder="es. 5"></label>
+      <div class="divider"></div>
+      <div class="eyebrow">Presentazione (schermo condiviso)</div>
+      <div class="row">
+        <label class="stack">Dove si mostra<select id="qmPresMode">
+          <option value="inherit">Come la partita</option>
+          <option value="shared_screen">Preferisci lo schermo condiviso</option>
+          <option value="team_devices">Sempre sui telefoni</option>
+        </select></label>
+        <label class="stack">Schermo condiviso<select id="qmRequirement">
+          <option value="optional">Facoltativo</option>
+          <option value="required">Obbligatorio (si ferma senza Display)</option>
+        </select></label>
+      </div>
+      <div class="row">
+        <label class="stack">Sul telefono, con lo schermo<select id="qmTeamVisibility">
+          <option value="auto">Automatico (solo le risposte)</option>
+          <option value="answers_only">Solo le risposte</option>
+          <option value="full">Domanda completa</option>
+        </select></label>
+        <label class="stack">Apertura risposte<select id="qmUnlockPolicy">
+          <option value="inherit">Come la partita</option>
+          <option value="manual">Manuale</option>
+          <option value="immediate">Immediata</option>
+          <option value="delayed">Dopo il tempo di lettura</option>
+          <option value="after_media">A fine audio</option>
+        </select></label>
+      </div>
       <button class="btn" id="btnAddQuestion">Aggiungi al mazzo</button>
       <div id="qmAddMsg" class="note"></div>
     </div>
@@ -2414,7 +2640,8 @@ function renderAdminStandings(round, qualification){
    legata UNA SOLA VOLTA a 'document' (mai ricreato), quindi al momento del
    click controlla sempre il DOM live, indipendentemente da quante volte
    render() ha ricostruito i bottoni nel frattempo. */
-const DELEGATED_REGIA_BUTTON_IDS = ['btnCloseNow','btnReopenAnswers','btnCancelQuestion','btnStartTimer','btnActivateTeamFallback','btnPauseTimer','btnResumeTimer','btnTimerMinus5','btnTimerPlus5','btnRevealSolution','btnNext'];
+const DELEGATED_REGIA_BUTTON_IDS = ['btnCloseNow','btnReopenAnswers','btnCancelQuestion','btnStartTimer','btnStartTimerAnyway','btnActivateTeamFallback','btnPauseTimer','btnResumeTimer','btnTimerMinus5','btnTimerPlus5','btnRevealSolution','btnNext',
+  'btnShowQuestion','btnSkipActivity','btnDelayUnlock','btnCancelAutoUnlock','btnRestoreSharedScreen','btnRetryDisplay','btnUseTeamVariant'];
 let delegatedRegiaHandlersBound = false;
 function onDelegatedRegiaClick(e){
   if(role!=='admin') return;
@@ -2424,7 +2651,14 @@ function onDelegatedRegiaClick(e){
     case 'btnCloseNow': adminCloseAnswers(); break;
     case 'btnReopenAnswers': adminReopenAnswers(); break;
     case 'btnCancelQuestion': if(confirm('Annullare questa domanda? Non assegnerà punti a nessuno.')) adminCancelQuestion(); break;
-    case 'btnStartTimer': adminStartTimerManually(); break;
+    case 'btnStartTimer': case 'btnStartTimerAnyway': adminStartTimerManually(); break;
+    case 'btnShowQuestion': adminShowQuestion(); break;
+    case 'btnSkipActivity': if(confirm('Saltare questa attività? Non assegnerà punti a nessuno.')) adminCancelQuestion(); break;
+    case 'btnDelayUnlock': adminDelayUnlock(5000); break;
+    case 'btnCancelAutoUnlock': adminCancelAutoUnlock(); break;
+    case 'btnRestoreSharedScreen': adminRestoreSharedScreen(); break;
+    case 'btnRetryDisplay': adminRetryDisplay(); break;
+    case 'btnUseTeamVariant': adminUseTeamVariant(); break;
     case 'btnActivateTeamFallback': adminActivateTeamFallback(); break;
     case 'btnPauseTimer': adminPauseTimer(); break;
     case 'btnResumeTimer': adminResumeTimer(); break;
@@ -2652,7 +2886,9 @@ function attachAdminHandlers(){
     const answerPolicy = byId('qmAnswerPolicy').value;
     const toleranceRaw = byId('qmTolerance').value.trim();
     const tolerance = toleranceRaw ? parseFloat(toleranceRaw) : null;
-    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl, imageUrl, contentType, answerType, difficulty, answerPolicy, tolerance});
+    const presentation = {mode: byId('qmPresMode').value, teamContentVisibility: byId('qmTeamVisibility').value, inputUnlockPolicy: byId('qmUnlockPolicy').value, readingDelayMs:null};
+    await addQuestion({pool, category, question, options:opts, correctIndex, adminNote: note||null, audioUrl, imageUrl, contentType, answerType, difficulty, answerPolicy, tolerance,
+      presentation, sharedScreenRequirement: byId('qmRequirement').value});
     // Rileggere il DOM invece di riusare 'msg': scrivere su Firebase fa
     // arrivare l'eco del proprio stesso ascoltatore mentre siamo ancora
     // dentro l'await, e render() (chiamato da quell'eco) ricostruisce
@@ -2670,6 +2906,13 @@ function attachAdminHandlers(){
     forgetDirty(['qmQuestion','qmOpt0','qmOpt1','qmOpt2','qmOpt3','qmNote','qmTolerance','qmAudioFile','qmImageFile']);
     document.querySelectorAll('[data-pending-file^="qm"]').forEach(el=>el.remove());
   };
+  const resetUsed = (which, label)=> async ()=>{
+    const n = await resetUsedQuestions(which);
+    qmResetNote = n ? `${n} ${label} di nuovo in gioco.` : `Niente da rimettere in gioco.`;
+    render();
+  };
+  if(byId('btnResetUsedQuiz')) byId('btnResetUsedQuiz').onclick = ()=> showConfirmModal('Rimettere in gioco tutte le domande quiz già giocate?', 'Rimetti in gioco', resetUsed('quiz', 'domande'));
+  if(byId('btnResetUsedTop10')) byId('btnResetUsedTop10').onclick = ()=> showConfirmModal('Rimettere in gioco tutte le classifiche Top Dieci già giocate?', 'Rimetti in gioco', resetUsed('top10', 'classifiche'));
   if(byId('btnAddTop10')) byId('btnAddTop10').onclick = async ()=>{
     const title = byId('t10Title').value.trim();
     const items = byId('t10Items').value.split('\n').map(parseTop10ItemLine).filter(Boolean);

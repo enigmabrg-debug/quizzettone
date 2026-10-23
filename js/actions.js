@@ -1,23 +1,46 @@
 /* ================== AZIONI ADMIN (scrivono su statePath()) ================== */
-// Costruisce il timer per una domanda appena aperta: parte da solo, a meno
-// che l'admin abbia scelto l'avvio manuale nelle impostazioni della partita,
-// oppure (PL-11) la modalità di presentazione risolta per questa partita
-// richieda uno sblocco manuale delle risposte (shared_screen/hybrid): in
-// quel caso la domanda si apre sempre 'idle', indipendentemente da
-// timerStartMode, finché l'admin non preme "Apri risposte"
-// (adminStartTimerManually più sotto sblocca entrambe le cose insieme).
-function openQuestionTimer(durationMs, cfg, resolvedModeOverride){
+/* Tutto ciò che va scritto quando una domanda si apre, da qualunque punto
+   (inizio partita, domanda successiva, finale, spareggio), calcolato in un
+   posto solo (PROPOSTA_SCHERMO_CONDIVISO_completa.md §6-9):
+   - modalità effettiva (partita → domanda → requisiti del tipo → Display pronto?);
+   - politica di sblocco delle risposte;
+   - fase di preparazione privata ('preparing') se il contenuto vive sul Display;
+   - timer: parte solo quando la domanda è visibile e lo sblocco è immediato;
+   - identità dell'attività (instanceId) e revisione della presentazione.
+   instanceFields va sull'istanza della domanda in questionInstances. */
+function presentationForOpen(round, idx, q, cfg){
   cfg = cfg || state.config;
-  // resolvedModeOverride è usato solo da adminStartGame, l'unico punto in cui
-  // presentation.resolvedMode va risolto DA ZERO sulla nuova config invece
-  // che riusato da state.presentation (che a inizio funzione contiene ancora
-  // il valore della partita precedente, se ce n'è stata una).
-  const resolvedMode = resolvedModeOverride || (state && state.presentation && state.presentation.resolvedMode) || resolvePresentationMode(cfg);
-  const forcedIdle = answerUnlockPolicyFor(resolvedMode) === 'manual';
-  const manual = forcedIdle || (cfg && cfg.timerStartMode === 'manual');
-  return manual
-    ? {status:'idle', startedAt:null, durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
-    : {status:'running', startedAt:serverNow(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
+  const resolved = resolvePresentationMode(q, cfg, displayReady());
+  const policy = resolveUnlockPolicy(q, cfg, resolved);
+  const ss = sharedScreenConfig(cfg);
+  const own = !!activityContract(q).ownLifecycle;
+  const preparing = !own && (resolved==='blocked' || (resolved==='shared_screen' && ss.prepareStep!==false));
+  const now = serverNow();
+  const readingDelay = (q && q.presentation && q.presentation.readingDelayMs) || ss.readingDelayMs;
+  const running = !preparing && !own && policy==='immediate';
+  const presentation = {
+    resolvedMode: resolved, configuredMode: cfg.displayMode || 'team_devices', source: presentationSource(q, cfg, resolved),
+    requirement: effectiveRequirement(q), unlockPolicy: policy,
+    displayStatus: preparing ? 'preparing' : 'visible',
+    autoUnlockAt: (!preparing && policy==='delayed') ? now + readingDelay : null,
+    fallbackActive:false, fallbackReason:null,
+    revision: ((state && state.presentation && state.presentation.revision) || 0) + 1
+  };
+  const timer = {status: running ? 'running' : 'idle', startedAt: running ? now : null, durationMs: cfg.questionDurationMs,
+    pausedRemainingMs:null, closeReason:null, closedBy:null};
+  const instanceId = newInstanceId();
+  const instanceFields = {instanceId};
+  if(!preparing) instanceFields.presentedAt = now;
+  if(running){ instanceFields.inputUnlockedAt = now; instanceFields.timerStartedAt = now; }
+  return {
+    stateFields: {presentation, timer, audioCue: preparing ? null : audioCueForQuestion(q),
+      currentActivity: {instanceId, contentId: (q && q.id) || null, type: activityTypeFor(q), round, index: idx}},
+    instanceFields
+  };
+}
+// Una domanda presentata è "giocata": non verrà più pescata nelle prossime partite (a meno di rimetterla in gioco).
+function markPresentedAsUsed(q){
+  if(q && q.id && markableAsUsed()) markQuestionsUsed([q]);
 }
 /* Apre una domanda scrivendo insieme, in un solo update() atomico, lo stato
    (fase/indice/timer/ecc., passati in stateFields) e lo scoringSnapshot
@@ -41,22 +64,18 @@ function withLeaderboardBandsIfDynamic(gq, round, idx, cfg){
   return applyQuestionInstanceFields(gq, round, idx, {leaderboardBands: bands});
 }
 async function openQuestionWithSnapshot(round, idx, stateFields){
-  stateFields = {...stateFields, ...top10OpenFields(round, idx, getList(round)[idx])};
+  const q = getList(round)[idx];
+  const opening = presentationForOpen(round, idx, q);
+  stateFields = {...stateFields, ...opening.stateFields, ...top10OpenFields(round, idx, q)};
   const snapshot = computeEffectiveScoringForOpen(round);
   let newGameQuestions = withScoringSnapshotApplied(gameQuestions, round, idx, snapshot);
-  const presentedAt = serverNow();
-  const tsFields = {presentedAt};
-  const timer = stateFields.timer;
-  if(timer && timer.status==='running'){
-    tsFields.inputUnlockedAt = presentedAt;
-    tsFields.timerStartedAt = presentedAt;
-  }
-  newGameQuestions = withPresentationTimestampsApplied(newGameQuestions, round, idx, tsFields);
+  newGameQuestions = withPresentationTimestampsApplied(newGameQuestions, round, idx, opening.instanceFields);
   newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, round, idx);
   await db.ref(DB_ROOT).update({
-    ...statePatchPaths({...stateFields, presentation: {...(state.presentation||{}), fallbackActive:false}}),
+    ...statePatchPaths(stateFields),
     [questionInstancesPath()]: newGameQuestions
   });
+  markPresentedAsUsed(q);
 }
 // Campi di primo livello di 'next' diversi dallo stato locale: solo questi vengono scritti.
 function changedStateFields(next){
@@ -121,7 +140,6 @@ async function adminStartGame(){
   const cfg = (state && state.config) || defaultState().config;
   const totalNeeded = cfg.questionsPerRound.reduce((a,b)=>a+b, 0);
   const drawn = drawQuestionsForGame('manche', totalNeeded);
-  await markQuestionsUsed(drawn);
   const rounds = {};
   let offset = 0;
   for(let r=1; r<=cfg.rounds; r++){
@@ -129,11 +147,8 @@ async function adminStartGame(){
     rounds[r] = drawn.slice(offset, offset+count);
     offset += count;
   }
-  // PL-11 (item 4): resolvedMode va risolto DA ZERO su questa cfg, non
-  // riusato da un'eventuale partita precedente (vedi nota in openQuestionTimer).
-  const resolvedMode = resolvePresentationMode(cfg);
-  let timer = openQuestionTimer(cfg.questionDurationMs, cfg, resolvedMode);
-  if(drawn[0] && drawn[0].answerType==='top10') timer = {...timer, status:'idle', startedAt:null};
+  // La presentazione si risolve DA ZERO su questa cfg, non sulla partita precedente.
+  const opening = presentationForOpen(1, 0, drawn[0], cfg);
   // Riparte da defaultState() per azzerare i progressi della partita precedente,
   // ma preserva le regole/impostazioni scelte in lobby (config, nome partita,
   // Modalità Party) e blocca ulteriori modifiche alla configurazione.
@@ -148,9 +163,7 @@ async function adminStartGame(){
     partyMode: (state && state.partyMode) || 'none',
     party: (state && state.party) || defaultState().party,
     phase:'question', round:1, qIndex:0,
-    timer,
-    presentation: {resolvedMode, fallbackActive:false},
-    audioCue: audioCueForQuestion(drawn[0])
+    ...opening.stateFields
   };
   // Prima domanda già una classifica Top Dieci: il suo tabellone nasce con la partita.
   const firstTop10 = top10OpenFields(1, 0, drawn[0], cfg, 0);
@@ -162,14 +175,11 @@ async function adminStartGame(){
   // un solo update() atomico, così non c'è mai un istante in cui l'uno è già
   // aggiornato e l'altro no. La prima domanda (manche 1, indice 0) riceve già
   // il suo scoringSnapshot (PL-10), calcolato su 'cfg' esplicitamente perché
-  // qui 'state' locale non riflette ancora la config appena scelta. PL-11:
-  // riceve anche presentedAt (sempre) e, se lo sblocco è immediato,
-  // inputUnlockedAt/timerStartedAt allo stesso istante.
-  const presentedAt = serverNow();
-  const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
+  // qui 'state' locale non riflette ancora la config appena scelta. Riceve
+  // anche instanceId e i tempi di presentazione/sblocco (presentationForOpen).
   let initialGameQuestions = withPresentationTimestampsApplied(
     withScoringSnapshotApplied({ rounds, final:null, tiebreak:null }, 1, 0, computeEffectiveScoringForOpen(1, cfg)),
-    1, 0, tsFields
+    1, 0, opening.instanceFields
   );
   initialGameQuestions = withLeaderboardBandsIfDynamic(initialGameQuestions, 1, 0, cfg);
   let ok = true;
@@ -183,6 +193,7 @@ async function adminStartGame(){
     showErrorBanner('Avvio partita non riuscito: controlla la connessione e riprova.', adminStartGame);
     return;
   }
+  markPresentedAsUsed(drawn[0]);
   await refresh();
 }
 async function adminSaveSetup(gameName, patch){
@@ -260,35 +271,172 @@ async function adminCancelQuestion(){
   const next = {...state, phase:'closed', cancelledQuestions, timer:{...state.timer, status:'closed', closeReason:'cancelled', closedBy:'admin'}};
   await withUndo('Domanda annullata', statePath(), state, next);
 }
-/* Sblocca l'input e fa partire il timer nello stesso istante (PL-11, item
-   5): serve sia al vecchio "▶ Avvia timer" (config.timerStartMode='manual')
-   sia al nuovo "🔓 Apri risposte" per lo schermo condiviso
-   (answerUnlockPolicyFor==='manual') — è lo stesso identico meccanismo,
-   forzato 'idle' all'apertura da openQuestionTimer in entrambi i casi, quindi
-   non serve una seconda azione dedicata. Scrive anche inputUnlockedAt/
-   timerStartedAt sull'istanza della domanda corrente, insieme allo stato,
-   in un solo update() atomico. */
+/* Apre le risposte e fa partire il timer nello stesso istante (regola 5):
+   "▶ Avvia timer" (avvio manuale senza schermo) e "🔓 Apri risposte"
+   (schermo condiviso) sono la stessa azione. Con la domanda ancora in
+   preparazione la mostra prima. Scrive anche inputUnlockedAt/timerStartedAt
+   sull'istanza della domanda, nello stesso update(). */
 async function adminStartTimerManually(){
   if(state.phase!=='question' || state.timer.status!=='idle') return;
+  const p = state.presentation || {};
+  if(p.resolvedMode==='blocked') return;
   const now = serverNow();
-  const newGameQuestions = withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, {inputUnlockedAt:now, timerStartedAt:now});
+  const inst = {inputUnlockedAt:now, timerStartedAt:now};
+  const fields = {timer:{...state.timer, status:'running', startedAt:now}};
+  if(p.displayStatus==='preparing'){
+    Object.assign(fields, showFields(now));
+    inst.presentedAt = now;
+  }
+  fields.presentation = {...(fields.presentation || p), autoUnlockAt:null};
+  const newGameQuestions = withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, inst);
   await db.ref(DB_ROOT).update({
-    ...statePatchPaths({timer:{...state.timer, status:'running', startedAt:now}}),
+    ...statePatchPaths(fields),
     [questionInstancesPath()]: newGameQuestions
   });
   await refresh();
 }
-/* PL-11 (item 7): fallback manuale per SOLO la domanda corrente ("Mostra
-   domanda sui telefoni"): se lo schermo condiviso non funziona, l'admin
-   sceglie di mostrare comunque la domanda sui telefoni delle squadre invece
-   di aspettare "Apri risposte". Nessun fallback automatico: è sempre e solo
-   una scelta esplicita dell'admin, e riguarda solo com'è mostrata la
-   domanda lato squadra (vedi renderTeamQuestion) — non sblocca da sola
-   l'input, che resta comunque governato da timer.status. */
-async function adminActivateTeamFallback(){
-  if(state.phase!=='question') return;
-  await patchState({presentation:{...(state.presentation||{}), fallbackActive:true}});
+// Campi per rendere visibile la domanda in preparazione (Display e, se previsto, telefoni).
+function showFields(now, extraPresentation){
+  const p = state.presentation || {};
+  const q = getQuestion(state.round, state.qIndex);
+  const ss = sharedScreenConfig();
+  const readingDelay = (q && q.presentation && q.presentation.readingDelayMs) || ss.readingDelayMs;
+  const presentation = {...p, ...(extraPresentation||{}), displayStatus:'visible', revision:(p.revision||0)+1};
+  presentation.autoUnlockAt = presentation.unlockPolicy==='delayed' ? now + readingDelay : null;
+  return {presentation, audioCue: audioCueForQuestion(q)};
+}
+/* §9 fase 2: "Mostra domanda". La domanda passa dalla preparazione privata
+   al Display; le risposte si aprono secondo la politica (subito, a mano,
+   dopo il ritardo di lettura o a fine audio). */
+async function adminShowQuestion(){
+  const p = state.presentation || {};
+  if(state.phase!=='question' || p.displayStatus!=='preparing' || p.resolvedMode==='blocked') return;
+  const now = serverNow();
+  const fields = showFields(now);
+  const inst = {presentedAt: now};
+  if(p.unlockPolicy==='immediate'){
+    fields.timer = {...state.timer, status:'running', startedAt:now};
+    inst.inputUnlockedAt = now; inst.timerStartedAt = now;
+  }
+  await db.ref(DB_ROOT).update({
+    ...statePatchPaths(fields),
+    [questionInstancesPath()]: withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, inst)
+  });
   await refresh();
+}
+/* Apertura automatica dopo il tempo di lettura (§8.3): la fa chiunque se ne
+   accorga per primo, in una transazione, come la chiusura a scadenza. */
+let autoUnlockTried = '';
+async function openAnswersIfDue(){
+  const p = state && state.presentation;
+  if(!p || !p.autoUnlockAt || state.phase!=='question' || state.timer.status!=='idle' || serverNow() < p.autoUnlockAt) return;
+  const tryKey = (state.currentActivity && state.currentActivity.instanceId) + '#' + p.autoUnlockAt;
+  if(autoUnlockTried===tryKey) return;
+  autoUnlockTried = tryKey;
+  let openedAt = null;
+  const res = await db.ref(DB_ROOT + '/' + statePath()).transaction(cur=>{
+    if(!cur || cur.phase!=='question' || !cur.timer || cur.timer.status!=='idle') return;
+    const cp = cur.presentation || {};
+    if(!cp.autoUnlockAt || cp.displayStatus!=='visible' || serverNow() < cp.autoUnlockAt) return;
+    openedAt = serverNow();
+    return {...cur, timer:{...cur.timer, status:'running', startedAt:openedAt}, presentation:{...cp, autoUnlockAt:null}};
+  });
+  if(res && res.committed && openedAt){
+    await safeSet(questionInstancesPath(), withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, {inputUnlockedAt:openedAt, timerStartedAt:openedAt}), true);
+  }
+}
+// §8.3: più tempo di lettura, o niente apertura automatica (si apre a mano).
+async function adminDelayUnlock(ms){
+  const p = state.presentation || {};
+  if(state.phase!=='question' || state.timer.status!=='idle' || !p.autoUnlockAt) return;
+  await patchState({presentation:{...p, autoUnlockAt: Math.max(p.autoUnlockAt, serverNow()) + ms}});
+  await refresh();
+}
+async function adminCancelAutoUnlock(){
+  const p = state.presentation || {};
+  await patchState({presentation:{...p, autoUnlockAt:null, unlockPolicy:'manual'}});
+  await refresh();
+}
+/* §8.4: a fine audio le risposte si aprono da sole. Lo decide la regia,
+   quando il Display (o il suo stesso lettore) segnala che l'audio della
+   revisione corrente è finito. */
+let afterMediaTried = '';
+function checkAfterMediaUnlock(adminAudioEnded){
+  if(role!=='admin' || !state || state.phase!=='question' || state.timer.status!=='idle') return;
+  const p = state.presentation || {};
+  if(p.unlockPolicy!=='after_media' || p.displayStatus!=='visible') return;
+  if(!adminAudioEnded && !displaySyncStatus().mediaEnded) return;
+  const key = (state.currentActivity && state.currentActivity.instanceId) + '#' + p.revision;
+  if(afterMediaTried===key) return;
+  afterMediaTried = key;
+  adminStartTimerManually();
+}
+/* §16: fallback manuale, solo per l'attività corrente ("Mostra domanda sui
+   telefoni"). Se la domanda era ancora in preparazione, la rende visibile.
+   Alla domanda successiva la modalità viene ricalcolata da capo. */
+async function adminActivateTeamFallback(reason){
+  if(state.phase!=='question') return;
+  const p = state.presentation || {};
+  const now = serverNow();
+  const extra = {fallbackActive:true, fallbackReason: (typeof reason==='string' && reason) || 'manual'};
+  let fields, inst = null;
+  if(p.displayStatus==='preparing'){
+    fields = showFields(now, extra);
+    inst = {presentedAt: now};
+    if(p.unlockPolicy==='immediate'){ fields.timer = {...state.timer, status:'running', startedAt:now}; inst.inputUnlockedAt = now; inst.timerStartedAt = now; }
+  } else {
+    fields = {presentation:{...p, ...extra, revision:(p.revision||0)+1}};
+  }
+  const updates = statePatchPaths(fields);
+  if(inst) updates[questionInstancesPath()] = withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, inst);
+  await db.ref(DB_ROOT).update(updates);
+  await refresh();
+}
+// "Ripristina modalità schermo": torna al Display se è di nuovo pronto.
+async function adminRestoreSharedScreen(){
+  const p = state.presentation || {};
+  if(!p.fallbackActive || !displayReady()) return;
+  await patchState({presentation:{...p, fallbackActive:false, fallbackReason:null, revision:(p.revision||0)+1}});
+  await refresh();
+}
+/* §11/§15 caso A con attività che richiede il Display e Display assente:
+   "Attendi riconnessione" ricalcola la modalità quando il Display torna;
+   "Usa variante alternativa" la gioca sui telefoni (se il tipo lo prevede). */
+async function adminRetryDisplay(){
+  const p = state.presentation || {};
+  if(p.resolvedMode!=='blocked' || !displayReady()) return;
+  await patchState({presentation:{...p, resolvedMode:'shared_screen', revision:(p.revision||0)+1}});
+  await refresh();
+}
+function teamVariantAllowed(q){
+  const contract = activityContract(q);
+  return contract.fallbackStrategy!=='none' && sharedScreenConfig().emergency!=='block_incompatible';
+}
+async function adminUseTeamVariant(){
+  const p = state.presentation || {};
+  const q = getQuestion(state.round, state.qIndex);
+  if(p.resolvedMode!=='blocked' || !teamVariantAllowed(q)) return;
+  const policy = resolveUnlockPolicy(q, state.config, 'team_devices');
+  await patchState({presentation:{...p, resolvedMode:'team_devices', unlockPolicy: policy}});
+  state.presentation = {...p, resolvedMode:'team_devices', unlockPolicy: policy};
+  await adminActivateTeamFallback('display_required_missing');
+}
+/* §15 casi B e C, §17: con "Consenti fallback" (emergency:'allow') la regia
+   passa da sola ai telefoni se il Display resta assente oltre la tolleranza;
+   altrimenti mostra solo l'avviso e decide l'admin. Mai per le attività che
+   richiedono il Display (regola 8). */
+let displayLostSince = null;
+function checkDisplayLoss(){
+  if(role!=='admin' || !state) return;
+  const p = state.presentation || {};
+  const relevant = state.phase==='question' && p.resolvedMode==='shared_screen' && !p.fallbackActive;
+  if(!relevant || displayReady()){ displayLostSince = null; return; }
+  if(displayLostSince===null) displayLostSince = Date.now();
+  const ss = sharedScreenConfig();
+  if(ss.emergency==='allow' && p.requirement!=='required' && Date.now()-displayLostSince >= (ss.autoFallbackGraceMs||5000)){
+    displayLostSince = null;
+    adminActivateTeamFallback('display_disconnect');
+  }
 }
 async function adminPauseTimer(){
   if(state.phase!=='question' || state.timer.status!=='running') return;
@@ -367,13 +515,13 @@ async function adminNextQuestion(){
     } else if(qNumber===list.length){
       await patchState({phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null});
     } else {
-      await openQuestionWithSnapshot(round, idx+1, {qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])});
+      await openQuestionWithSnapshot(round, idx+1, {qIndex:idx+1, phase:'question', solutionRevealed:false});
     }
   } else if(round==='final'){
     if(qNumber===list.length){
       await patchState({phase:'final_ready'});
     } else {
-      await openQuestionWithSnapshot('final', idx+1, {qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])});
+      await openQuestionWithSnapshot('final', idx+1, {qIndex:idx+1, phase:'question', solutionRevealed:false});
     }
   } else if(round==='tiebreak'){
     await patchState({phase:'tiebreak_closed'});
@@ -388,11 +536,11 @@ async function adminContinueFromCheckpoint(){
   const totalRounds = (state.config && state.config.rounds) || 2;
   if(cp.type==='mid'){
     const nextQ = getQuestion(cp.round, state.qIndex+1);
-    await openQuestionWithSnapshot(cp.round, state.qIndex+1, {qIndex:state.qIndex+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)});
+    await openQuestionWithSnapshot(cp.round, state.qIndex+1, {qIndex:state.qIndex+1, phase:'question', solutionRevealed:false, checkpoint:null, checkpointMode:null});
   } else if(cp.type==='end' && cp.round < totalRounds){
     const nextRound = cp.round+1;
     const nextQ = getQuestion(nextRound, 0);
-    await openQuestionWithSnapshot(nextRound, 0, {round:nextRound, qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)});
+    await openQuestionWithSnapshot(nextRound, 0, {round:nextRound, qIndex:0, phase:'question', solutionRevealed:false, checkpoint:null, checkpointMode:null});
   }
   await refresh();
 }
@@ -421,11 +569,10 @@ async function adminRevealFinalists(){
 }
 async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
-  await markQuestionsUsed([chosen]);
   const tb = {...state.tiebreak, question: chosen, qIndex:qIdx, usedQuestionIds:[...(state.tiebreak.usedQuestionIds||[]), chosen.id]};
-  const timer = openQuestionTimer(state.config.questionDurationMs);
-  const s = {round:'tiebreak', qIndex:0, phase:'question', timer, solutionRevealed:false, tiebreak: tb, audioCue:audioCueForQuestion(chosen), presentation:{...(state.presentation||{}), fallbackActive:false},
-    ...top10OpenFields('tiebreak', 0, chosen)};
+  const opening = presentationForOpen('tiebreak', 0, chosen);
+  const s = {round:'tiebreak', qIndex:0, phase:'question', solutionRevealed:false, tiebreak: tb,
+    ...opening.stateFields, ...top10OpenFields('tiebreak', 0, chosen)};
   const gqWithTiebreak = {...gameQuestions, tiebreak: chosen};
   // Ogni spareggio usa la chiave risposta 'tiebreak-0': le risposte di uno
   // spareggio precedente (altro posto, qualificazione e poi finale, oltranza)
@@ -433,10 +580,8 @@ async function adminStartTiebreakQuestion(qIdx){
   const clearPreviousAnswers = {};
   Object.keys(teams).forEach(id=>{ clearPreviousAnswers[answersPath(id)+'/'+qkey('tiebreak', 0)] = null; });
   const snapshot = computeEffectiveScoringForOpen('tiebreak');
-  const presentedAt = serverNow();
-  const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
   let newGameQuestions = withPresentationTimestampsApplied(
-    withScoringSnapshotApplied(gqWithTiebreak, 'tiebreak', 0, snapshot), 'tiebreak', 0, tsFields
+    withScoringSnapshotApplied(gqWithTiebreak, 'tiebreak', 0, snapshot), 'tiebreak', 0, opening.instanceFields
   );
   newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, 'tiebreak', 0);
   await db.ref(DB_ROOT).update({
@@ -444,6 +589,7 @@ async function adminStartTiebreakQuestion(qIdx){
     ...statePatchPaths(s),
     [questionInstancesPath()]: newGameQuestions
   });
+  markPresentedAsUsed(chosen);
   await refresh();
 }
 /* Altra domanda di spareggio tra le squadre ancora in parità (spareggio "a
@@ -498,22 +644,20 @@ async function adminAssignTiebreakWinner(winnerId){
 async function adminContinueToFinal(){
   const finalQuestionCount = (state.config && state.config.finalQuestionCount) || 10;
   const drawn = drawQuestionsForGame('finale', finalQuestionCount);
-  await markQuestionsUsed(drawn);
-  const timer = openQuestionTimer(state.config.questionDurationMs);
-  const s = {round:'final', qIndex:0, phase:'question', timer, solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(drawn[0]), presentation:{...(state.presentation||{}), fallbackActive:false},
-    ...top10OpenFields('final', 0, drawn[0])};
+  const opening = presentationForOpen('final', 0, drawn[0]);
+  const s = {round:'final', qIndex:0, phase:'question', solutionRevealed:false, checkpoint:null, checkpointMode:null,
+    ...opening.stateFields, ...top10OpenFields('final', 0, drawn[0])};
   const gqWithFinal = {...gameQuestions, final:drawn};
   const snapshot = computeEffectiveScoringForOpen('final');
-  const presentedAt = serverNow();
-  const tsFields = timer.status==='running' ? {presentedAt, inputUnlockedAt:presentedAt, timerStartedAt:presentedAt} : {presentedAt};
   let newGameQuestions = withPresentationTimestampsApplied(
-    withScoringSnapshotApplied(gqWithFinal, 'final', 0, snapshot), 'final', 0, tsFields
+    withScoringSnapshotApplied(gqWithFinal, 'final', 0, snapshot), 'final', 0, opening.instanceFields
   );
   newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, 'final', 0);
   await db.ref(DB_ROOT).update({
     ...statePatchPaths(s),
     [questionInstancesPath()]: newGameQuestions
   });
+  markPresentedAsUsed(drawn[0]);
   await refresh();
 }
 async function adminRevealWinner(){
@@ -654,7 +798,7 @@ async function adminRemoveTestTeams(){
 async function adminSubmitTestAnswer(id, round, idx, optionIndex){
   const key = qkey(round, idx);
   const ts = serverNow();
-  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  const answer = {optionIndex, ts, instanceId: (state.currentActivity && state.currentActivity.instanceId) || null, speedBonus: computeSpeedBonusAtSubmission(ts)};
   try{
     await db.ref(DB_ROOT + '/' + answersPath(id)).child(key).transaction(current => current ? undefined : answer);
   } catch(e){ console.error('invio risposta prova fallito', e); }
@@ -1198,15 +1342,20 @@ async function restoreFromUrl(){
    nulla (stesso pattern di closeAnswersTransactional). Ritorna true se, alla
    fine, la risposta risulta salvata (da questa chiamata o da una precedente:
    "già risposto" non è un errore), false solo per un fallimento vero. */
-async function teamSubmitAnswer(round, idx, optionIndex){
+async function teamSubmitAnswer(round, idx, optionIndex, instanceId){
   // Le squadre eliminate sono spettatrici in finale: l'interfaccia non mostra
   // già i pulsanti di risposta (renderSpectatorFinal), ma il controllo va
   // ripetuto qui perché è la scrittura che conta davvero.
   if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return true;
   if(!teamEligibleForQuestion(teamId, round, idx)) return true;
+  // §24C-D: si risponde solo a input aperto, con tempo rimasto, e alla stessa
+  // attività che la squadra aveva sullo schermo (non a quella arrivata dopo).
+  if(inputStatus()!=='open' || timeRemaining()<=0) return true;
+  const current = state.currentActivity && state.currentActivity.instanceId;
+  if(instanceId && current && instanceId!==current) return true;
   const key = qkey(round, idx);
   const ts = serverNow();
-  const answer = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  const answer = {optionIndex, ts, instanceId: current || null, revision: (state.presentation && state.presentation.revision) || 0, speedBonus: computeSpeedBonusAtSubmission(ts)};
   let alreadyAnswered = false;
   let result;
   try{
@@ -1216,11 +1365,11 @@ async function teamSubmitAnswer(round, idx, optionIndex){
     });
   } catch(e){
     console.error('invio risposta fallito', e);
-    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex));
+    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex, instanceId));
     return false;
   }
   if(!result.committed && !alreadyAnswered){
-    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex));
+    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex, instanceId));
     return false;
   }
   await refresh();

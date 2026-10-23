@@ -13,8 +13,8 @@ test('withQuestionDefaults applica tutti i default a una domanda legacy senza i 
   assert.equal(withDefaults.tolerance, null);
   assert.equal(withDefaults.answerPolicy, 'definitiva');
   assert.equal(withDefaults.difficulty, 'media');
-  assert.deepEqual(withDefaults.presentation, {mode: 'inherit'});
-  assert.equal(withDefaults.sharedScreenRequirement, false);
+  assert.deepEqual(withDefaults.presentation, {mode:'inherit', teamContentVisibility:'auto', inputUnlockPolicy:'inherit', readingDelayMs:null});
+  assert.equal(withDefaults.sharedScreenRequirement, 'optional');
   // i campi originali non vengono toccati
   assert.equal(withDefaults.question, legacy.question);
   assert.equal(withDefaults.correctIndex, 2);
@@ -33,8 +33,9 @@ test('withQuestionDefaults preserva i campi già dichiarati esplicitamente, non 
   assert.equal(result.tolerance, 0.5);
   assert.equal(result.answerPolicy, 'modificabile');
   assert.equal(result.difficulty, 'difficile');
-  assert.deepEqual(result.presentation, {mode:'shared_screen'});
-  assert.equal(result.sharedScreenRequirement, true);
+  assert.equal(result.presentation.mode, 'shared_screen');
+  // Il vecchio booleano PL-11 'true' vuol dire "richiede lo schermo condiviso".
+  assert.equal(result.sharedScreenRequirement, 'required');
 });
 
 test('withQuestionDefaults: tolerance 0 (valore legittimo, non "assente") non viene scambiato per null', () => {

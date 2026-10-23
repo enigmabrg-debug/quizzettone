@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Enigma Games</title>
+<title>CabinSurfers Games</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -124,6 +124,8 @@
     pointer-events:none;
   }
   .game-card.disabled:hover{transform:none;box-shadow:none;border-color:var(--line);}
+  .brand-logo{display:block;width:100%;max-width:420px;height:auto;margin:0 auto 4px;border-radius:var(--radius);}
+  .game-logo{display:block;width:100%;max-height:150px;object-fit:contain;border-radius:12px;}
   .footer-note{
     text-align:center;
     color:var(--ink-dim);
@@ -135,8 +137,12 @@
 <body>
 <div id="app">
   <div class="header">
-    <div class="eyebrow">Enigma Games</div>
-    <h1 class="brand">ENIGMA GAMES</h1>
+    <!-- Logo in img/: se il file manca, resta il nome in testo. -->
+    <img class="brand-logo" src="img/logo-cabinsurfers-games.png" alt="CabinSurfers Games" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">
+    <div hidden>
+      <div class="eyebrow">CabinSurfers Games</div>
+      <h1 class="brand">CABINSURFERS GAMES</h1>
+    </div>
     <div class="pill gold" style="margin-top:6px;width:fit-content;">Hub dei giochi</div>
   </div>
 
@@ -146,14 +152,16 @@
 
   <div class="hub-grid">
     <a class="game-card" href="quizzettone.html">
-      <div class="game-icon">🎉</div>
+      <img class="game-logo" src="img/logo-quizzettone.png" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">
+      <div class="game-icon" hidden>🎉</div>
       <div class="game-title">Quizzettone</div>
       <div class="game-desc">Party quiz live per squadre, con classifica in tempo reale.</div>
       <div class="pill gold" style="width:fit-content;">Gioca ora</div>
     </a>
 
     <a class="game-card topdieci" href="quizzettone.html?gioco=topdieci">
-      <div class="game-icon">🔟</div>
+      <img class="game-logo" src="img/logo-top10.png" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">
+      <div class="game-icon" hidden>🔟</div>
       <div class="game-title">Top Dieci</div>
       <div class="game-desc">Una classifica nascosta, dieci voci da scoprire a turno: più è in basso, più punti vale.</div>
       <div class="pill gold" style="width:fit-content;">Gioca ora</div>
@@ -167,7 +175,7 @@
     </div>
   </div>
 
-  <div class="footer-note">Enigma Games · altri titoli in arrivo</div>
+  <div class="footer-note">CabinSurfers Games · altri titoli in arrivo</div>
 </div>
 </body>
 </html>

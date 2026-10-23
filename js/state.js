@@ -220,8 +220,8 @@ function withQuestionDefaults(q){
     tolerance: q.tolerance != null ? q.tolerance : null,
     answerPolicy: q.answerPolicy || 'definitiva',
     difficulty: q.difficulty || 'media',
-    presentation: q.presentation || {mode: 'inherit'},
-    sharedScreenRequirement: !!q.sharedScreenRequirement,
+    presentation: normalizeQuestionPresentation(q.presentation),
+    sharedScreenRequirement: normalizeRequirement(q.sharedScreenRequirement),
     imageUrl: q.imageUrl != null ? q.imageUrl : null // PL-19: domanda fotografica
   };
 }
@@ -317,13 +317,14 @@ function defaultState(){
     gameId:null, // generato ad ogni avvio partita, usato come chiave in statsHistory/<gameId>
     testMode:false, // rehearsal pre-partita con squadre fittizie (isTest:true), mai attivo a config bloccata
     partyMode:'none', party:{bonus:null, malus:null, surprise:null},
-    // Fondamenta per una futura modalità a schermo condiviso (PL-11, scope
-    // ridotto da PROPOSTA_SCHERMO_CONDIVISO_completa.md): resolvedMode viene
-    // risolto una sola volta da resolvePresentationMode() all'avvio partita
-    // (adminStartGame), non ricalcolato a ogni render. fallbackActive è un
-    // interruttore per-domanda ("Mostra domanda sui telefoni"), azzerato
-    // ogni volta che si apre una nuova domanda.
-    presentation: {resolvedMode:null, fallbackActive:false},
+    // Stato operativo della presentazione dell'attività corrente
+    // (PROPOSTA_SCHERMO_CONDIVISO_completa.md §3): ricalcolato a ogni
+    // apertura di domanda da presentationForOpen() (actions.js). Lo stato
+    // dell'input non è un campo a parte: si deriva dal timer (inputStatus()).
+    presentation: {resolvedMode:null, configuredMode:null, source:null, requirement:'optional', unlockPolicy:'immediate',
+      displayStatus:'visible', autoUnlockAt:null, fallbackActive:false, fallbackReason:null, revision:0},
+    // §25: identità dell'attività corrente; le risposte ne portano l'instanceId.
+    currentActivity: null,
     // Regole di gioco: vivono nello stato Firebase della partita invece di essere
     // valori hardcoded nel codice. L'admin le imposta nella Sala pre-partita
     // prima dello start; alcuni campi (finalScoring, scoreCarryover, tiebreakRule,
@@ -362,11 +363,11 @@ function defaultState(){
       // 'quiz' (domande classiche) | 'topdieci' (classifiche giocate a turno)
       gameType: 'quiz',
       top10: {...DEFAULT_TOP10_CONFIG},
-      // 'team_devices' (oggi, default) | 'shared_screen' | 'hybrid' (PL-11):
-      // governa solo se lo sblocco delle risposte è immediato o manuale
-      // (vedi resolvePresentationMode/answerUnlockPolicyFor); nessuna vista
-      // Display dedicata è costruita in questo pacchetto.
+      // 'team_devices' (default: tutto sui telefoni) | 'shared_screen' | 'hybrid':
+      // modalità della partita, che ogni domanda può modificare o imporre
+      // (resolvePresentationMode). sharedScreen: opzioni della Sala (§26).
       displayMode: 'team_devices',
+      sharedScreen: {...DEFAULT_SHARED_SCREEN},
       // PL-13 (motore di scoring a profili): solo plumbing in questo
       // pacchetto, per decisione esplicita presa durante l'esecuzione (vedi
       // PROGRESS_LOG.md). 'classico' è l'UNICO profilo che il codice legge
@@ -419,6 +420,7 @@ function withDefaults(raw){
   merged.timer = {...base.timer, ...(raw.timer||{})};
   merged.history = {...base.history, ...(raw.history||{})};
   merged.presentation = {...base.presentation, ...(raw.presentation||{})};
+  merged.config.sharedScreen = {...base.config.sharedScreen, ...((raw.config||{}).sharedScreen||{})};
   // Migrazione del vecchio timer piatto (questionStartedAt/timerDuration) verso state.timer
   if(raw.questionStartedAt && !raw.timer){
     merged.timer = {status:'running', startedAt:raw.questionStartedAt, durationMs:raw.timerDuration||20000, pausedRemainingMs:null, closeReason:null, closedBy:null};
@@ -445,6 +447,41 @@ function withGameQuestionsDefaults(raw){
 /* Un solo listener realtime su tutto il nodo del gioco, al posto del polling
    ogni 1.1s: Firebase applica gli aggiornamenti in locale in modo pressoché
    istantaneo, anche per le scritture fatte da questo stesso client. */
+let lastSnapshotSignature = null;
+/* §25: una risposta che porta l'instanceId di un'altra apertura della
+   stessa domanda (spareggio rigiocato, rivincita, aggiornamento arrivato in
+   ritardo) non vale per quella attuale. Le risposte senza instanceId (dati
+   precedenti) restano valide. */
+function filterStaleAnswers(answers, gq){
+  const out = {};
+  Object.keys(answers||{}).forEach(teamId=>{
+    const byKey = answers[teamId] || {};
+    out[teamId] = {};
+    Object.keys(byKey).forEach(key=>{
+      const ans = byKey[key];
+      const dash = key.lastIndexOf('-');
+      const round = key.slice(0, dash), idx = parseInt(key.slice(dash+1), 10);
+      const list = !gq ? [] : round==='final' ? (gq.final||[]) : round==='tiebreak' ? (gq.tiebreak ? [gq.tiebreak] : []) : ((gq.rounds||{})[round] || []);
+      const q = list[idx];
+      if(ans && ans.instanceId && q && q.instanceId && ans.instanceId!==q.instanceId) return;
+      out[teamId][key] = ans;
+    });
+  });
+  return out;
+}
+// Il ramo displayHealth è cambiato da solo: aggiorna la riga di stato in regia senza ridisegnare.
+let lastDisplayReadyFlag = null;
+function onDisplayHealthChanged(){
+  if(role!=='admin') return;
+  const ready = displayReady();
+  const sync = displaySyncStatus();
+  const flag = ready+'|'+sync.synced+'|'+sync.mediaReady+'|'+sync.mediaEnded;
+  // Si ridisegna solo quando lo stato del Display cambia davvero (non al primo controllo).
+  if(lastDisplayReadyFlag===null){ lastDisplayReadyFlag = flag; }
+  else if(flag!==lastDisplayReadyFlag){ lastDisplayReadyFlag = flag; render(); }
+  else { const slot = document.getElementById('displayStatusSlot'); if(slot && typeof renderDisplayStatusLine==='function') slot.innerHTML = renderDisplayStatusLine(); }
+  if(typeof checkAfterMediaUnlock==='function') checkAfterMediaUnlock();
+}
 function startListening(){
   if(listening) return;
   listening = true;
@@ -463,6 +500,14 @@ function startListening(){
     if(bootTimeoutTimer){ clearTimeout(bootTimeoutTimer); bootTimeoutTimer = null; }
     bootStatus = 'ready';
     const all = snap.val() || {};
+    // I battiti del Display (ogni 3 s) non devono ridisegnare la pagina di
+    // tutti: se è cambiato solo quel ramo si aggiorna lo stato del Display e basta.
+    const sessionForHealth = (all.sessions && all.sessions[SESSION_ID]) || null;
+    displayHealthById = (sessionForHealth && sessionForHealth.displayHealth) || {};
+    if(sessionForHealth) delete sessionForHealth.displayHealth;
+    const signature = JSON.stringify(all);
+    if(signature===lastSnapshotSignature && state){ onDisplayHealthChanged(); return; }
+    lastSnapshotSignature = signature;
     // Rami reali sotto sessions/current/... (PL-09), niente più smistamento
     // per prefisso stringa su un unico nodo piatto. questionBank/soundEffects
     // sono già chiavate per id (addQuestion/addEffect scrivono su
@@ -473,7 +518,8 @@ function startListening(){
     // gli id generati dall'app, non chiavi scritte a mano nel database.
     teams = {};
     Object.keys(session.teams || {}).forEach(id=>{ if(/^(team|test)_[a-z0-9]+$/.test(id)) teams[id] = session.teams[id]; });
-    answersByTeam = session.answers || {};
+    gameQuestions = withGameQuestionsDefaults(session.questionInstances);
+    answersByTeam = filterStaleAnswers(session.answers || {}, gameQuestions);
     overridesByTeam = session.scoreLedger || {};
     presenceByTeam = session.presence || {};
     // PL-18: applica il contratto comune in lettura, così le domande
@@ -485,7 +531,6 @@ function startListening(){
     presets = all.presets || {};
     scoringDefaults = all.scoringDefaults || DEFAULT_SCORING;
     state = withDefaults(session.state);
-    gameQuestions = withGameQuestionsDefaults(session.questionInstances);
     partyDecks = {
       normale: (all.mazzi && all.mazzi.normale) || [],
       extreme: (all.mazzi && all.mazzi.extreme) || []
@@ -612,15 +657,39 @@ function teamDeviceCount(id){ return presenceByTeam[id] ? Object.keys(presenceBy
    scritto a ogni (ri)connessione, non più ogni 2,5 s: tutti i client ascoltano
    l'intero albero, quindi un battito periodico faceva ridisegnare tutti gli
    schermi (e svuotava i form dell'admin) a ogni battito. */
-function armDisplayPresence(){
+/* Battito del Display (§18-19): ogni 3 s aggiorna lastSeenAt (tempo del
+   server) e dichiara cosa ha davvero sullo schermo: revisione della
+   presentazione ricevuta, media caricati, audio sbloccato, audio finito.
+   Sta in sessions/current/displayHealth: il listener lo riconosce e non
+   ridisegna la pagina dei telefoni a ogni battito. */
+const DISPLAY_HEARTBEAT_MS = 3000;
+let displayHeartbeatTimer = null;
+let displayReported = {revision:null, mediaReady:false, mediaEndedRevision:null};
+function displayHealthRef(){
   presenceConnId = presenceConnId || ('conn_' + Math.random().toString(36).slice(2,10));
-  const connRef = db.ref(DB_ROOT + '/' + presencePath('display', presenceConnId));
-  connRef.onDisconnect().remove();
-  connRef.set({connected:true, lastSeenAt: firebase.database.ServerValue.TIMESTAMP});
+  return db.ref(DB_ROOT + '/' + sessionPath('displayHealth/' + presenceConnId));
+}
+function displayHealthPayload(){
+  return {connected:true, lastSeenAt: firebase.database.ServerValue.TIMESTAMP, audioUnlocked: !!audioUnlocked,
+    revision: displayReported.revision, mediaReady: !!displayReported.mediaReady, mediaEndedRevision: displayReported.mediaEndedRevision};
+}
+function armDisplayPresence(){
+  const ref = displayHealthRef();
+  ref.onDisconnect().remove();
+  ref.set(displayHealthPayload());
+  if(!displayHeartbeatTimer) displayHeartbeatTimer = setInterval(()=>{ if(connected) displayHealthRef().update(displayHealthPayload()); }, DISPLAY_HEARTBEAT_MS);
 }
 function disarmDisplayPresence(){
+  if(displayHeartbeatTimer){ clearInterval(displayHeartbeatTimer); displayHeartbeatTimer = null; }
   if(!presenceConnId) return;
-  db.ref(DB_ROOT + '/' + presencePath('display', presenceConnId)).remove();
+  displayHealthRef().remove();
+}
+// Il Display comunica subito (senza aspettare il battito) un cambio di revisione o di media.
+function reportDisplayStatus(fields){
+  const next = {...displayReported, ...fields};
+  if(JSON.stringify(next)===JSON.stringify(displayReported)) return;
+  displayReported = next;
+  if(role==='display' && connected) displayHealthRef().update(displayHealthPayload());
 }
 
 /* Codice breve per entrare in partita: generato una sola volta (dal primo
@@ -639,10 +708,18 @@ async function ensureJoinCode(){
   if(state && state.joinCode) return;
   await patchState({joinCode: generateJoinCode()});
 }
+let healthTickCount = 0;
 function startUiTick(){
   if(uiTickTimer) return;
   uiTickTimer = setInterval(()=>{
+    if(role==='admin' && state && ++healthTickCount % 4===0){ onDisplayHealthChanged(); checkDisplayLoss(); }
     if(!state || state.phase!=='question') return;
+    // Apertura automatica dopo il tempo di lettura (§8.3) e conto alla rovescia della lettura.
+    if(state.timer && state.timer.status==='idle' && state.presentation && state.presentation.autoUnlockAt){
+      openAnswersIfDue();
+      const cd = document.getElementById('autoUnlockCountdown');
+      if(cd) cd.textContent = Math.max(0, Math.ceil((state.presentation.autoUnlockAt - serverNow())/1000));
+    }
     // Top Dieci: il tempo è quello del turno, sul tabellone. Come per la
     // chiusura delle domande, qualunque scheda può far scadere un turno o
     // chiudere una classifica finita (transazioni idempotenti).
@@ -677,7 +754,7 @@ function startUiTick(){
     if(!state.timer || state.timer.status!=='running') return;
     const slot = document.getElementById('timerSlot');
     const remaining = timeRemaining();
-    if(slot && remaining>0){ slot.innerHTML = circleTimer(remaining, state.timer.durationMs); return; }
+    if(slot && remaining>0){ slot.innerHTML = timerSlotContent(slot.getAttribute('data-kind'), remaining, state.timer.durationMs); return; }
     render();
   }, 250);
 }
@@ -727,22 +804,173 @@ function withScoringSnapshotApplied(gq, round, idx, snapshot){
 function withPresentationTimestampsApplied(gq, round, idx, fields){
   return applyQuestionInstanceFields(gq, round, idx, fields);
 }
-/* PL-11 (item 4): risolve UNA VOLTA sola, all'avvio partita, la modalità di
-   presentazione effettiva a partire da config.displayMode. Scritta su
-   state.presentation.resolvedMode da adminStartGame e mai più ricalcolata
-   nel corso della stessa partita (niente rivalutazione continua a ogni
-   render). */
-function resolvePresentationMode(cfg){
-  return (cfg && cfg.displayMode) || 'team_devices';
+/* ================== SCHERMO CONDIVISO (PROPOSTA_SCHERMO_CONDIVISO_completa.md) ==================
+   Gerarchia: modalità della partita → preferenza della domanda → requisiti
+   del tipo di attività → fallback deciso dall'admin. La modalità effettiva
+   si calcola a ogni apertura di domanda (non a ogni render) e si salva in
+   state.presentation, così tutti i dispositivi leggono lo stesso valore. */
+
+/* Contratto delle attività (§21-22): ogni tipo di domanda o minigioco
+   dichiara come si comporta con e senza Display. Il sistema generale
+   (presentazione, sblocco, timer, fallback, spettatori) legge solo questo;
+   il motore del singolo tipo gestisce contenuto, controller e punteggio.
+   playable:false = dichiarato per i minigiochi futuri, non ancora giocabile. */
+const ACTIVITY_TYPES = {
+  scelta: {label:'Scelta multipla', playable:true, sharedScreenRequirement:'optional', supportedPresentationModes:['team_devices','shared_screen'],
+    teamController:'choice_buttons', contentDistribution:{team:'answers_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'inherit', timerPolicy:'on_input_open', fallbackStrategy:'show_full_content', spectatorPolicy:'full'},
+  vero_falso: {label:'Vero/Falso', playable:true, sharedScreenRequirement:'optional', supportedPresentationModes:['team_devices','shared_screen'],
+    teamController:'true_false_buttons', contentDistribution:{team:'answers_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'inherit', timerPolicy:'on_input_open', fallbackStrategy:'show_full_content', spectatorPolicy:'full'},
+  immagine: {label:'Foto', playable:true, sharedScreenRequirement:'optional', supportedPresentationModes:['team_devices','shared_screen'],
+    teamController:'choice_buttons', contentDistribution:{team:'answers_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'inherit', timerPolicy:'on_input_open', fallbackStrategy:'show_media_on_teams', spectatorPolicy:'full'},
+  // Top Dieci ha un ciclo di vita suo (turni e tabellone): il telefono serve per scrivere, quindi vede sempre tutto.
+  top10: {label:'Top Dieci', playable:true, sharedScreenRequirement:'optional', supportedPresentationModes:['team_devices','shared_screen'],
+    teamController:'text_input', contentDistribution:{team:'full', display:'full', spectator:'full'},
+    inputUnlockPolicy:'immediate', timerPolicy:'per_turn', fallbackStrategy:'show_full_content', spectatorPolicy:'full', ownLifecycle:true},
+  ordinamento: {label:'Ordinamento', playable:false, sharedScreenRequirement:'optional', supportedPresentationModes:['team_devices','shared_screen'],
+    teamController:'sortable_list', contentDistribution:{team:'answers_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'inherit', timerPolicy:'on_input_open', fallbackStrategy:'show_full_content', spectatorPolicy:'full'},
+  numero: {label:'Stima numerica', playable:false, sharedScreenRequirement:'optional', supportedPresentationModes:['team_devices','shared_screen'],
+    teamController:'numeric_input', contentDistribution:{team:'answers_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'inherit', timerPolicy:'on_input_open', fallbackStrategy:'show_full_content', spectatorPolicy:'full'},
+  testo_libero: {label:'Testo libero', playable:false, sharedScreenRequirement:'optional', supportedPresentationModes:['team_devices','shared_screen'],
+    teamController:'text_input', contentDistribution:{team:'answers_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'inherit', timerPolicy:'on_input_open', fallbackStrategy:'show_full_content', spectatorPolicy:'full'},
+  // Esempi dal documento per i minigiochi che vivono solo sul Display.
+  shared_video_reaction: {label:'Reazione al video', playable:false, sharedScreenRequirement:'required', supportedPresentationModes:['shared_screen'],
+    teamController:'buzzer', contentDistribution:{team:'controller_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'after_media', timerPolicy:'on_input_open', fallbackStrategy:'none', spectatorPolicy:'full'},
+  live_buzzer: {label:'Buzzer', playable:false, sharedScreenRequirement:'required', supportedPresentationModes:['shared_screen'],
+    teamController:'buzzer', contentDistribution:{team:'controller_only', display:'full', spectator:'full'},
+    inputUnlockPolicy:'manual', timerPolicy:'on_input_open', fallbackStrategy:'pause_or_skip', spectatorPolicy:'full'}
+};
+const PRESENTATION_MODES = ['inherit','team_devices','shared_screen'];
+const SCREEN_REQUIREMENTS = ['none','optional','required'];
+const TEAM_CONTENT_VISIBILITY = ['auto','full','answers_only','controller_only','hidden'];
+const UNLOCK_POLICIES = ['immediate','manual','delayed','after_media'];
+const DEFAULT_SHARED_SCREEN = {
+  answerUnlockPolicy: 'manual',     // con schermo condiviso l'apertura manuale è il default (regola 4)
+  readingDelayMs: 5000,             // per 'delayed'
+  prepareStep: true,                // §9: la domanda resta privata finché l'admin non preme "Mostra domanda"
+  teamTimer: 'visible',             // 'visible' | 'hidden' | 'progress_only'
+  teamOptionLabels: 'letters_text', // 'letters_text' | 'letters'
+  emergency: 'confirm',             // 'confirm' (avvisa e decide l'admin) | 'allow' (fallback automatico) | 'block_incompatible'
+  autoFallbackGraceMs: 5000,
+  spectatorContentMode: 'always_full' // 'always_full' | 'follow_session'
+};
+const DISPLAY_STALE_MS = 7000; // §18: Display disponibile se l'ultimo battito è più recente di così
+
+function normalizeRequirement(r){
+  if(r===true) return 'required';
+  if(SCREEN_REQUIREMENTS.includes(r)) return r;
+  return 'optional';
 }
-/* PL-11 (item 5): due sole politiche di sblocco risposte. 'immediate' è il
-   comportamento di sempre (lo sblocco coincide con la partenza del timer,
-   che sia automatica o manuale via config.timerStartMode); 'manual' è nuova,
-   default per shared_screen/hybrid: la domanda si apre bloccata finché
-   l'admin non preme esplicitamente "Apri risposte". */
+function normalizeQuestionPresentation(p){
+  p = p || {};
+  return {
+    mode: PRESENTATION_MODES.includes(p.mode) ? p.mode : 'inherit',
+    teamContentVisibility: TEAM_CONTENT_VISIBILITY.includes(p.teamContentVisibility) ? p.teamContentVisibility : 'auto',
+    inputUnlockPolicy: (p.inputUnlockPolicy==='inherit' || UNLOCK_POLICIES.includes(p.inputUnlockPolicy)) ? p.inputUnlockPolicy : 'inherit',
+    readingDelayMs: p.readingDelayMs!=null ? p.readingDelayMs : null
+  };
+}
+function activityTypeFor(q){
+  if(!q) return 'scelta';
+  if(q.answerType==='top10') return 'top10';
+  if(q.answerType==='vero_falso') return 'vero_falso';
+  if(q.contentType==='immagine' || q.imageUrl) return q.answerType==='scelta' ? 'immagine' : q.answerType;
+  return ACTIVITY_TYPES[q.answerType] ? q.answerType : 'scelta';
+}
+function activityContract(q){ return ACTIVITY_TYPES[activityTypeFor(q)] || ACTIVITY_TYPES.scelta; }
+function sharedScreenConfig(cfg){
+  cfg = cfg || (state && state.config) || {};
+  return {...DEFAULT_SHARED_SCREEN, ...(cfg.sharedScreen||{})};
+}
+// La domanda può alzare il requisito del suo tipo (es. una foto "solo su schermo"), non abbassarlo.
+function effectiveRequirement(q){
+  const order = {none:0, optional:1, required:2};
+  const fromType = activityContract(q).sharedScreenRequirement;
+  const fromQuestion = normalizeRequirement(q && q.sharedScreenRequirement);
+  return order[fromQuestion] > order[fromType] ? fromQuestion : fromType;
+}
+/* §6: modalità effettiva di un'attività. displayReady = c'è un Display
+   connesso e con il battito recente. 'blocked' = l'attività richiede il
+   Display e non c'è. */
+function resolvePresentationMode(q, cfg, displayReady){
+  const requirement = effectiveRequirement(q);
+  const override = (q && q.presentation && q.presentation.mode) || 'inherit';
+  const mode = (cfg && cfg.displayMode) || 'team_devices';
+  if(requirement==='required') return displayReady ? 'shared_screen' : 'blocked';
+  if(override==='team_devices') return 'team_devices';
+  if(override==='shared_screen') return displayReady ? 'shared_screen' : 'team_devices';
+  if(mode==='team_devices') return 'team_devices';
+  return displayReady ? 'shared_screen' : 'team_devices';
+}
+// Da dove viene la modalità risolta, per la regia.
+function presentationSource(q, cfg, resolved){
+  if(effectiveRequirement(q)==='required') return 'requisito';
+  const override = (q && q.presentation && q.presentation.mode) || 'inherit';
+  if(override!=='inherit') return 'domanda';
+  if(resolved==='team_devices' && cfg && cfg.displayMode!=='team_devices') return 'display_assente';
+  return 'partita';
+}
+/* §8: politica di sblocco. Senza schermo vale quella di sempre (subito, o
+   manuale se l'admin ha scelto l'avvio manuale del timer); con schermo
+   decide la domanda, poi il tipo di attività, poi la partita. 'after_media'
+   ha senso solo se la domanda ha un audio: altrimenti diventa manuale. */
+function resolveUnlockPolicy(q, cfg, resolvedMode){
+  const qPolicy = q && q.presentation && q.presentation.inputUnlockPolicy;
+  const typePolicy = activityContract(q).inputUnlockPolicy;
+  let policy;
+  if(qPolicy && qPolicy!=='inherit') policy = qPolicy;
+  else if(resolvedMode==='team_devices') policy = (cfg && cfg.timerStartMode==='manual') ? 'manual' : 'immediate';
+  else if(typePolicy && typePolicy!=='inherit') policy = typePolicy;
+  else policy = sharedScreenConfig(cfg).answerUnlockPolicy;
+  if(policy==='after_media' && !(q && q.audioUrl)) policy = 'manual';
+  if(resolvedMode==='blocked') policy = 'manual';
+  return policy;
+}
+// Compatibilità con il vecchio nome (PL-11): 'manual' per qualunque sblocco non immediato.
 function answerUnlockPolicyFor(resolvedMode){
   return resolvedMode==='team_devices' ? 'immediate' : 'manual';
 }
+/* Stato dell'input derivato dal timer (unica fonte di verità): bloccato
+   finché il timer non parte, aperto mentre corre o è in pausa. */
+function inputStatus(){
+  const t = state && state.timer;
+  if(!t) return 'locked';
+  if(t.status==='idle') return 'locked';
+  if(t.status==='closed' || (state && state.phase!=='question')) return 'closed';
+  return 'open';
+}
+// Il contenuto comune è sul Display (e non sui telefoni) per l'attività corrente?
+function sharedScreenActive(){
+  const p = state && state.presentation;
+  return !!(p && p.resolvedMode==='shared_screen' && !p.fallbackActive);
+}
+/* Battiti dei Display (§18): ramo sessions/current/displayHealth, letto dal
+   listener ma senza ridisegnare la pagina (vedi startListening). */
+let displayHealthById = {};
+function displayEntries(){
+  return Object.keys(displayHealthById).map(id=>({id, ...displayHealthById[id]}));
+}
+function readyDisplays(){
+  const now = serverNow();
+  return displayEntries().filter(d=>d.connected && d.lastSeenAt && (now - d.lastSeenAt) < DISPLAY_STALE_MS);
+}
+function displayReady(){ return readyDisplays().length>0; }
+// Il Display ha ricevuto (e caricato) la revisione corrente della presentazione? (§19)
+function displaySyncStatus(){
+  const rev = (state && state.presentation && state.presentation.revision) || 0;
+  const ready = readyDisplays();
+  if(!ready.length) return {connected:false, synced:false, mediaReady:false, audioUnlocked:false};
+  const synced = ready.filter(d=>d.revision===rev);
+  return {connected:true, synced: synced.length>0, mediaReady: synced.some(d=>d.mediaReady), audioUnlocked: ready.some(d=>d.audioUnlocked),
+    mediaEnded: ready.some(d=>d.mediaEndedRevision===rev)};
+}
+function newInstanceId(){ return 'act_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,6); }
 /* Il punteggio "di default" (senza override esplicito) ora viene letto
    dallo snapshot congelato nell'istanza della domanda, non più dalla config
    corrente: cambiare la config a partita in corso non deve poter ricalcolare
@@ -1078,6 +1306,15 @@ function computePreGameChecklist(){
   const finaleAvailable = playable.filter(q=>q.pool==='finale').length;
   if(finaleAvailable < finaleNeeded) issues.push({type:'insufficient_finale', detail:`Servono almeno ${finaleNeeded} domande finale (comprese quelle di riserva per lo spareggio), disponibili ${finaleAvailable}`});
 
+  // Le domande già giocate sono scartate: se le nuove non bastano, si riprendono le meno recenti.
+  const mancheFresh = freshQuestionCount('manche');
+  if(mancheAvailable >= mancheNeeded && mancheFresh < mancheNeeded) issues.push({type:'used_manche', detail:`Solo ${mancheFresh} domande manche mai giocate su ${mancheNeeded} necessarie: le altre saranno riprese tra quelle già giocate. Aggiungine o rimettile in gioco dal gestore domande.`});
+  const finaleFresh = freshQuestionCount('finale');
+  if(finaleAvailable >= cfg.finalQuestionCount && finaleFresh < cfg.finalQuestionCount) issues.push({type:'used_finale', detail:`Solo ${finaleFresh} domande finale mai giocate su ${cfg.finalQuestionCount}: le altre saranno riprese tra quelle già giocate.`});
+  // Attività che richiedono il Display (§5.2) in una partita senza schermo condiviso.
+  const requiresScreen = playable.filter(q=>effectiveRequirement(q)==='required').length;
+  if(requiresScreen && (cfg.displayMode||'team_devices')==='team_devices') issues.push({type:'requires_display', detail:`${requiresScreen} domande richiedono lo schermo condiviso: se pescate, si fermeranno finché non apri il Display (o le salti).`});
+
   return issues;
 }
 
@@ -1180,7 +1417,8 @@ async function addQuestion(q){
     id, pool:q.pool, category:q.category, question:q.question, options:q.options, correctIndex:q.correctIndex,
     adminNote:q.adminNote||null, audioUrl:q.audioUrl||null, imageUrl:q.imageUrl||null, lastUsedAt:null,
     contentType:q.contentType, answerType:q.answerType, tolerance:q.tolerance,
-    answerPolicy:q.answerPolicy, difficulty:q.difficulty
+    answerPolicy:q.answerPolicy, difficulty:q.difficulty,
+    presentation:q.presentation || null, sharedScreenRequirement:q.sharedScreenRequirement || null
   });
   await safeSet(questionBankPath(id), entry, true);
   return id;
@@ -1351,7 +1589,8 @@ function questionDuplicateKey(q){
 }
 function drawQuestionsForGame(pool, count, excludeIds){
   excludeIds = excludeIds || [];
-  const candidates = Object.values(questionBank).filter(q=>q.pool===pool && !excludeIds.includes(q.id) && questionMatchesGameType(q));
+  const candidates = Object.values(questionBank).filter(q=>q.pool===pool && !excludeIds.includes(q.id) && questionMatchesGameType(q)
+    && (q.answerType!=='top10' || isValidTop10(q)));
   // "Blocca domande duplicate": niente due domande uguali nella stessa partita,
   // neanche se nel mazzo sono salvate due volte o tra manche e finale.
   const blockDuplicates = !(state && state.config && state.config.blockDuplicateQuestions===false);
@@ -1360,20 +1599,30 @@ function drawQuestionsForGame(pool, count, excludeIds){
     const already = [...Object.values(gameQuestions.rounds||{}).flat(), ...(gameQuestions.final||[])];
     already.forEach(q=>{ if(q) usedKeys.add(questionDuplicateKey(q)); });
   }
-  const byCategory = {};
-  candidates.forEach(q=>{ (byCategory[q.category] = byCategory[q.category] || []).push(q); });
-  Object.values(byCategory).forEach(arr=> arr.sort((a,b)=> (a.lastUsedAt||0) - (b.lastUsedAt||0)) );
-  const categories = shuffle(Object.keys(byCategory));
+  // Prima le domande mai giocate (a rotazione tra le categorie); solo se non
+  // bastano, quelle già giocate da più tempo.
   const picked = [], pickedIds = new Set();
-  let progress = true;
-  while(picked.length<count && progress){
-    progress = false;
-    for(const cat of categories){
-      if(picked.length>=count) break;
-      const next = byCategory[cat].find(q=>!pickedIds.has(q.id) && !(blockDuplicates && usedKeys.has(questionDuplicateKey(q))));
-      if(next){ picked.push(next); pickedIds.add(next.id); usedKeys.add(questionDuplicateKey(next)); progress = true; }
+  const fill = list=>{
+    const byCategory = {};
+    list.forEach(q=>{ (byCategory[q.category] = byCategory[q.category] || []).push(q); });
+    Object.values(byCategory).forEach(arr=> arr.sort((a,b)=> (a.lastUsedAt||0) - (b.lastUsedAt||0)) );
+    const categories = shuffle(Object.keys(byCategory));
+    let progress = true;
+    while(picked.length<count && progress){
+      progress = false;
+      for(const cat of categories){
+        if(picked.length>=count) break;
+        const next = byCategory[cat].find(q=>!pickedIds.has(q.id) && !(blockDuplicates && usedKeys.has(questionDuplicateKey(q))));
+        if(next){ picked.push(next); pickedIds.add(next.id); usedKeys.add(questionDuplicateKey(next)); progress = true; }
+      }
     }
-  }
+  };
+  fill(candidates.filter(q=>!isQuestionUsed(q)));
+  // Già giocate: prima quella giocata da più tempo, a prescindere dalla categoria.
+  candidates.filter(q=>isQuestionUsed(q)).sort((a,b)=>a.lastUsedAt-b.lastUsedAt).forEach(q=>{
+    if(picked.length>=count || pickedIds.has(q.id) || (blockDuplicates && usedKeys.has(questionDuplicateKey(q)))) return;
+    picked.push(q); pickedIds.add(q.id); usedKeys.add(questionDuplicateKey(q));
+  });
   return shuffle(picked);
 }
 /* Domande per uno spareggio: dal pool finale, poi dal pool manche se il
@@ -1394,6 +1643,30 @@ async function markQuestionsUsed(questions){
   const now = Date.now();
   questions.forEach(q=>{ updates[questionBankPath(q.id)+'/lastUsedAt'] = now; });
   await db.ref(DB_ROOT).update(updates);
+}
+/* Domande già giocate: una domanda mostrata in una partita vera viene
+   scartata dalle pescate successive, così chi rigioca con gli stessi amici
+   non la ritrova (vale anche per le classifiche Top Dieci). Le prove con
+   sole squadre fittizie non consumano il mazzo. */
+function isQuestionUsed(q){ return !!(q && q.lastUsedAt); }
+function markableAsUsed(){
+  const ids = Object.keys(teams||{});
+  return ids.some(id=>!teams[id].isTest);
+}
+function freshQuestionCount(pool){
+  return Object.values(questionBank).filter(q=>q.pool===pool && questionMatchesGameType(q)
+    && (q.answerType!=='top10' || isValidTop10(q)) && !isQuestionUsed(q)).length;
+}
+// "Rimetti in gioco": which = 'all' | 'quiz' | 'top10'.
+async function resetUsedQuestions(which){
+  const updates = {};
+  Object.values(questionBank).forEach(q=>{
+    if(!isQuestionUsed(q)) return;
+    const isT = q.answerType==='top10';
+    if(which==='all' || (which==='top10' && isT) || (which==='quiz' && !isT)) updates[questionBankPath(q.id)+'/lastUsedAt'] = null;
+  });
+  if(Object.keys(updates).length) await db.ref(DB_ROOT).update(updates);
+  return Object.keys(updates).length;
 }
 
 /* Se la domanda ha un audio associato, genera un "cue" con un nonce nuovo:
@@ -1419,7 +1692,10 @@ if(typeof module !== 'undefined' && module.exports){
     computeOrderBonusAssignments, teamPointsForQuestion,
     computeFrozenLeaderboardBands, totalScore, qualificationScore, roundScore,
     withQuestionDefaults, CONTENT_TYPES, ANSWER_TYPES, ANSWER_POLICIES, DIFFICULTIES,
-    resolvePresentationMode, answerUnlockPolicyFor,
+    resolvePresentationMode, answerUnlockPolicyFor, resolveUnlockPolicy, effectiveRequirement, activityTypeFor, activityContract,
+    ACTIVITY_TYPES, DEFAULT_SHARED_SCREEN, normalizeQuestionPresentation, normalizeRequirement, filterStaleAnswers,
+    markableAsUsed, isQuestionUsed, freshQuestionCount,
+    __setTestDisplayHealth: (h)=>{ displayHealthById = h; },
     TOP10_SEED, DEFAULT_TOP10_CONFIG, isValidTop10, top10Items, normalizeTop10Text, matchTop10Answer,
     top10TeamPoints, top10BoardDefaults, top10CurrentTeam, top10FoundAt, parseTop10ItemLine, top10ItemLine, isAnswerCorrect,
     parseBulkQuestions, questionMatchesGameType, drawQuestionsForGame, drawTiebreakCandidates, top10BankEntry,
