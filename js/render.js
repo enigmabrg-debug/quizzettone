@@ -660,11 +660,11 @@ function renderTeam(){
   if(exitLink) exitLink.onclick = (e)=>{ e.preventDefault(); if(confirm('Uscire dalla squadra '+teamName+'?')){ disarmPresence(teamId); clearUrlSession(); clearTeamSession(); stopListening(); role=null; joined=false; teamId=null; teamName=null; renderRoleSelect(); } };
 }
 
-/* Logo del gioco nelle schermate d'ingresso (img/logo-*.png). Se il file
+/* Logo del gioco nelle schermate d'ingresso (img/logo-*.webp). Se il file
    non c'è, resta il nome in testo di sempre. */
 function brandLogoHtml(){
   const name = brandName();
-  const src = name==='Top Dieci' ? 'img/logo-top10.png' : 'img/logo-quizzettone.png';
+  const src = name==='Top Dieci' ? 'img/logo-top10.webp' : 'img/logo-quizzettone.webp';
   return `<img class="brand-logo" src="${src}" alt="${escapeHtml(name)}" onerror="this.hidden=true;this.nextElementSibling.hidden=false;"><h1 class="brand" hidden>${escapeHtml(name.toUpperCase())}</h1>`;
 }
 /* Nome del gioco nelle intestazioni: "Top Dieci" se la partita è di quel tipo,
