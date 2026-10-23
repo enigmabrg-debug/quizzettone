@@ -1,56 +1,145 @@
-/* ================== AZIONI ADMIN (scrivono su 'state') ================== */
-// Costruisce il timer per una domanda appena aperta: parte da solo, a meno
-// che l'admin abbia scelto l'avvio manuale nelle impostazioni della partita.
-function openQuestionTimer(durationMs, cfg){
+/* ================== AZIONI ADMIN (scrivono su statePath()) ================== */
+/* Tutto ciò che va scritto quando una domanda si apre, da qualunque punto
+   (inizio partita, domanda successiva, finale, spareggio), calcolato in un
+   posto solo (PROPOSTA_SCHERMO_CONDIVISO_completa.md §6-9):
+   - modalità effettiva (partita → domanda → requisiti del tipo → Display pronto?);
+   - politica di sblocco delle risposte;
+   - fase di preparazione privata ('preparing') se il contenuto vive sul Display;
+   - timer: parte solo quando la domanda è visibile e lo sblocco è immediato;
+   - identità dell'attività (instanceId) e revisione della presentazione.
+   instanceFields va sull'istanza della domanda in questionInstances. */
+function presentationForOpen(round, idx, q, cfg){
   cfg = cfg || state.config;
-  const manual = cfg && cfg.timerStartMode === 'manual';
-  return manual
-    ? {status:'idle', startedAt:null, durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
-    : {status:'running', startedAt:Date.now(), durationMs, pausedRemainingMs:null, closeReason:null, closedBy:null};
+  const resolved = resolvePresentationMode(q, cfg, displayReady());
+  const policy = resolveUnlockPolicy(q, cfg, resolved);
+  const ss = sharedScreenConfig(cfg);
+  const own = !!activityContract(q).ownLifecycle;
+  const preparing = !own && (resolved==='blocked' || (resolved==='shared_screen' && ss.prepareStep!==false));
+  const now = serverNow();
+  const readingDelay = (q && q.presentation && q.presentation.readingDelayMs) || ss.readingDelayMs;
+  const running = !preparing && !own && policy==='immediate';
+  const presentation = {
+    resolvedMode: resolved, configuredMode: cfg.displayMode || 'team_devices', source: presentationSource(q, cfg, resolved),
+    requirement: effectiveRequirement(q), unlockPolicy: policy,
+    displayStatus: preparing ? 'preparing' : 'visible',
+    autoUnlockAt: (!preparing && policy==='delayed') ? now + readingDelay : null,
+    fallbackActive:false, fallbackReason:null,
+    revision: ((state && state.presentation && state.presentation.revision) || 0) + 1
+  };
+  const timer = {status: running ? 'running' : 'idle', startedAt: running ? now : null, durationMs: cfg.questionDurationMs,
+    pausedRemainingMs:null, closeReason:null, closedBy:null};
+  const instanceId = newInstanceId();
+  const instanceFields = {instanceId};
+  if(!preparing) instanceFields.presentedAt = now;
+  if(running){ instanceFields.inputUnlockedAt = now; instanceFields.timerStartedAt = now; }
+  return {
+    stateFields: {presentation, timer, audioCue: preparing ? null : audioCueForQuestion(q),
+      currentActivity: {instanceId, contentId: (q && q.id) || null, type: activityTypeFor(q), round, index: idx}},
+    instanceFields
+  };
+}
+// Una domanda presentata è "giocata": non verrà più pescata nelle prossime partite (a meno di rimetterla in gioco).
+function markPresentedAsUsed(q){
+  if(q && q.id && markableAsUsed()) markQuestionsUsed([q]);
+}
+/* Apre una domanda scrivendo insieme, in un solo update() atomico, lo stato
+   (fase/indice/timer/ecc., passati in stateFields) e lo scoringSnapshot
+   congelato sull'istanza della nuova domanda corrente (PL-10): da qui in
+   avanti, una modifica successiva alla config di scoring non può più
+   alterare il punteggio già risolto per questa domanda. PL-11: stessa
+   scrittura atomica registra anche presentedAt (sempre) e, se il timer
+   costruito da stateFields.timer è già 'running' (sblocco immediato),
+   inputUnlockedAt/timerStartedAt allo stesso istante; azzera inoltre
+   presentation.fallbackActive, che riguarda solo la domanda precedente. */
+/* PL-15: se il profilo attivo usa davvero le fasce (dinamico/personalizzato),
+   congela la classifica (totalScore) delle squadre attive per questo round
+   nell'istante in cui la domanda si apre, scrivendola su leaderboardBands.
+   Per il profilo classico non fa nulla (nessun dato inutile da portarsi
+   dietro). Condivisa da tutti i punti che aprono una domanda. */
+function withLeaderboardBandsIfDynamic(gq, round, idx, cfg){
+  cfg = cfg || state.config;
+  const profile = cfg && cfg.scoringProfile;
+  if(!profile || profile==='classico') return gq;
+  const bands = computeFrozenLeaderboardBands(activeTeamsForRound(round));
+  return applyQuestionInstanceFields(gq, round, idx, {leaderboardBands: bands});
+}
+async function openQuestionWithSnapshot(round, idx, stateFields){
+  const q = getList(round)[idx];
+  const opening = presentationForOpen(round, idx, q);
+  stateFields = {...stateFields, ...opening.stateFields, ...top10OpenFields(round, idx, q)};
+  const snapshot = computeEffectiveScoringForOpen(round);
+  let newGameQuestions = withScoringSnapshotApplied(gameQuestions, round, idx, snapshot);
+  newGameQuestions = withPresentationTimestampsApplied(newGameQuestions, round, idx, opening.instanceFields);
+  newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, round, idx);
+  await db.ref(DB_ROOT).update({
+    ...statePatchPaths(stateFields),
+    [questionInstancesPath()]: newGameQuestions
+  });
+  markPresentedAsUsed(q);
+}
+// Campi di primo livello di 'next' diversi dallo stato locale: solo questi vengono scritti.
+function changedStateFields(next){
+  const out = {};
+  Object.keys(next).forEach(k=>{
+    if(k==='history') return;
+    if(JSON.stringify(next[k]) !== JSON.stringify(state[k])) out[k] = next[k]===undefined ? null : next[k];
+  });
+  return out;
 }
 /* Storico minimo + "annulla ultima azione": salva uno snapshot del path
-   PRIMA della modifica, poi scrive la modifica stessa. 'path' === 'state'
+   PRIMA della modifica, poi scrive la modifica stessa. 'path' === statePath()
    viene scritto in un'unica operazione insieme al nuovo 'history' (altrimenti
-   due safeSet('state', ...) sequenziali basati sullo stesso 'state' locale si
+   due safeSet(statePath(), ...) sequenziali basati sullo stesso 'state' locale si
    sovrascriverebbero a vicenda, come nel bug di adminSaveSetup); per path
-   diversi da 'state' (es. 'overrides:'+id, 'teaminfo:'+id) le due scritture
+   diversi da statePath() (es. scoreLedgerPath(id), teamPath(id)) le due scritture
    sono su nodi indipendenti e non hanno questo rischio.
 
    'before' viaggia come stringa JSON (beforeJson) invece che come oggetto
    annidato: Firebase "pota" silenziosamente le proprietà annidate il cui
    valore è {} (es. una squadra senza ancora nessun punteggio manuale), quindi
-   uno snapshot vuoto sparirebbe dalla scrittura di 'state' senza errori,
+   uno snapshot vuoto sparirebbe dalla scrittura di statePath() senza errori,
    rendendo l'undo successivo un no-op. Una stringa non va mai incontro a
    questa potatura, qualunque sia la forma del valore che rappresenta. */
 async function withUndo(label, path, before, next){
   const log = [...((state.history && state.history.log)||[]).slice(-29), {type:'action', label, at:Date.now()}];
-  const history = {last:{label, path, beforeJson: JSON.stringify(before===undefined?null:before), at:Date.now()}, log};
-  if(path==='state'){
-    await safeSet('state', {...next, history}, true);
+  // Lo snapshot di 'state' non include 'history': lì dentro c'è già lo
+  // snapshot dell'azione precedente, che verrebbe reinserito (con gli escape
+  // raddoppiati) a ogni azione annullabile, facendo crescere lo stato in modo
+  // esponenziale fino a superare i limiti di Firebase.
+  const snapshot = (path===statePath() && before) ? {...before, history:null} : before;
+  const history = {last:{label, path, beforeJson: JSON.stringify(snapshot===undefined?null:snapshot), at:Date.now()}, log};
+  let ok;
+  if(path===statePath()){
+    ok = await patchState({...changedStateFields(next), history});
   } else {
-    await safeSet('state', {...state, history}, true);
-    await safeSet(path, next===undefined?null:next, true);
+    ok = await patchState({history});
+    if(ok) ok = await safeSet(path, next===undefined?null:next, true);
+  }
+  if(!ok){
+    showErrorBanner('Operazione non riuscita ("'+label+'"): controlla la connessione e riprova.', ()=>withUndo(label, path, before, next));
+    return false;
   }
   await refresh();
+  return true;
 }
 async function adminUndoLast(){
   const last = state.history && state.history.last;
   if(!last) return;
   const before = JSON.parse(last.beforeJson);
-  await safeSet(last.path, before, true); // ripristina il valore precedente
-  const restored = await safeGet('state', true); // se last.path==='state', il ripristino ha già cambiato anche history
-  const priorLog = (restored && restored.history && restored.history.log) || [];
-  const log = [...priorLog.slice(-29), {type:'undo', label:'Annullato: '+last.label, at:Date.now()}];
-  // 'last' va pulito DOPO il ripristino, con una scrittura separata: garantisce
-  // un solo livello di undo invece di annullamenti a catena.
-  await safeSet('state/history', {last:null, log}, true);
+  const log = [...((state.history && state.history.log)||[]).slice(-29), {type:'undo', label:'Annullato: '+last.label, at:Date.now()}];
+  // 'last' viene sempre azzerato: un solo livello di undo, niente annullamenti a catena.
+  if(last.path===statePath()){
+    await safeSet(statePath(), {...before, history:{last:null, log}}, true);
+  } else {
+    await safeSet(last.path, before, true);
+    await safeSet(stateHistoryPath(), {last:null, log}, true);
+  }
   await refresh();
 }
 async function adminStartGame(){
   const cfg = (state && state.config) || defaultState().config;
   const totalNeeded = cfg.questionsPerRound.reduce((a,b)=>a+b, 0);
   const drawn = drawQuestionsForGame('manche', totalNeeded);
-  await markQuestionsUsed(drawn);
   const rounds = {};
   let offset = 0;
   for(let r=1; r<=cfg.rounds; r++){
@@ -58,6 +147,8 @@ async function adminStartGame(){
     rounds[r] = drawn.slice(offset, offset+count);
     offset += count;
   }
+  // La presentazione si risolve DA ZERO su questa cfg, non sulla partita precedente.
+  const opening = presentationForOpen(1, 0, drawn[0], cfg);
   // Riparte da defaultState() per azzerare i progressi della partita precedente,
   // ma preserva le regole/impostazioni scelte in lobby (config, nome partita,
   // Modalità Party) e blocca ulteriori modifiche alla configurazione.
@@ -72,23 +163,71 @@ async function adminStartGame(){
     partyMode: (state && state.partyMode) || 'none',
     party: (state && state.party) || defaultState().party,
     phase:'question', round:1, qIndex:0,
-    timer: openQuestionTimer(cfg.questionDurationMs, cfg),
-    gameQuestions: { rounds, final:null, tiebreak:null },
-    audioCue: audioCueForQuestion(drawn[0])
+    ...opening.stateFields
   };
-  await safeSet('state', s, true); await refresh();
+  // Prima domanda già una classifica Top Dieci: il suo tabellone nasce con la partita.
+  const firstTop10 = top10OpenFields(1, 0, drawn[0], cfg, 0);
+  Object.keys(firstTop10).forEach(k=>{
+    if(k.startsWith('top10Boards/')) s.top10Boards = {[k.slice('top10Boards/'.length)]: firstTop10[k]};
+    else s[k] = firstTop10[k];
+  });
+  // state e questionInstances sono rami separati (PL-09): scritti insieme in
+  // un solo update() atomico, così non c'è mai un istante in cui l'uno è già
+  // aggiornato e l'altro no. La prima domanda (manche 1, indice 0) riceve già
+  // il suo scoringSnapshot (PL-10), calcolato su 'cfg' esplicitamente perché
+  // qui 'state' locale non riflette ancora la config appena scelta. Riceve
+  // anche instanceId e i tempi di presentazione/sblocco (presentationForOpen).
+  let initialGameQuestions = withPresentationTimestampsApplied(
+    withScoringSnapshotApplied({ rounds, final:null, tiebreak:null }, 1, 0, computeEffectiveScoringForOpen(1, cfg)),
+    1, 0, opening.instanceFields
+  );
+  initialGameQuestions = withLeaderboardBandsIfDynamic(initialGameQuestions, 1, 0, cfg);
+  let ok = true;
+  try{
+    await db.ref(DB_ROOT).update({
+      [statePath()]: s,
+      [questionInstancesPath()]: initialGameQuestions
+    });
+  } catch(e){ ok = false; }
+  if(!ok){
+    showErrorBanner('Avvio partita non riuscito: controlla la connessione e riprova.', adminStartGame);
+    return;
+  }
+  markPresentedAsUsed(drawn[0]);
+  await refresh();
 }
 async function adminSaveSetup(gameName, patch){
   if(state.setupLocked) return;
   // Un'unica scrittura atomica: nome partita e config vanno salvati insieme,
-  // altrimenti due safeSet('state', ...) sequenziali (ciascuno basato sullo
+  // altrimenti due safeSet(statePath(), ...) sequenziali (ciascuno basato sullo
   // stesso 'state' locale non ancora aggiornato dall'eco del primo) si
   // sovrascriverebbero a vicenda perdendo parte delle modifiche.
   const nextConfig = {...state.config, ...patch};
   if(patch.scoring) nextConfig.scoring = {...state.config.scoring, ...patch.scoring};
   if(patch.tiebreakRule) nextConfig.tiebreakRule = {...state.config.tiebreakRule, ...patch.tiebreakRule};
   if(patch.lateJoin) nextConfig.lateJoin = {...state.config.lateJoin, ...patch.lateJoin};
-  await safeSet('state', {...state, gameName, config:nextConfig}, true);
+  nextConfig.version = (state.config.version || 0) + 1;
+  const ok = await patchState({gameName, config:nextConfig});
+  if(!ok){
+    showErrorBanner('Salvataggio impostazioni non riuscito: controlla la connessione e riprova.', ()=>adminSaveSetup(gameName, patch));
+    return;
+  }
+  await refresh();
+}
+/* PL-12 (item 14): salva la config CORRENTE DEL FORM (non necessariamente
+   ancora scritta su statePath() con "Salva impostazioni") come preset
+   riusabile, su un nodo globale 'presets/' che sopravvive a reset/rivincite
+   esattamente come questionBank/soundEffects/mazzi. 'config' qui è già nella
+   stessa forma del 'patch' che adminSaveSetup fonde su state.config, quindi
+   riapplicarlo in una partita successiva richiede solo ripopolare il form
+   (nessuna nuova logica di gioco, coerente con lo scope del pacchetto). */
+async function adminSaveConfigPreset(name, config){
+  const id = 'preset_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  await safeSet(presetPath(id), {id, name, config, createdAt: Date.now()}, true);
+  await refresh();
+}
+async function adminDeleteConfigPreset(id){
+  await safeDelete(presetPath(id), true);
   await refresh();
 }
 /* Chiusura delle risposte unificata: sia il click manuale dell'admin sia la
@@ -102,14 +241,14 @@ async function adminSaveSetup(gameName, patch){
    meccanismo che chiudeva la domanda solo se la tab dell'admin era aperta e
    si ri-renderizzava per caso in quel momento. */
 async function closeAnswersTransactional(reason){
-  const stateRef = db.ref(DB_ROOT + '/state');
+  const stateRef = db.ref(DB_ROOT + '/' + statePath());
   await stateRef.transaction(current=>{
     if(!current) return current;
     if(current.phase !== 'question') return; // già chiusa/avanzata da qualcun altro
     if(!current.timer || current.timer.status !== 'running') return;
     if(reason==='expired'){
       const {startedAt, durationMs} = current.timer;
-      if(!startedAt || (Date.now()-startedAt) < durationMs) return; // non ancora scaduta davvero
+      if(!startedAt || (serverNow()-startedAt) < durationMs) return; // non ancora scaduta davvero
     }
     return {...current, phase:'closed', timer:{...current.timer, status:'closed', closeReason:reason, closedBy: reason==='expired' ? 'auto' : 'admin'}};
   });
@@ -122,7 +261,7 @@ async function adminReopenAnswers(){
   // "Riapre per un intervallo breve in caso di errore tecnico": non riprende
   // il tempo residuo di prima, apre una finestra breve fissa per correggere.
   if(state.phase !== 'closed') return;
-  await safeSet('state', {...state, phase:'question', timer:{...state.timer, status:'running', startedAt:Date.now(), durationMs:10000, closeReason:null, closedBy:null}}, true);
+  await patchState({phase:'question', timer:{...state.timer, status:'running', startedAt:serverNow(), durationMs:10000, closeReason:null, closedBy:null}});
   await refresh();
 }
 async function adminCancelQuestion(){
@@ -130,58 +269,230 @@ async function adminCancelQuestion(){
   const key = qkey(state.round, state.qIndex);
   const cancelledQuestions = [...(state.cancelledQuestions||[]), key];
   const next = {...state, phase:'closed', cancelledQuestions, timer:{...state.timer, status:'closed', closeReason:'cancelled', closedBy:'admin'}};
-  await withUndo('Domanda annullata', 'state', state, next);
+  await withUndo('Domanda annullata', statePath(), state, next);
 }
+/* Apre le risposte e fa partire il timer nello stesso istante (regola 5):
+   "▶ Avvia timer" (avvio manuale senza schermo) e "🔓 Apri risposte"
+   (schermo condiviso) sono la stessa azione. Con la domanda ancora in
+   preparazione la mostra prima. Scrive anche inputUnlockedAt/timerStartedAt
+   sull'istanza della domanda, nello stesso update(). */
 async function adminStartTimerManually(){
   if(state.phase!=='question' || state.timer.status!=='idle') return;
-  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt:Date.now()}}, true);
+  const p = state.presentation || {};
+  if(p.resolvedMode==='blocked') return;
+  const now = serverNow();
+  const inst = {inputUnlockedAt:now, timerStartedAt:now};
+  const fields = {timer:{...state.timer, status:'running', startedAt:now}};
+  if(p.displayStatus==='preparing'){
+    Object.assign(fields, showFields(now));
+    inst.presentedAt = now;
+  }
+  fields.presentation = {...(fields.presentation || p), autoUnlockAt:null};
+  const newGameQuestions = withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, inst);
+  await db.ref(DB_ROOT).update({
+    ...statePatchPaths(fields),
+    [questionInstancesPath()]: newGameQuestions
+  });
   await refresh();
+}
+// Campi per rendere visibile la domanda in preparazione (Display e, se previsto, telefoni).
+function showFields(now, extraPresentation){
+  const p = state.presentation || {};
+  const q = getQuestion(state.round, state.qIndex);
+  const ss = sharedScreenConfig();
+  const readingDelay = (q && q.presentation && q.presentation.readingDelayMs) || ss.readingDelayMs;
+  const presentation = {...p, ...(extraPresentation||{}), displayStatus:'visible', revision:(p.revision||0)+1};
+  presentation.autoUnlockAt = presentation.unlockPolicy==='delayed' ? now + readingDelay : null;
+  return {presentation, audioCue: audioCueForQuestion(q)};
+}
+/* §9 fase 2: "Mostra domanda". La domanda passa dalla preparazione privata
+   al Display; le risposte si aprono secondo la politica (subito, a mano,
+   dopo il ritardo di lettura o a fine audio). */
+async function adminShowQuestion(){
+  const p = state.presentation || {};
+  if(state.phase!=='question' || p.displayStatus!=='preparing' || p.resolvedMode==='blocked') return;
+  const now = serverNow();
+  const fields = showFields(now);
+  const inst = {presentedAt: now};
+  if(p.unlockPolicy==='immediate'){
+    fields.timer = {...state.timer, status:'running', startedAt:now};
+    inst.inputUnlockedAt = now; inst.timerStartedAt = now;
+  }
+  await db.ref(DB_ROOT).update({
+    ...statePatchPaths(fields),
+    [questionInstancesPath()]: withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, inst)
+  });
+  await refresh();
+}
+/* Apertura automatica dopo il tempo di lettura (§8.3): la fa chiunque se ne
+   accorga per primo, in una transazione, come la chiusura a scadenza. */
+let autoUnlockTried = '';
+async function openAnswersIfDue(){
+  const p = state && state.presentation;
+  if(!p || !p.autoUnlockAt || state.phase!=='question' || state.timer.status!=='idle' || serverNow() < p.autoUnlockAt) return;
+  const tryKey = (state.currentActivity && state.currentActivity.instanceId) + '#' + p.autoUnlockAt;
+  if(autoUnlockTried===tryKey) return;
+  autoUnlockTried = tryKey;
+  let openedAt = null;
+  const res = await db.ref(DB_ROOT + '/' + statePath()).transaction(cur=>{
+    if(!cur || cur.phase!=='question' || !cur.timer || cur.timer.status!=='idle') return;
+    const cp = cur.presentation || {};
+    if(!cp.autoUnlockAt || cp.displayStatus!=='visible' || serverNow() < cp.autoUnlockAt) return;
+    openedAt = serverNow();
+    return {...cur, timer:{...cur.timer, status:'running', startedAt:openedAt}, presentation:{...cp, autoUnlockAt:null}};
+  });
+  if(res && res.committed && openedAt){
+    await safeSet(questionInstancesPath(), withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, {inputUnlockedAt:openedAt, timerStartedAt:openedAt}), true);
+  }
+}
+// §8.3: più tempo di lettura, o niente apertura automatica (si apre a mano).
+async function adminDelayUnlock(ms){
+  const p = state.presentation || {};
+  if(state.phase!=='question' || state.timer.status!=='idle' || !p.autoUnlockAt) return;
+  await patchState({presentation:{...p, autoUnlockAt: Math.max(p.autoUnlockAt, serverNow()) + ms}});
+  await refresh();
+}
+async function adminCancelAutoUnlock(){
+  const p = state.presentation || {};
+  await patchState({presentation:{...p, autoUnlockAt:null, unlockPolicy:'manual'}});
+  await refresh();
+}
+/* §8.4: a fine audio le risposte si aprono da sole. Lo decide la regia,
+   quando il Display (o il suo stesso lettore) segnala che l'audio della
+   revisione corrente è finito. */
+let afterMediaTried = '';
+function checkAfterMediaUnlock(adminAudioEnded){
+  if(role!=='admin' || !state || state.phase!=='question' || state.timer.status!=='idle') return;
+  const p = state.presentation || {};
+  if(p.unlockPolicy!=='after_media' || p.displayStatus!=='visible') return;
+  if(!adminAudioEnded && !displaySyncStatus().mediaEnded) return;
+  const key = (state.currentActivity && state.currentActivity.instanceId) + '#' + p.revision;
+  if(afterMediaTried===key) return;
+  afterMediaTried = key;
+  adminStartTimerManually();
+}
+/* §16: fallback manuale, solo per l'attività corrente ("Mostra domanda sui
+   telefoni"). Se la domanda era ancora in preparazione, la rende visibile.
+   Alla domanda successiva la modalità viene ricalcolata da capo. */
+async function adminActivateTeamFallback(reason){
+  if(state.phase!=='question') return;
+  const p = state.presentation || {};
+  const now = serverNow();
+  const extra = {fallbackActive:true, fallbackReason: (typeof reason==='string' && reason) || 'manual'};
+  let fields, inst = null;
+  if(p.displayStatus==='preparing'){
+    fields = showFields(now, extra);
+    inst = {presentedAt: now};
+    if(p.unlockPolicy==='immediate'){ fields.timer = {...state.timer, status:'running', startedAt:now}; inst.inputUnlockedAt = now; inst.timerStartedAt = now; }
+  } else {
+    fields = {presentation:{...p, ...extra, revision:(p.revision||0)+1}};
+  }
+  const updates = statePatchPaths(fields);
+  if(inst) updates[questionInstancesPath()] = withPresentationTimestampsApplied(gameQuestions, state.round, state.qIndex, inst);
+  await db.ref(DB_ROOT).update(updates);
+  await refresh();
+}
+// "Ripristina modalità schermo": torna al Display se è di nuovo pronto.
+async function adminRestoreSharedScreen(){
+  const p = state.presentation || {};
+  if(!p.fallbackActive || !displayReady()) return;
+  await patchState({presentation:{...p, fallbackActive:false, fallbackReason:null, revision:(p.revision||0)+1}});
+  await refresh();
+}
+/* §11/§15 caso A con attività che richiede il Display e Display assente:
+   "Attendi riconnessione" ricalcola la modalità quando il Display torna;
+   "Usa variante alternativa" la gioca sui telefoni (se il tipo lo prevede). */
+async function adminRetryDisplay(){
+  const p = state.presentation || {};
+  if(p.resolvedMode!=='blocked' || !displayReady()) return;
+  await patchState({presentation:{...p, resolvedMode:'shared_screen', revision:(p.revision||0)+1}});
+  await refresh();
+}
+function teamVariantAllowed(q){
+  const contract = activityContract(q);
+  return contract.fallbackStrategy!=='none' && sharedScreenConfig().emergency!=='block_incompatible';
+}
+async function adminUseTeamVariant(){
+  const p = state.presentation || {};
+  const q = getQuestion(state.round, state.qIndex);
+  if(p.resolvedMode!=='blocked' || !teamVariantAllowed(q)) return;
+  const policy = resolveUnlockPolicy(q, state.config, 'team_devices');
+  await patchState({presentation:{...p, resolvedMode:'team_devices', unlockPolicy: policy}});
+  state.presentation = {...p, resolvedMode:'team_devices', unlockPolicy: policy};
+  await adminActivateTeamFallback('display_required_missing');
+}
+/* §15 casi B e C, §17: con "Consenti fallback" (emergency:'allow') la regia
+   passa da sola ai telefoni se il Display resta assente oltre la tolleranza;
+   altrimenti mostra solo l'avviso e decide l'admin. Mai per le attività che
+   richiedono il Display (regola 8). */
+let displayLostSince = null;
+function checkDisplayLoss(){
+  if(role!=='admin' || !state) return;
+  const p = state.presentation || {};
+  const relevant = state.phase==='question' && p.resolvedMode==='shared_screen' && !p.fallbackActive;
+  if(!relevant || displayReady()){ displayLostSince = null; return; }
+  if(displayLostSince===null) displayLostSince = Date.now();
+  const ss = sharedScreenConfig();
+  if(ss.emergency==='allow' && p.requirement!=='required' && Date.now()-displayLostSince >= (ss.autoFallbackGraceMs||5000)){
+    displayLostSince = null;
+    adminActivateTeamFallback('display_disconnect');
+  }
 }
 async function adminPauseTimer(){
   if(state.phase!=='question' || state.timer.status!=='running') return;
-  await safeSet('state', {...state, timer:{...state.timer, status:'paused', pausedRemainingMs:timeRemaining()}}, true);
+  await patchState({timer:{...state.timer, status:'paused', pausedRemainingMs:timeRemaining()}});
   await refresh();
 }
 async function adminResumeTimer(){
   if(state.phase!=='question' || state.timer.status!=='paused') return;
   const remaining = state.timer.pausedRemainingMs || 0;
-  await safeSet('state', {...state, timer:{...state.timer, status:'running', startedAt: Date.now()-(state.timer.durationMs-remaining), pausedRemainingMs:null}}, true);
+  await patchState({timer:{...state.timer, status:'running', startedAt: serverNow()-(state.timer.durationMs-remaining), pausedRemainingMs:null}});
   await refresh();
 }
 async function adminAdjustTimer(deltaMs){
   if(state.phase!=='question') return;
   const t = state.timer;
   if(t.status==='paused'){
-    await safeSet('state', {...state, timer:{...t, pausedRemainingMs:Math.max(0, (t.pausedRemainingMs||0)+deltaMs)}}, true);
+    await patchState({timer:{...t, pausedRemainingMs:Math.max(0, (t.pausedRemainingMs||0)+deltaMs)}});
   } else if(t.status==='running'){
-    const newDuration = Math.max(Date.now()-t.startedAt, t.durationMs+deltaMs);
-    await safeSet('state', {...state, timer:{...t, durationMs:newDuration}}, true);
+    const newDuration = Math.max(serverNow()-t.startedAt, t.durationMs+deltaMs);
+    await patchState({timer:{...t, durationMs:newDuration}});
   } else {
     return;
   }
   await refresh();
 }
 async function adminRevealSolution(){
-  await safeSet('state', {...state, solutionRevealed:true}, true); await refresh();
+  await patchState({solutionRevealed:true}); await refresh();
 }
 async function adminReplayCurrentAudio(){
   const q = getQuestion(state.round, state.qIndex);
   const cue = audioCueForQuestion(q);
-  if(cue) await safeSet('state', {...state, audioCue:cue}, true);
+  if(cue) await patchState({audioCue:cue});
   await refresh();
+}
+/* PL-19: segnala su Firebase un errore REALE di caricamento del file audio
+   (non il blocco autoplay del browser, gestito solo localmente), così le
+   squadre — che non riproducono l'audio in prima persona, ma ne vedono lo
+   stato nella loro vista domanda — sanno che quella domanda non ha audio
+   disponibile. Il controllo sul nonce evita di segnalare come "fallito" un
+   cue vecchio se nel frattempo ne è già arrivato uno nuovo. */
+async function reportAudioLoadFailure(nonce){
+  if(!state.audioCue || state.audioCue.nonce !== nonce) return;
+  await patchState({audioCue:{...state.audioCue, loadFailed:true}});
 }
 async function adminStopAudio(){
   const cue = state.audioCue;
   if(!cue) return;
   const el = document.getElementById('gameAudioEl');
   const pos = el ? el.currentTime : 0;
-  await safeSet('state', {...state, audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await patchState({audioCue:{...cue, action:'stop', startAt:pos, triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}});
   await refresh();
 }
 async function adminResumeAudio(fromStart){
   const cue = state.audioCue;
   if(!cue) return;
-  await safeSet('state', {...state, audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}}, true);
+  await patchState({audioCue:{...cue, action:'play', startAt: fromStart ? 0 : (cue.startAt||0), triggeredAt:Date.now(), nonce:Math.random().toString(36).slice(2)}});
   await refresh();
 }
 async function adminAdjustPoints(id, round, idx, delta){
@@ -190,7 +501,7 @@ async function adminAdjustPoints(id, round, idx, delta){
   const before = {...(overridesByTeam[id]||{})};
   const next = {...before, [key]: current+delta};
   const label = 'Punti '+(teams[id]?teams[id].name:id)+' '+(delta>0?'+':'')+delta;
-  await withUndo(label, 'overrides:'+id, before, next);
+  await withUndo(label, scoreLedgerPath(id), before, next);
 }
 async function adminNextQuestion(){
   const round = state.round, idx = state.qIndex;
@@ -200,36 +511,36 @@ async function adminNextQuestion(){
     const midPoint = Math.ceil(list.length/2);
     const checkpointMinQuestions = (state.config && state.config.checkpointMinQuestions) || 4;
     if(list.length>=checkpointMinQuestions && qNumber===midPoint){
-      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null}, true);
+      await patchState({phase:'checkpoint', checkpoint:{type:'mid', round}, checkpointMode:null});
     } else if(qNumber===list.length){
-      await safeSet('state', {...state, phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null}, true);
+      await patchState({phase:'checkpoint', checkpoint:{type:'end', round}, checkpointMode:null});
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await openQuestionWithSnapshot(round, idx+1, {qIndex:idx+1, phase:'question', solutionRevealed:false});
     }
   } else if(round==='final'){
     if(qNumber===list.length){
-      await safeSet('state', {...state, phase:'final_ready'}, true);
+      await patchState({phase:'final_ready'});
     } else {
-      await safeSet('state', {...state, qIndex:idx+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, audioCue:audioCueForQuestion(list[idx+1])}, true);
+      await openQuestionWithSnapshot('final', idx+1, {qIndex:idx+1, phase:'question', solutionRevealed:false});
     }
   } else if(round==='tiebreak'){
-    await safeSet('state', {...state, phase:'tiebreak_closed'}, true);
+    await patchState({phase:'tiebreak_closed'});
   }
   await refresh();
 }
 async function adminSetCheckpointMode(mode){
-  await withUndo('Modalità checkpoint: '+mode, 'state', state, {...state, checkpointMode:mode});
+  await withUndo('Modalità checkpoint: '+mode, statePath(), state, {...state, checkpointMode:mode});
 }
 async function adminContinueFromCheckpoint(){
   const cp = state.checkpoint;
   const totalRounds = (state.config && state.config.rounds) || 2;
   if(cp.type==='mid'){
     const nextQ = getQuestion(cp.round, state.qIndex+1);
-    await safeSet('state', {...state, qIndex:state.qIndex+1, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await openQuestionWithSnapshot(cp.round, state.qIndex+1, {qIndex:state.qIndex+1, phase:'question', solutionRevealed:false, checkpoint:null, checkpointMode:null});
   } else if(cp.type==='end' && cp.round < totalRounds){
     const nextRound = cp.round+1;
     const nextQ = getQuestion(nextRound, 0);
-    await safeSet('state', {...state, round:nextRound, qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, audioCue:audioCueForQuestion(nextQ)}, true);
+    await openQuestionWithSnapshot(nextRound, 0, {round:nextRound, qIndex:0, phase:'question', solutionRevealed:false, checkpoint:null, checkpointMode:null});
   }
   await refresh();
 }
@@ -239,31 +550,66 @@ async function adminRevealFinalists(){
   const ids = Object.keys(teams);
   const ranked = ids.map(id=>({id, score:qualificationScore(id)})).sort((a,b)=>b.score-a.score);
   if(ranked.length<=finalistCount){
-    await safeSet('state', {...state, phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]}, true);
+    await patchState({phase:'reveal_finalists', finalists:ranked.map(r=>r.id), eliminated:[]});
     await refresh(); return;
   }
   const cutoffScore = ranked[finalistCount-1].score;
   const tiedAtCutoff = ranked.filter(r=>r.score===cutoffScore);
   const aboveCutoff = ranked.filter(r=>r.score>cutoffScore);
-  if(tiedAtCutoff.length>1 && aboveCutoff.length<finalistCount){
-    // il taglio cade su un pari merito: chi è sopra il taglio è già qualificato,
-    // gli spareggianti si giocano i posti rimasti
-    const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar: aboveCutoff.map(r=>r.id), candidates: tiedAtCutoff.map(r=>r.id), candidateQuestions, question:null, qIndex:null}}, true);
+  if(aboveCutoff.length + tiedAtCutoff.length > finalistCount){
+    // il taglio cade su un pari merito con più squadre che posti: chi è sopra
+    // il taglio è già qualificato, gli spareggianti si giocano i posti rimasti
+    // (se i pari merito entrano tutti nei posti, nessuno spareggio)
+    const candidateQuestions = drawTiebreakCandidates(tiebreakCandidateCount);
+    await patchState({phase:'tiebreak_setup', tiebreak:{qualifiedSoFar: aboveCutoff.map(r=>r.id), candidates: tiedAtCutoff.map(r=>r.id), candidateQuestions, question:null, qIndex:null}});
   } else {
-    await safeSet('state', {...state, phase:'reveal_finalists', finalists: ranked.slice(0,finalistCount).map(r=>r.id), eliminated: ranked.slice(finalistCount).map(r=>r.id)}, true);
+    await patchState({phase:'reveal_finalists', finalists: ranked.slice(0,finalistCount).map(r=>r.id), eliminated: ranked.slice(finalistCount).map(r=>r.id)});
   }
   await refresh();
 }
 async function adminStartTiebreakQuestion(qIdx){
   const chosen = state.tiebreak.candidateQuestions[qIdx];
-  await markQuestionsUsed([chosen]);
-  const tb = {...state.tiebreak, question: chosen, qIndex:qIdx};
-  await safeSet('state', {...state, round:'tiebreak', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, tiebreak: tb, gameQuestions:{...state.gameQuestions, tiebreak: chosen}, audioCue:audioCueForQuestion(chosen)}, true);
+  const tb = {...state.tiebreak, question: chosen, qIndex:qIdx, usedQuestionIds:[...(state.tiebreak.usedQuestionIds||[]), chosen.id]};
+  const opening = presentationForOpen('tiebreak', 0, chosen);
+  const s = {round:'tiebreak', qIndex:0, phase:'question', solutionRevealed:false, tiebreak: tb,
+    ...opening.stateFields, ...top10OpenFields('tiebreak', 0, chosen)};
+  const gqWithTiebreak = {...gameQuestions, tiebreak: chosen};
+  // Ogni spareggio usa la chiave risposta 'tiebreak-0': le risposte di uno
+  // spareggio precedente (altro posto, qualificazione e poi finale, oltranza)
+  // vanno tolte nella stessa scrittura, altrimenti risulterebbero già date.
+  const clearPreviousAnswers = {};
+  Object.keys(teams).forEach(id=>{ clearPreviousAnswers[answersPath(id)+'/'+qkey('tiebreak', 0)] = null; });
+  const snapshot = computeEffectiveScoringForOpen('tiebreak');
+  let newGameQuestions = withPresentationTimestampsApplied(
+    withScoringSnapshotApplied(gqWithTiebreak, 'tiebreak', 0, snapshot), 'tiebreak', 0, opening.instanceFields
+  );
+  newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, 'tiebreak', 0);
+  await db.ref(DB_ROOT).update({
+    ...clearPreviousAnswers,
+    ...statePatchPaths(s),
+    [questionInstancesPath()]: newGameQuestions
+  });
+  markPresentedAsUsed(chosen);
+  await refresh();
+}
+/* Altra domanda di spareggio tra le squadre ancora in parità (spareggio "a
+   oltranza", o nessuno ha risposto bene): si torna alla scelta della domanda
+   con le candidate rimaste, senza riproporre domande già usate. */
+async function adminNewTiebreakQuestion(){
+  const tb = state.tiebreak;
+  if(!tb) return;
+  const used = tb.usedQuestionIds || [];
+  let candidateQuestions = (tb.candidateQuestions||[]).filter(q=>!used.includes(q.id));
+  if(!candidateQuestions.length){
+    const tiebreakCandidateCount = (state.config && state.config.tiebreakCandidateCount) || 5;
+    candidateQuestions = drawTiebreakCandidates(tiebreakCandidateCount, used);
+  }
+  await patchState({phase:'tiebreak_setup', tiebreak:{...tb, candidateQuestions, question:null, qIndex:null}});
   await refresh();
 }
 /* Snapshot di sola lettura persistito a fine partita, sopravvive a un reset o
-   a una rivincita (rimane raggiungibile via statsHistory/<gameId>). */
+   a una rivincita (rimane raggiungibile via statsHistory/<gameId>, che resta
+   un ramo globale: deve sopravvivere anche a un reset della sessione). */
 async function persistFinalStatsSnapshot(){
   if(!state.gameId) return;
   const stats = computeFinalStats();
@@ -271,88 +617,119 @@ async function persistFinalStatsSnapshot(){
 }
 async function adminAssignTiebreakWinner(winnerId){
   if(state.tiebreak.forFinal){
-    await safeSet('state', {...state, phase:'reveal_winner', winner:winnerId, finalWinnerScoreSnapshot: state.tiebreak.finalScoresSnapshot||[], tiebreak:null}, true);
+    await patchState({phase:'reveal_winner', winner:winnerId, finalWinnerScoreSnapshot: state.tiebreak.finalScoresSnapshot||[], tiebreak:null});
     await refresh();
     await persistFinalStatsSnapshot();
     return;
   }
+  const tb = state.tiebreak;
   const finalistCount = (state.config && state.config.finalistCount) || 2;
-  const finalists = [...state.tiebreak.qualifiedSoFar, winnerId].slice(0,finalistCount);
+  // Firebase non salva gli array vuoti: con il primo posto in parità
+  // qualifiedSoFar arriva come undefined, non come [].
+  const qualified = [...(tb.qualifiedSoFar||[]), winnerId];
+  const remaining = (tb.candidates||[]).filter(id=>id!==winnerId);
+  const slotsLeft = finalistCount - qualified.length;
+  if(slotsLeft > 0 && remaining.length > slotsLeft){
+    // più squadre in parità che posti: si assegnano uno alla volta, restando
+    // sul risultato dello spareggio (o con una nuova domanda tra le rimaste)
+    await patchState({tiebreak:{...tb, qualifiedSoFar: qualified, candidates: remaining}});
+    await refresh();
+    return;
+  }
+  const finalists = [...qualified, ...(slotsLeft>0 ? remaining : [])].slice(0,finalistCount);
   const eliminated = Object.keys(teams).filter(id=>!finalists.includes(id));
-  await safeSet('state', {...state, phase:'reveal_finalists', finalists, eliminated, checkpoint:null, tiebreak:null}, true);
+  await patchState({phase:'reveal_finalists', finalists, eliminated, checkpoint:null, tiebreak:null});
   await refresh();
 }
 async function adminContinueToFinal(){
   const finalQuestionCount = (state.config && state.config.finalQuestionCount) || 10;
   const drawn = drawQuestionsForGame('finale', finalQuestionCount);
-  await markQuestionsUsed(drawn);
-  await safeSet('state', {...state, round:'final', qIndex:0, phase:'question', timer:openQuestionTimer(state.config.questionDurationMs), solutionRevealed:false, checkpoint:null, checkpointMode:null, gameQuestions:{...state.gameQuestions, final:drawn}, audioCue:audioCueForQuestion(drawn[0])}, true);
+  const opening = presentationForOpen('final', 0, drawn[0]);
+  const s = {round:'final', qIndex:0, phase:'question', solutionRevealed:false, checkpoint:null, checkpointMode:null,
+    ...opening.stateFields, ...top10OpenFields('final', 0, drawn[0])};
+  const gqWithFinal = {...gameQuestions, final:drawn};
+  const snapshot = computeEffectiveScoringForOpen('final');
+  let newGameQuestions = withPresentationTimestampsApplied(
+    withScoringSnapshotApplied(gqWithFinal, 'final', 0, snapshot), 'final', 0, opening.instanceFields
+  );
+  newGameQuestions = withLeaderboardBandsIfDynamic(newGameQuestions, 'final', 0);
+  await db.ref(DB_ROOT).update({
+    ...statePatchPaths(s),
+    [questionInstancesPath()]: newGameQuestions
+  });
+  markPresentedAsUsed(drawn[0]);
   await refresh();
 }
 async function adminRevealWinner(){
   const finalists = state.finalists || [];
-  const scores = finalists.map(id=>({id, score: roundScore(id,'final')})).sort((a,b)=>b.score-a.score);
+  // PL-16: totalScore() (non il solo roundScore('final')) applica davvero
+  // scoreCarryover — 'reset' li rende equivalenti (comportamento invariato
+  // per le partite già esistenti che usano il default), ma 'keep'/'convert'
+  // richiedono che anche la decisione del VINCITORE, non solo la classifica
+  // mostrata, tenga conto del punteggio di qualificazione o del credito.
+  const scores = finalists.map(id=>({id, score: totalScore(id)})).sort((a,b)=>b.score-a.score);
   const topScore = scores.length ? scores[0].score : 0;
   const tiedTop = scores.filter(s=>s.score===topScore);
   if(tiedTop.length>1){
     // Pareggio per il primo posto in finale: stesso meccanismo di spareggio
     // usato per l'accesso in finale, non solo un flag 'TIE' con scelta libera.
     const tiebreakCandidateCount = (state.config && state.config.tiebreakCandidateCount) || 5;
-    const candidateQuestions = drawQuestionsForGame('finale', tiebreakCandidateCount);
-    await safeSet('state', {...state, phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop.map(s=>s.id), candidateQuestions, question:null, qIndex:null, forFinal:true, finalScoresSnapshot:scores}}, true);
+    const candidateQuestions = drawTiebreakCandidates(tiebreakCandidateCount);
+    await patchState({phase:'tiebreak_setup', tiebreak:{qualifiedSoFar:[], candidates: tiedTop.map(s=>s.id), candidateQuestions, question:null, qIndex:null, forFinal:true, finalScoresSnapshot:scores}});
     await refresh();
     return;
   }
   const winner = scores[0] ? scores[0].id : null;
-  await safeSet('state', {...state, phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores}, true);
+  await patchState({phase:'reveal_winner', winner, finalWinnerScoreSnapshot:scores});
   await refresh();
   await persistFinalStatsSnapshot();
 }
 async function adminToggleStandings(){
-  await safeSet('state', {...state, standingsVisible: !state.standingsVisible}, true);
+  await patchState({standingsVisible: !state.standingsVisible});
   await refresh();
 }
 // Ordine di rivelazione calcolato dal sistema (mai scelto a mano dall'admin):
 // dall'ultima posizione verso la prima, con i pari merito raggruppati in
 // un'unica fascia rivelata insieme in un solo passo.
 function computeStandingsRevealOrder(){
-  const ids = Object.keys(teams);
-  const ranked = ids.map(id=>({id, score: totalScore(id)})).sort((a,b)=>a.score-b.score);
+  // Stessa classifica di podio e classifica live (standingsRanking), letta
+  // dal fondo: le fasce raggruppano solo pari merito dello stesso gruppo.
+  const ranked = [...standingsRanking()].reverse();
   const groups = [];
   for(const r of ranked){
     const last = groups[groups.length-1];
-    if(last && last.score===r.score) last.ids.push(r.id);
-    else groups.push({score:r.score, ids:[r.id]});
+    if(last && last.score===r.score && last.group===r.group && !r.isWinner && !last.isWinner) last.ids.push(r.id);
+    else groups.push({score:r.score, group:r.group, isWinner:r.isWinner, ids:[r.id]});
   }
   return groups.map(g=>g.ids);
 }
 async function adminSetupStandingsReveal(){
   const order = computeStandingsRevealOrder();
-  await safeSet('state', {...state, standingsReveal:{order, revealedCount:0, speed:'normal', autoPlaying:false}}, true);
+  await patchState({standingsReveal:{order, revealedCount:0, speed:'normal', autoPlaying:false}});
   await refresh();
 }
 async function adminRevealNextStanding(){
   const sr = state.standingsReveal;
   const revealedCount = Math.min(sr.order.length, sr.revealedCount+1);
   const next = {...state, standingsReveal:{...sr, revealedCount}};
-  await withUndo('Rivelata posizione classifica', 'state', state, next);
+  await withUndo('Rivelata posizione classifica', statePath(), state, next);
 }
 async function adminSkipToFullStandingsReveal(){
   const sr = state.standingsReveal;
   const next = {...state, standingsReveal:{...sr, revealedCount:sr.order.length, autoPlaying:false}};
-  await withUndo('Classifica rivelata per intero', 'state', state, next);
+  await withUndo('Classifica rivelata per intero', statePath(), state, next);
 }
 async function adminSetStandingsRevealSpeed(speed){
-  await safeSet('state', {...state, standingsReveal:{...state.standingsReveal, speed}}, true);
+  await patchState({standingsReveal:{...state.standingsReveal, speed}});
   await refresh();
 }
 async function adminToggleAutoPlayReveal(){
   const sr = state.standingsReveal;
-  await safeSet('state', {...state, standingsReveal:{...sr, autoPlaying:!sr.autoPlaying}}, true);
+  await patchState({standingsReveal:{...sr, autoPlaying:!sr.autoPlaying}});
   await refresh();
 }
 async function adminCloseStandingsReveal(){
-  await safeSet('state', {...state, standingsReveal:null}, true);
+  await patchState({standingsReveal:null});
   await refresh();
 }
 async function adminSetScoringDefaults(values){
@@ -362,16 +739,25 @@ async function adminSetScoringDefaults(values){
 async function adminSetQuestionScoring(round, idx, values){
   const key = qkey(round, idx);
   const overrides = {...(state.scoringOverrides||{}), [key]: values};
-  await safeSet('state', {...state, scoringOverrides: overrides}, true);
+  await patchState({scoringOverrides: overrides});
   await refresh();
 }
 async function adminResetGame(){
-  const teamKeys = await safeList('teaminfo:', true);
-  for(const k of teamKeys) await safeDelete(k, true);
   const ids = Object.keys(teams);
-  for(const id of ids){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
-  await safeDelete('presence', true);
-  await safeSet('state', defaultState(), true);
+  for(const id of ids){
+    await safeDelete(teamPath(id), true);
+    await safeDelete(answersPath(id), true);
+    await safeDelete(scoreLedgerPath(id), true);
+    await safeDelete(teamNamePath(teamNameKey(teams[id].name)), true);
+  }
+  await safeDelete(sessionPath('presence'), true);
+  await safeDelete(sessionPath('teamNames'), true); // pulizia extra di eventuali indici orfani
+  const ok = await safeSet(statePath(), defaultState(), true);
+  await safeSet(questionInstancesPath(), null, true);
+  if(!ok){
+    showErrorBanner('Reset non completato: lo stato condiviso potrebbe essere rimasto incoerente. Riprova o ricarica la pagina.', adminResetGame);
+    return;
+  }
   await refresh();
 }
 
@@ -382,7 +768,7 @@ async function adminResetGame(){
    come farebbe con quella vera, per collaudare timer/audio/display; "Reset
    partita" le rimuove insieme a tutto il resto prima della serata vera. */
 async function adminToggleTestMode(){
-  await safeSet('state', {...state, testMode: !state.testMode}, true);
+  await patchState({testMode: !state.testMode});
   await refresh();
 }
 function newTestTeamId(){ return 'test_' + Math.random().toString(36).slice(2,10); }
@@ -391,7 +777,7 @@ async function adminAddTestTeams(count){
   const writes = [];
   for(let i=1; i<=count; i++){
     const id = newTestTeamId();
-    writes.push(safeSet('teaminfo:'+id, {id, name:'Squadra prova '+(existingCount+i), joinedAt:Date.now(), isTest:true, ready:true}, true));
+    writes.push(safeSet(teamPath(id), {id, name:'Squadra prova '+(existingCount+i), joinedAt:Date.now(), isTest:true, ready:true}, true));
   }
   await Promise.all(writes);
   await refresh();
@@ -399,9 +785,9 @@ async function adminAddTestTeams(count){
 async function adminRemoveTestTeams(){
   const ids = Object.keys(teams).filter(id=>teams[id].isTest);
   for(const id of ids){
-    await safeDelete('teaminfo:'+id, true);
-    await safeDelete('answers:'+id, true);
-    await safeDelete('overrides:'+id, true);
+    await safeDelete(teamPath(id), true);
+    await safeDelete(answersPath(id), true);
+    await safeDelete(scoreLedgerPath(id), true);
   }
   await refresh();
 }
@@ -411,11 +797,11 @@ async function adminRemoveTestTeams(){
    prova non arrivano mai in finale nell'uso previsto di questa modalità. */
 async function adminSubmitTestAnswer(id, round, idx, optionIndex){
   const key = qkey(round, idx);
-  const current = await safeGet('answers:'+id, true) || {};
-  if(current[key]) return;
-  const ts = Date.now();
-  current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
-  await safeSet('answers:'+id, current, true);
+  const ts = serverNow();
+  const answer = {optionIndex, ts, instanceId: (state.currentActivity && state.currentActivity.instanceId) || null, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  try{
+    await db.ref(DB_ROOT + '/' + answersPath(id)).child(key).transaction(current => current ? undefined : answer);
+  } catch(e){ console.error('invio risposta prova fallito', e); }
   await refresh();
 }
 // qkey => Set di id già "tentati" in questo giro di domanda, per non ritentare
@@ -439,6 +825,187 @@ async function simulateTestTeamAnswers(){
   }
 }
 
+/* ================== AZIONI · TOP DIECI ==================
+   Il tabellone di una classifica vive in state/top10Boards/<qkey>. Ogni
+   mossa (risposta, tempo scaduto, comandi del presentatore) è una
+   transazione su quel solo nodo: due telefoni o due schede che agiscono
+   nello stesso istante non possono far saltare o raddoppiare un turno. */
+// Ordine dei turni ruotato di una posizione a ogni classifica: parte sempre una squadra diversa.
+function newTop10Board(round, rotation, cfg){
+  const t10 = {...DEFAULT_TOP10_CONFIG, ...((cfg && cfg.top10)||{})};
+  const base = activeTeamsForRound(round).filter(id=>teams[id])
+    .sort((a,b)=>((teams[a].joinedAt||0)-(teams[b].joinedAt||0)) || a.localeCompare(b));
+  const shift = base.length ? rotation % base.length : 0;
+  const order = [...base.slice(shift), ...base.slice(0, shift)];
+  const maxLaps = Math.max(0, parseInt(t10.maxLaps, 10) || 0);
+  return {order, turn:0, maxTurns: maxLaps ? maxLaps*order.length : 0, turnMs: Math.max(5, parseInt(t10.turnSeconds, 10) || 30)*1000,
+    status:'ready', turnStartedAt:null};
+}
+/* Campi di stato da scrivere insieme all'apertura di una domanda: per una
+   classifica, il tabellone nuovo e un timer di domanda fermo (il tempo è
+   quello del turno, sul tabellone). Vuoto per le domande normali. */
+function top10OpenFields(round, idx, q, cfg, rotation){
+  if(!q || q.answerType!=='top10') return {};
+  cfg = cfg || state.config;
+  rotation = rotation!=null ? rotation : ((state && state.top10Rotation) || 0);
+  const board = newTop10Board(round, rotation, cfg);
+  return {
+    ['top10Boards/'+qkey(round, idx)]: board,
+    top10Rotation: round==='tiebreak' ? rotation : rotation+1,
+    timer: {status:'idle', startedAt:null, durationMs:board.turnMs, pausedRemainingMs:null, closeReason:null, closedBy:null}
+  };
+}
+function top10Advance(b){
+  b.turn += 1;
+  b.turnStartedAt = serverNow();
+  if(top10FoundCount(b)>=10 || (b.maxTurns && b.turn>=b.maxTurns)) b.status = 'done';
+  return b;
+}
+async function top10Transaction(key, fn){
+  let committed = false, board = null;
+  try{
+    const res = await db.ref(DB_ROOT + '/' + statePath() + '/top10Boards/' + key).transaction(cur=>{
+      if(!cur) return cur;
+      const out = fn(top10BoardDefaults(cur));
+      return out===undefined ? undefined : out;
+    });
+    committed = res.committed;
+    board = res.snapshot && res.snapshot.val();
+  } catch(e){
+    console.error('mossa Top Dieci non riuscita', e);
+    showErrorBanner('Mossa non registrata: controlla la connessione e riprova.');
+    return false;
+  }
+  if(committed && board && board.status==='done') await top10ClosePhase(key);
+  await refresh();
+  return committed;
+}
+// Classifica finita: la domanda passa a 'closed' (una sola volta, da chiunque se ne accorga).
+let top10CloseTried = '';
+async function top10ClosePhase(key){
+  if(!state || qkey(state.round, state.qIndex)!==key || top10CloseTried===(state.gameId||'')+key) return;
+  top10CloseTried = (state.gameId||'')+key;
+  await db.ref(DB_ROOT + '/' + statePath()).transaction(cur=>{
+    if(!cur || cur.phase!=='question' || qkey(cur.round, cur.qIndex)!==key) return;
+    return {...cur, phase:'closed', timer:{...(cur.timer||{}), status:'closed', closeReason:'top10_done', closedBy:'auto'}};
+  });
+}
+/* Risposta scritta della squadra di turno. Ritorna l'esito ({kind, index})
+   o null se non era il suo turno. asTeam: solo per le squadre di prova. */
+async function teamTop10Submit(round, idx, text, asTeam){
+  const id = asTeam || teamId;
+  const q = getQuestion(round, idx);
+  if(!q || !String(text||'').trim() || state.phase!=='question') return null;
+  let outcome = null;
+  const ok = await top10Transaction(qkey(round, idx), b=>{
+    outcome = null;
+    if(b.status!=='playing' || top10CurrentTeam(b)!==id) return;
+    const res = matchTop10Answer(q, b.found, text);
+    const entry = {t:id, a:String(text).trim().slice(0,80), r:res.kind, turn:b.turn, at:serverNow()};
+    if(res.index!=null) entry.i = res.index;
+    b.log = [...b.log, entry];
+    outcome = res;
+    // Voce già scoperta: si riprova, il turno (e il tempo) restano quelli.
+    if(res.kind==='dup') return b;
+    if(res.kind==='ok') b.found = {...b.found, ['i'+res.index]: {t:id, turn:b.turn}};
+    return top10Advance(b);
+  });
+  return ok ? outcome : null;
+}
+// Tempo del turno scaduto, o squadra di turno rimossa dalla partita.
+let top10TimeoutTried = '';
+async function top10TurnTimeout(key, turnSeen){
+  if(top10TimeoutTried===key+'#'+turnSeen) return;
+  top10TimeoutTried = key+'#'+turnSeen;
+  await top10Transaction(key, b=>{
+    if(b.status!=='playing' || b.turn!==turnSeen) return;
+    const cur = top10CurrentTeam(b);
+    if(top10TurnRemaining(b)>0 && teams[cur]) return;
+    b.log = [...b.log, {t:cur, r:'timeout', turn:b.turn, at:serverNow()}];
+    return top10Advance(b);
+  });
+}
+function currentTop10Key(){ return qkey(state.round, state.qIndex); }
+async function adminTop10Start(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='ready') return;
+    if(!b.order.length){ b.status = 'done'; return b; }
+    return {...b, status:'playing', turnStartedAt:serverNow()};
+  });
+}
+async function adminTop10Pause(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='playing') return;
+    return {...b, status:'paused', pausedRemainingMs: top10TurnRemaining(b)};
+  });
+}
+async function adminTop10Resume(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='paused') return;
+    return {...b, status:'playing', turnStartedAt: serverNow() - (b.turnMs - (b.pausedRemainingMs||0)), pausedRemainingMs:null};
+  });
+}
+// Il presentatore passa il turno (squadra assente o bloccata): nessun malus.
+async function adminTop10Skip(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='playing' && b.status!=='paused') return;
+    b.log = [...b.log, {t:top10CurrentTeam(b), r:'skip', turn:b.turn, at:serverNow()}];
+    b.status = 'playing'; b.pausedRemainingMs = null;
+    return top10Advance(b);
+  });
+}
+async function adminTop10End(){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status==='done') return;
+    return {...b, status:'done'};
+  });
+}
+/* Correzioni del presentatore: una risposta segnata sbagliata era giusta
+   (refuso non riconosciuto) o viceversa. Il turno non cambia; i punti si
+   ricalcolano dal tabellone. */
+async function adminTop10Accept(logIndex, itemIndex){
+  await top10Transaction(currentTop10Key(), b=>{
+    const e = b.log[logIndex];
+    if(!e || e.r==='ok' || top10FoundAt(b.found, itemIndex)) return;
+    b.log = b.log.map((x,i)=> i===logIndex ? {...x, r:'ok', i:itemIndex, manual:true} : x);
+    b.found = {...b.found, ['i'+itemIndex]: {t:e.t, turn:e.turn}};
+    if(top10FoundCount(b)>=10) b.status = 'done';
+    return b;
+  });
+}
+async function adminTop10Reject(logIndex){
+  await top10Transaction(currentTop10Key(), b=>{
+    const e = b.log[logIndex];
+    if(!e || e.r!=='ok') return;
+    b.log = b.log.map((x,i)=> i===logIndex ? {...x, r:'wrong', manual:true} : x);
+    b.found = {...b.found, ['i'+e.i]: null};
+    return b;
+  });
+}
+// Classifica chiusa: le voci non trovate si svelano dalla più bassa alla più alta, o tutte insieme.
+async function adminTop10Reveal(all){
+  await top10Transaction(currentTop10Key(), b=>{
+    if(b.status!=='done') return;
+    const hidden = [9,8,7,6,5,4,3,2,1,0].filter(i=>!top10FoundAt(b.found, i) && !b.revealed['i'+i]);
+    if(!hidden.length) return;
+    const next = {...b.revealed};
+    (all ? hidden : hidden.slice(0,1)).forEach(i=>{ next['i'+i] = true; });
+    return {...b, revealed: next};
+  });
+}
+// Modalità prova: le squadre fittizie rispondono da sole quando tocca a loro.
+let top10TestTried = '';
+async function simulateTop10TestTurn(b, q){
+  const cur = top10CurrentTeam(b);
+  if(!cur || !teams[cur] || !teams[cur].isTest) return;
+  const key = currentTop10Key();
+  if(top10TestTried===key+'#'+b.turn || serverNow()-b.turnStartedAt < 1500) return;
+  top10TestTried = key+'#'+b.turn;
+  const missing = top10Items(q).map((it,i)=>({it,i})).filter(x=>!top10FoundAt(b.found, x.i));
+  const text = (missing.length && Math.random()<0.6) ? missing[Math.floor(Math.random()*missing.length)].it.name : 'Non lo so';
+  await teamTop10Submit(state.round, state.qIndex, text, cur);
+}
+
 /* ================== AZIONI ADMIN · RIVINCITA ==================
    Stesse squadre reali e stessa configurazione, punteggi/risposte azzerati:
    diversa dal Reset partita, che invece cancella anche le squadre. Il codice
@@ -446,8 +1013,9 @@ async function simulateTestTeamAnswers(){
    rientrare a mano. */
 async function adminStartRematch(){
   const cfg = state.config;
-  const realIds = Object.keys(teams).filter(id=>!teams[id].isTest);
-  for(const id of realIds){ await safeDelete('answers:'+id, true); await safeDelete('overrides:'+id, true); }
+  // Anche le squadre di prova: le loro risposte hanno le stesse chiavi
+  // ('1-0', '1-1'...) delle domande della nuova partita e verrebbero contate.
+  for(const id of Object.keys(teams)){ await safeDelete(answersPath(id), true); await safeDelete(scoreLedgerPath(id), true); }
   const s = {
     ...defaultState(),
     config: cfg,
@@ -457,13 +1025,14 @@ async function adminStartRematch(){
     partyMode: state.partyMode || 'none',
     party: state.party || defaultState().party,
   };
-  await safeSet('state', s, true);
+  await safeSet(statePath(), s, true);
+  await safeSet(questionInstancesPath(), null, true);
   await refresh();
 }
 
 /* ================== AZIONI ADMIN · MODALITÀ PARTY ================== */
 async function adminSetPartyMode(mode){
-  await safeSet('state', {...state, partyMode: mode}, true);
+  await patchState({partyMode: mode});
   await refresh();
 }
 async function adminMarkPartySlot(slot){
@@ -471,7 +1040,7 @@ async function adminMarkPartySlot(slot){
   if(!card){ alert('Il mazzo attivo non ha carte disponibili.'); return; }
   const forQuestion = (state.phase==='question' || state.phase==='closed') ? qkey(state.round, state.qIndex) : null;
   const party = {...(state.party||{}), [slot]: {card, confirmed:false, revealed:false, revealNonce:null, revealedAt:null, forQuestion}};
-  await safeSet('state', {...state, party}, true);
+  await patchState({party});
   partyPopupSlot = slot;
   partyManualListOpen = false;
   await refresh();
@@ -480,7 +1049,7 @@ async function adminStartSurprise(){
   const card = drawRandomPartyCard();
   if(!card){ alert('Il mazzo attivo non ha carte disponibili.'); return; }
   const party = {...(state.party||{}), surprise: {card, confirmed:false, revealed:false, revealNonce:null, revealedAt:null, forQuestion:null}};
-  await safeSet('state', {...state, party}, true);
+  await patchState({party});
   partyPopupSlot = 'surprise';
   partyManualListOpen = false;
   await refresh();
@@ -491,7 +1060,7 @@ async function adminRedrawPartyCard(slot){
   const card = drawRandomPartyCard(current.card && current.card.id);
   if(!card){ alert("Non c'è un'altra carta disponibile nel mazzo."); return; }
   const party = {...state.party, [slot]: {...current, card, confirmed:false}};
-  await safeSet('state', {...state, party}, true);
+  await patchState({party});
   partyManualListOpen = false;
   await refresh();
 }
@@ -500,7 +1069,7 @@ async function adminPickPartyCardManually(slot, cardId){
   const card = activePartyDeck().find(c=>c.id===cardId);
   if(!card) return;
   const party = {...(state.party||{}), [slot]: {...current, card, confirmed:true}};
-  await safeSet('state', {...state, party}, true);
+  await patchState({party});
   partyPopupSlot = null;
   partyManualListOpen = false;
   await refresh();
@@ -509,7 +1078,7 @@ async function adminConfirmPartyCard(slot){
   const current = state.party && state.party[slot];
   if(!current) return;
   const party = {...state.party, [slot]: {...current, confirmed:true}};
-  await safeSet('state', {...state, party}, true);
+  await patchState({party});
   partyPopupSlot = null;
   partyManualListOpen = false;
   await refresh();
@@ -518,16 +1087,17 @@ async function adminRevealPartyCard(slot){
   const current = state.party && state.party[slot];
   if(!current || !current.confirmed) return;
   const party = {...state.party, [slot]: {...current, revealed:true, revealNonce:Math.random().toString(36).slice(2), revealedAt:Date.now()}};
-  await safeSet('state', {...state, party}, true);
+  await patchState({party});
   await refresh();
 }
 async function adminClearPartySlot(slot){
   const party = {...(state.party||{}), [slot]: null};
-  await safeSet('state', {...state, party}, true);
+  await patchState({party});
   await refresh();
 }
 /* Gestione mazzi Party: aggiunge/rimuove carte da 'normale' o 'extreme'.
-   I mazzi vivono come array sotto mazzi/<nome> (vedi ensureSeedPartyDecks). */
+   I mazzi vivono come array sotto mazzi/<nome> (vedi ensureSeedPartyDecks),
+   ramo globale invariato da PL-09 (persiste tra le partite come questionBank). */
 async function adminAddPartyCard(deck, testo, tipo){
   const text = (testo||'').trim();
   if(!text) return;
@@ -545,17 +1115,22 @@ async function adminDeletePartyCard(deck, cardId){
 async function adminRemoveTeam(id){
   const before = teams[id];
   if(!before) return;
-  await withUndo('Squadra rimossa: '+before.name, 'teaminfo:'+id, before, null);
+  await withUndo('Squadra rimossa: '+before.name, teamPath(id), before, null);
+  // Libera il nome nell'indice di unicità (PL-07): altrimenti resterebbe
+  // "prenotato" per sempre, impedendo a chiunque di riusarlo, anche dopo che
+  // "Annulla ultima azione" ripristina la squadra stessa.
+  await safeDelete(teamNamePath(teamNameKey(before.name)), true);
 }
 
 /* ================== AZIONI SQUADRA ================== */
-async function findTeamByName(name){
-  const teamKeys = await safeList('teaminfo:', true);
-  for(const k of teamKeys){
-    const t = await safeGet(k, true);
-    if(t && t.name && t.name.trim().toLowerCase() === name.trim().toLowerCase()) return t;
-  }
-  return null;
+/* Chiave stabile e univoca per un nome squadra normalizzato (maiuscole/
+   minuscole e spazi ai bordi non contano, come nel confronto usato prima),
+   sicura come segmento di percorso Firebase (niente '.', '#', '$', '[', ']',
+   che sono vietati nelle chiavi RTDB e non vengono escapati da
+   encodeURIComponent). Usata come indice teamNames/<key> -> teamId per
+   rendere il join atomico invece di un check-then-act. */
+function teamNameKey(name){
+  return encodeURIComponent(name.trim().toLowerCase()).replace(/\./g, '%2E');
 }
 // Una squadra che rientra con lo stesso nome non è mai considerata "in ritardo"
 // (è una riconnessione, non un nuovo ingresso): il limite si applica solo alla
@@ -568,27 +1143,111 @@ function lateJoinAllowed(gameState){
   // 'until_round1_end': consentito per tutta la manche 1 (comprese le sue pause)
   return typeof gameState.round === 'number' && gameState.round===1;
 }
+// Il vincitore della transazione su teamNamePath(key) scrive teamPath(id) in
+// un secondo passo, non atomico col primo: chi perde la transazione (stesso
+// nome, quasi simultaneo) potrebbe leggere l'indice prima che quella
+// scrittura sia arrivata. Qualche tentativo con una breve attesa copre
+// questa finestra invece di far fallire un join legittimo per un timing
+// sfortunato.
+async function waitForTeamInfo(id, attempts){
+  for(let i=0; i<attempts; i++){
+    const info = await safeGet(teamPath(id), true);
+    if(info) return info;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  return null;
+}
+/* Join atomico e univoco per nome (FT-08): una transaction() su
+   teamNamePath(nome-normalizzato) decide chi "vince" il nome, invece del
+   vecchio check-then-act (leggi tutte le squadre, poi crea se non trovi
+   corrispondenza) che due join simultanei con lo stesso nome potevano far
+   sfuggire. Chi vince crea la squadra; chi perde recupera quella già creata
+   dal vincitore ed entra come se fosse una riconnessione. */
 async function teamJoin(name){
   const trimmed = name.trim();
-  const existing = await findTeamByName(trimmed);
-  if(existing){
-    teamId = existing.id; teamName = existing.name;
-  } else {
-    const gameState = await safeGet('state', true);
-    if(!lateJoinAllowed(gameState)) throw new Error('LATE_JOIN_BLOCKED');
-    teamId = 'team_' + Math.random().toString(36).slice(2,9);
-    teamName = trimmed;
-    const lateJoin = !(!gameState || gameState.phase==='lobby');
-    await safeSet('teaminfo:'+teamId, {id:teamId, name:teamName, joinedAt:Date.now(), lateJoin}, true);
+  const nameKey = teamNameKey(trimmed);
+  const nameIndexRef = db.ref(DB_ROOT + '/' + teamNamePath(nameKey));
+  const provisionalTeamId = 'team_' + Math.random().toString(36).slice(2,9);
+
+  let result;
+  try{
+    result = await nameIndexRef.transaction(current => current ? undefined : provisionalTeamId);
+  } catch(e){
+    throw new Error('JOIN_FAILED');
   }
+
+  if(result.committed){
+    // withDefaults: lo stato salvato può contenere solo alcuni campi (le
+    // scritture sono per campo), es. solo joinCode prima che l'admin salvi.
+    const gameState = withDefaults(await safeGet(statePath(), true));
+    if(!lateJoinAllowed(gameState)){
+      await nameIndexRef.remove(); // il nome non deve restare "prenotato" se il join viene rifiutato
+      throw new Error('LATE_JOIN_BLOCKED');
+    }
+    const lateJoin = !(!gameState || gameState.phase==='lobby');
+    // joinedAt con l'ora del server: serve a capire quali domande erano già
+    // aperte quando la squadra è entrata (vedi teamEligibleForQuestion).
+    const ok = await safeSet(teamPath(provisionalTeamId), {id:provisionalTeamId, name:trimmed, joinedAt:serverNow(), lateJoin}, true);
+    if(!ok){
+      await nameIndexRef.remove();
+      throw new Error('JOIN_FAILED');
+    }
+    teamId = provisionalTeamId;
+    teamName = trimmed;
+  } else {
+    const existingId = result.snapshot.val();
+    const existing = await waitForTeamInfo(existingId, 5);
+    if(!existing) throw new Error('JOIN_FAILED');
+    teamId = existing.id;
+    teamName = existing.name;
+  }
+
   joined = true;
   setUrlSession('team', teamId);
   saveTeamSession(teamId, teamName);
   startListening();
 }
+/* Rinomina da Admin: se il nome normalizzato non cambia (solo maiuscole o
+   spazi diversi) basta aggiornare teamPath(id); altrimenti va prenotato
+   atomicamente il nuovo indice prima di spostare il nome, e liberato quello
+   vecchio solo a spostamento riuscito. */
+async function adminRenameTeam(id, newName){
+  const trimmed = newName.trim();
+  if(!trimmed) return;
+  const team = teams[id];
+  if(!team) return;
+  const oldKey = teamNameKey(team.name);
+  const newKey = teamNameKey(trimmed);
+  if(oldKey === newKey){
+    const ok = await safeSet(teamPath(id), {...team, name:trimmed}, true);
+    if(!ok) showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
+    else await refresh();
+    return;
+  }
+  const newIndexRef = db.ref(DB_ROOT + '/' + teamNamePath(newKey));
+  let result;
+  try{
+    result = await newIndexRef.transaction(current => current ? undefined : id);
+  } catch(e){
+    showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
+    return;
+  }
+  if(!result.committed){
+    showErrorBanner('Esiste già una squadra con questo nome.');
+    return;
+  }
+  const ok = await safeSet(teamPath(id), {...team, name:trimmed}, true);
+  if(!ok){
+    await newIndexRef.remove();
+    showErrorBanner('Rinomina non riuscita: controlla la connessione e riprova.', ()=>adminRenameTeam(id, newName));
+    return;
+  }
+  await safeDelete(teamNamePath(oldKey), true);
+  await refresh();
+}
 async function teamSetReady(ready){
   const info = teams[teamId] || {id:teamId, name:teamName};
-  await safeSet('teaminfo:'+teamId, {...info, ready}, true);
+  await safeSet(teamPath(teamId), {...info, ready}, true);
   await refresh();
 }
 
@@ -641,7 +1300,7 @@ async function restoreFromUrl(){
     return true;
   }
   if(r==='team' && id){
-    const info = await safeGet('teaminfo:'+id, true);
+    const info = await safeGet(teamPath(id), true);
     if(info){
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       saveTeamSession(teamId, teamName);
@@ -655,7 +1314,7 @@ async function restoreFromUrl(){
   // (es. il browser è stato chiuso del tutto e poi riaperto).
   const saved = loadTeamSession();
   if(saved && saved.id){
-    const info = await safeGet('teaminfo:'+saved.id, true);
+    const info = await safeGet(teamPath(saved.id), true);
     if(info){
       role = 'team'; teamId = info.id; teamName = info.name; joined = true;
       setUrlSession('team', teamId);
@@ -674,16 +1333,45 @@ async function restoreFromUrl(){
   }
   return false;
 }
-async function teamSubmitAnswer(round, idx, optionIndex){
+/* Invio atomico: una transaction() sul singolo nodo answersPath(teamId)/<key>
+   (non più un read-then-write sull'intero oggetto answersPath(teamId)) fa sì
+   che due tocchi ravvicinati, o due tab della stessa squadra che rispondono
+   quasi insieme, non possano mai produrre due scritture concorrenti sulla
+   stessa domanda: se il valore esiste già quando la transazione gira, la
+   callback ritorna undefined e l'SDK annulla la scrittura senza sovrascrivere
+   nulla (stesso pattern di closeAnswersTransactional). Ritorna true se, alla
+   fine, la risposta risulta salvata (da questa chiamata o da una precedente:
+   "già risposto" non è un errore), false solo per un fallimento vero. */
+async function teamSubmitAnswer(round, idx, optionIndex, instanceId){
   // Le squadre eliminate sono spettatrici in finale: l'interfaccia non mostra
   // già i pulsanti di risposta (renderSpectatorFinal), ma il controllo va
   // ripetuto qui perché è la scrittura che conta davvero.
-  if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return;
+  if(round==='final' && state.finalists && !state.finalists.includes(teamId)) return true;
+  if(!teamEligibleForQuestion(teamId, round, idx)) return true;
+  // §24C-D: si risponde solo a input aperto, con tempo rimasto, e alla stessa
+  // attività che la squadra aveva sullo schermo (non a quella arrivata dopo).
+  if(inputStatus()!=='open' || timeRemaining()<=0) return true;
+  const current = state.currentActivity && state.currentActivity.instanceId;
+  if(instanceId && current && instanceId!==current) return true;
   const key = qkey(round, idx);
-  const current = await safeGet('answers:'+teamId, true) || {};
-  if(current[key]) return; // già risposto
-  const ts = Date.now();
-  current[key] = {optionIndex, ts, speedBonus: computeSpeedBonusAtSubmission(ts)};
-  await safeSet('answers:'+teamId, current, true);
+  const ts = serverNow();
+  const answer = {optionIndex, ts, instanceId: current || null, revision: (state.presentation && state.presentation.revision) || 0, speedBonus: computeSpeedBonusAtSubmission(ts)};
+  let alreadyAnswered = false;
+  let result;
+  try{
+    result = await db.ref(DB_ROOT + '/' + answersPath(teamId)).child(key).transaction(current => {
+      if(current){ alreadyAnswered = true; return; }
+      return answer;
+    });
+  } catch(e){
+    console.error('invio risposta fallito', e);
+    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex, instanceId));
+    return false;
+  }
+  if(!result.committed && !alreadyAnswered){
+    showErrorBanner('Invio risposta non riuscito: controlla la connessione e riprova.', ()=>teamSubmitAnswer(round, idx, optionIndex, instanceId));
+    return false;
+  }
   await refresh();
+  return true;
 }

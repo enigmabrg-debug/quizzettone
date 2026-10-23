@@ -103,6 +103,7 @@ test('regia panel shows live response-count pills and a collapsible history log'
   await expect(admin.locator('.team-tag', { hasText: 'Team Regia' })).toBeVisible();
 
   await admin.click('#btnStart');
+  await admin.click('#startSummaryConfirm');
   await expect(admin.locator('.qmeta').first()).toBeVisible();
 
   // Before anyone answers: nothing received yet, one missing.

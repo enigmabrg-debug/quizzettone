@@ -3,7 +3,7 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Quizzettone</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -35,13 +35,42 @@
     --ink-dim: #B7ADD9;
     --line: rgba(245,241,255,0.12);
     --radius: 18px;
+    /* Colori derivati, ridefiniti dal tema Top Dieci qui sotto. */
+    --gold-rgb: 242,183,5;
+    --gold-light: #ffe08a;
+    --gold-pale: #fff2c9;
+    --on-gold: #1B1030;
+    --glow: #2c1856;
+    --stage-rgb: 21,12,43;
+    --accent-2: var(--gold);
+  }
+  /* Top Dieci: verde smeraldo e lime, per distinguerlo a colpo d'occhio dal
+     Quizzettone (classe messa su <html> da applyTheme() in render.js). */
+  html.theme-topdieci{
+    --stage: #06201A;
+    --panel: #0E3A2E;
+    --panel-2: #134A3B;
+    --gold: #A3E635;
+    --gold-dim: #65A30D;
+    --gold-rgb: 163,230,53;
+    --gold-light: #D9F99D;
+    --gold-pale: #ECFCCB;
+    --on-gold: #06201A;
+    --pink: #FB7185;
+    --green: #34D399;
+    --ink: #F0FDF4;
+    --ink-dim: #A7C4B5;
+    --line: rgba(240,253,244,0.12);
+    --glow: #0F4A3A;
+    --stage-rgb: 6,32,26;
+    --accent-2: #FBBF24;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{
     min-height:100vh;
     background:
-      radial-gradient(ellipse at top, #2c1856 0%, var(--stage) 55%),
+      radial-gradient(ellipse at top, var(--glow) 0%, var(--stage) 55%),
       var(--stage);
     color:var(--ink);
     font-family:'Inter',sans-serif;
@@ -60,9 +89,11 @@
     gap:16px;
   }
   #app.admin-wide{max-width:1280px;}
-  .admin-grid{display:grid;grid-template-columns:1fr;gap:16px;}
+  /* minmax(0,…): senza, una tabella larga allarga la colonna oltre lo schermo
+     invece di scorrere dentro il suo .table-wrap. */
+  .admin-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;}
   @media (min-width:980px){
-    .admin-grid{grid-template-columns:1.6fr 1fr;align-items:start;}
+    .admin-grid{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start;}
   }
   h1,h2,h3{font-family:'Space Grotesk',sans-serif;margin:0;}
   .eyebrow{
@@ -73,7 +104,7 @@
     font-family:'Archivo Black',sans-serif;
     font-size:34px;line-height:1;
     letter-spacing:-0.01em;
-    background:linear-gradient(90deg,var(--gold),#ffe08a);
+    background:linear-gradient(90deg,var(--gold),var(--gold-light));
     -webkit-background-clip:text;background-clip:text;color:transparent;
     margin:2px 0 0;
   }
@@ -89,7 +120,7 @@
     appearance:none;border:none;cursor:pointer;
     font-family:'Inter';font-weight:700;font-size:15px;
     padding:14px 18px;border-radius:14px;
-    background:var(--gold);color:#1B1030;
+    background:var(--gold);color:var(--on-gold);
     transition:transform .12s ease, box-shadow .12s ease, opacity .12s ease;
     width:100%;
   }
@@ -118,7 +149,7 @@
     padding:5px 12px;border-radius:999px;
     font-size:12px;font-weight:600;color:var(--ink-dim);
   }
-  .pill.gold{color:var(--gold);border-color:rgba(242,183,5,.4);background:rgba(242,183,5,.1);}
+  .pill.gold{color:var(--gold);border-color:rgba(var(--gold-rgb),.4);background:rgba(var(--gold-rgb),.1);}
   .timer-wrap{display:flex;justify-content:center;margin:6px 0 2px;}
   .timer{
     position:relative;width:118px;height:118px;
@@ -132,21 +163,61 @@
   .qmeta{display:flex;gap:8px;flex-wrap:wrap;}
   .qtext{font-family:'Space Grotesk';font-weight:700;font-size:21px;line-height:1.3;margin:8px 0 2px;}
   .options{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
-  .opt{
+  .opt,.opt-static{
     text-align:left;padding:15px 16px;border-radius:14px;
     background:rgba(245,241,255,0.05);border:1px solid var(--line);
     color:var(--ink);font-family:'Inter';font-weight:600;font-size:15px;
     cursor:pointer;display:flex;gap:12px;align-items:center;
   }
-  .opt .letter{
+  .opt .letter,.opt-static .letter{
     width:26px;height:26px;border-radius:8px;background:rgba(245,241,255,.1);
     display:flex;align-items:center;justify-content:center;
     font-family:'Space Grotesk';font-weight:700;font-size:13px;flex-shrink:0;
   }
-  .opt.selected{border-color:var(--gold);background:rgba(242,183,5,.12);}
-  .opt.correct{border-color:var(--green);background:rgba(52,211,153,.15);}
+  .opt.selected{border-color:var(--gold);background:rgba(var(--gold-rgb),.12);}
+  .opt.correct,.opt-static.correct{border-color:var(--green);background:rgba(52,211,153,.15);}
   .opt.wrong{border-color:var(--pink);background:rgba(255,77,109,.15);}
   .opt:disabled{cursor:default;opacity:.85;}
+  .brand-logo{display:block;width:100%;max-width:360px;height:auto;margin:0 auto;border-radius:var(--radius);}
+  /* Schermo condiviso: stato in regia, barra del timer, pulsanti solo lettera */
+  .pres-status{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(0,0,0,.15);}
+  .pres-row{display:flex;gap:12px;justify-content:space-between;align-items:baseline;flex-wrap:wrap;font-size:14px;}
+  .pres-row > span:last-child{text-align:right;font-weight:600;}
+  .timer-bar{width:220px;max-width:100%;height:12px;border-radius:999px;background:rgba(245,241,255,.12);overflow:hidden;}
+  .timer-bar > div{height:100%;background:var(--gold);transition:width .25s linear;}
+  .timer-bar.urgent > div{background:var(--pink);}
+  .options.letters-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+  .opt.letter-only{justify-content:center;padding:26px 10px;}
+  .opt.letter-only .letter{width:54px;height:54px;font-size:26px;border-radius:14px;}
+  /* Top Dieci */
+  .top10-title{font-family:'Archivo Black';font-size:20px;line-height:1.2;color:var(--gold);}
+  .top10-turn{display:flex;gap:16px;align-items:center;}
+  .top10-turn .timer{margin:0;}
+  .top10-turn-name{font-family:'Space Grotesk';font-weight:700;font-size:20px;}
+  .top10-answer{display:flex;gap:8px;}
+  .top10-answer input[type=text]{flex:1 1 auto;width:auto;min-width:0;font-size:17px;}
+  .top10-answer .btn{flex:0 0 auto;width:auto;}
+  .top10-last{padding:10px 14px;border-radius:12px;border:1px solid var(--line);font-weight:600;}
+  .top10-last.ok{border-color:var(--green);color:var(--green);background:rgba(52,211,153,.1);}
+  .top10-last.wrong,.top10-last.timeout{border-color:rgba(255,77,109,.5);color:var(--pink);}
+  .top10-board{display:flex;flex-direction:column;gap:4px;margin-top:6px;}
+  .top10-row{display:flex;gap:12px;align-items:center;padding:8px 12px;border-radius:10px;background:rgba(245,241,255,.04);border:1px solid transparent;min-height:42px;}
+  .top10-pos{font-family:'Archivo Black';color:var(--accent-2);min-width:26px;text-align:right;}
+  .top10-item{flex:1;min-width:0;color:var(--ink-dim);letter-spacing:.08em;display:flex;flex-wrap:wrap;column-gap:10px;align-items:baseline;}
+  .top10-row.found .top10-item,.top10-row.revealed .top10-item,.top10-board.admin .top10-item{color:var(--ink);letter-spacing:normal;font-weight:600;}
+  .top10-row.found{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.1);}
+  .top10-row.latest{animation:revealIn .45s ease;}
+  .top10-row.revealed{border-color:rgba(255,77,109,.35);}
+  .top10-board.admin .top10-row.pending{opacity:.75;}
+  .top10-value{font-family:'Space Grotesk';font-weight:500;font-size:13px;color:var(--ink-dim);letter-spacing:normal;}
+  .top10-alts{font-weight:400;font-size:12px;color:var(--ink-dim);}
+  .top10-by{font-size:12px;font-weight:700;color:var(--green);white-space:nowrap;}
+  .top10-by.missed{color:var(--pink);}
+  .top10-scores{display:flex;flex-wrap:wrap;gap:6px;}
+  .top10-log-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .top10-log-row select{max-width:180px;}
+  tr.top10-current td{color:var(--gold);font-weight:700;}
+  .top10-row.in-play{border-color:rgba(var(--gold-rgb),.45);background:rgba(var(--gold-rgb),.08);}
   .status-banner{
     text-align:center;padding:12px;border-radius:14px;
     font-weight:700;font-family:'Space Grotesk';
@@ -157,6 +228,7 @@
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);}
   th{color:var(--ink-dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
   .status-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;}
   .dot-wait{background:#8b83ab;}
   .dot-ok{background:var(--green);}
@@ -189,24 +261,24 @@
   .reveal-suspense .reveal-score{animation-duration:.9s;animation-delay:1.4s;}
   .stage-title{font-family:'Archivo Black';font-size:26px;line-height:1.15;}
   .final-glow{
-    background:radial-gradient(circle at 50% 0%, rgba(242,183,5,.25), transparent 60%);
+    background:radial-gradient(circle at 50% 0%, rgba(var(--gold-rgb),.25), transparent 60%);
   }
   .winner-card{
     text-align:center;padding:40px 20px;
-    background:linear-gradient(180deg, rgba(242,183,5,.18), transparent);
-    border:1px solid rgba(242,183,5,.4);
+    background:linear-gradient(180deg, rgba(var(--gold-rgb),.18), transparent);
+    border:1px solid rgba(var(--gold-rgb),.4);
     border-radius:24px;
   }
   .winner-name{
     font-family:'Archivo Black';font-size:40px;margin:12px 0;
-    background:linear-gradient(90deg,var(--gold),#fff2c9);
+    background:linear-gradient(90deg,var(--gold),var(--gold-pale));
     -webkit-background-clip:text;background-clip:text;color:transparent;
   }
   .team-tag{
     display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
     background:rgba(245,241,255,.08);font-size:12px;font-weight:700;
   }
-  ::selection{background:var(--gold);color:#1B1030;}
+  ::selection{background:var(--gold);color:var(--on-gold);}
   a{color:var(--gold);}
   .note{font-size:12px;color:var(--ink-dim);margin-top:4px;}
   @keyframes partyFlip{
@@ -214,7 +286,7 @@
     60%{transform:rotateY(-14deg) scale(1.03);opacity:1;}
     100%{transform:rotateY(0deg) scale(1);opacity:1;}
   }
-  .party-card{perspective:900px;border-color:rgba(242,183,5,.4);}
+  .party-card{perspective:900px;border-color:rgba(var(--gold-rgb),.4);}
   .party-card.party-flip-in{animation:partyFlip .7s cubic-bezier(.2,.8,.2,1);}
   .party-card.malus{border-color:rgba(255,77,109,.4);}
 </style>
@@ -230,6 +302,7 @@
 <script>
 /* ================== AVVIO ================== */
 (async function boot(){
+  applyTheme(); // dal link dell'hub (?gioco=topdieci) la pagina è già nei colori di Top Dieci
   const restored = await restoreFromUrl();
   if(!restored) renderRoleSelect();
 })();

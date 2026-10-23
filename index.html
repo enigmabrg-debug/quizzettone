@@ -2,8 +2,8 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>Enigma Games</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CabinSurfers Games</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -100,6 +100,12 @@
     box-shadow:0 8px 24px rgba(0,0,0,.25);
   }
   .game-card:active{transform:translateY(0) scale(.99);}
+  /* Anteprima della palette di Top Dieci (verde smeraldo e lime), la stessa del gioco. */
+  .game-card.topdieci{background:linear-gradient(160deg,#0E3A2E,#06201A);border-color:rgba(163,230,53,.25);}
+  .game-card.topdieci:hover{border-color:rgba(163,230,53,.6);}
+  .game-card.topdieci .game-title{color:#D9F99D;}
+  .game-card.topdieci .game-desc{color:#A7C4B5;}
+  .game-card.topdieci .pill.gold{color:#A3E635;border-color:rgba(163,230,53,.4);background:rgba(163,230,53,.1);}
   .game-icon{font-size:30px;line-height:1;}
   .game-title{
     font-family:'Space Grotesk',sans-serif;
@@ -118,6 +124,8 @@
     pointer-events:none;
   }
   .game-card.disabled:hover{transform:none;box-shadow:none;border-color:var(--line);}
+  .brand-logo{display:block;width:100%;max-width:260px;height:auto;margin:0 auto 4px;border-radius:var(--radius);}
+  .game-logo{display:block;width:100%;max-height:150px;object-fit:contain;border-radius:12px;}
   .footer-note{
     text-align:center;
     color:var(--ink-dim);
@@ -129,8 +137,12 @@
 <body>
 <div id="app">
   <div class="header">
-    <div class="eyebrow">Enigma Games</div>
-    <h1 class="brand">ENIGMA GAMES</h1>
+    <!-- Logo in img/: se il file manca, resta il nome in testo. -->
+    <img class="brand-logo" src="img/logo-cabinsurfers-games.webp" alt="CabinSurfers Games" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">
+    <div hidden>
+      <div class="eyebrow">CabinSurfers Games</div>
+      <h1 class="brand">CABINSURFERS GAMES</h1>
+    </div>
     <div class="pill gold" style="margin-top:6px;width:fit-content;">Hub dei giochi</div>
   </div>
 
@@ -140,18 +152,20 @@
 
   <div class="hub-grid">
     <a class="game-card" href="quizzettone.html">
-      <div class="game-icon">🎉</div>
+      <img class="game-logo" src="img/logo-quizzettone.webp" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">
+      <div class="game-icon" hidden>🎉</div>
       <div class="game-title">Quizzettone</div>
       <div class="game-desc">Party quiz live per squadre, con classifica in tempo reale.</div>
       <div class="pill gold" style="width:fit-content;">Gioca ora</div>
     </a>
 
-    <div class="game-card disabled">
-      <div class="game-icon">🔟</div>
+    <a class="game-card topdieci" href="quizzettone.html?gioco=topdieci">
+      <img class="game-logo" src="img/logo-top10.webp" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false;">
+      <div class="game-icon" hidden>🔟</div>
       <div class="game-title">Top Dieci</div>
-      <div class="game-desc">In arrivo.</div>
-      <div class="pill" style="width:fit-content;">Coming Soon</div>
-    </div>
+      <div class="game-desc">Una classifica nascosta, dieci voci da scoprire a turno: più è in basso, più punti vale.</div>
+      <div class="pill gold" style="width:fit-content;">Gioca ora</div>
+    </a>
 
     <div class="game-card disabled">
       <div class="game-icon">🧩</div>
@@ -161,7 +175,7 @@
     </div>
   </div>
 
-  <div class="footer-note">Enigma Games · altri titoli in arrivo</div>
+  <div class="footer-note">CabinSurfers Games · altri titoli in arrivo</div>
 </div>
 </body>
 </html>
