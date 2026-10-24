@@ -2383,6 +2383,7 @@ function renderPartyPopup(){
 }
 
 let qmResetNote = '';
+let qmInventoryNote = '';
 function renderQuestionManager(){
   const all = Object.values(questionBank);
   const pools = ['manche','finale'];
@@ -2465,6 +2466,14 @@ function renderQuestionManager(){
         <button class="btn ghost small" id="btnResetUsedTop10">↺ Rimetti in gioco le classifiche Top Dieci</button>
       </div>
       <div id="qmResetMsg" class="note" style="color:var(--green);">${escapeHtml(qmResetNote)}</div>
+    </div>
+    <div class="card stack">
+      <h3>📦 Inventario pronto</h3>
+      <p class="note">1000 domande quiz (facili e medie per le manche, difficili per la finale) divise tra tutte le categorie e 100 classifiche Top Dieci con i dati e la fonte. Puoi importarlo più volte: aggiunge solo quello che non hai già, senza toccare le tue domande.</p>
+      <div class="row">
+        <button class="btn small" id="btnImportInventory">📦 Importa inventario</button>
+      </div>
+      <div id="qmInventoryMsg" class="note" style="color:var(${qmInventoryNote.startsWith('Import non riuscito') ? '--pink' : '--green'});">${escapeHtml(qmInventoryNote)}</div>
     </div>
     <div class="card stack">
       <h3>Aggiungi una domanda</h3>
@@ -2913,6 +2922,19 @@ function attachAdminHandlers(){
   };
   if(byId('btnResetUsedQuiz')) byId('btnResetUsedQuiz').onclick = ()=> showConfirmModal('Rimettere in gioco tutte le domande quiz già giocate?', 'Rimetti in gioco', resetUsed('quiz', 'domande'));
   if(byId('btnResetUsedTop10')) byId('btnResetUsedTop10').onclick = ()=> showConfirmModal('Rimettere in gioco tutte le classifiche Top Dieci già giocate?', 'Rimetti in gioco', resetUsed('top10', 'classifiche'));
+  if(byId('btnImportInventory')) byId('btnImportInventory').onclick = async ()=>{
+    const btn = byId('btnImportInventory');
+    btn.disabled = true; btn.textContent = 'Importazione…';
+    try {
+      const plan = await importInventory();
+      qmInventoryNote = plan.entries.length
+        ? `Aggiunte ${plan.quiz} domande e ${plan.top10} classifiche Top Dieci${plan.skipped ? ` (${plan.skipped} già presenti, saltate)` : ''}.`
+        : `Hai già tutto l'inventario nel mazzo.`;
+    } catch(e){
+      qmInventoryNote = 'Import non riuscito: ' + (e && e.message || e);
+    }
+    render();
+  };
   if(byId('btnAddTop10')) byId('btnAddTop10').onclick = async ()=>{
     const title = byId('t10Title').value.trim();
     const items = byId('t10Items').value.split('\n').map(parseTop10ItemLine).filter(Boolean);

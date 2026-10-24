@@ -1,0 +1,48 @@
+# Attualità e Società
+f|Qual è la moneta ufficiale dell'Italia?|Euro|Lira|Franco|Dollaro
+f|Ogni quanti anni si vota di norma per il Parlamento italiano?|5|4|6|7
+f|Qual è il numero di emergenza unico europeo?|112|113|118|911
+f|In quale città ha sede il Parlamento italiano (Camera e Senato)?|Roma|Milano|Torino|Firenze
+f|Quale organizzazione internazionale ha sede principale a New York, nel Palazzo di Vetro?|ONU|NATO|UNESCO|OMS
+f|Quale giorno si festeggia la Festa della Repubblica in Italia?|2 giugno|25 aprile|1º maggio|4 novembre
+f|Di che colori è la bandiera italiana?|Verde, bianco e rosso|Blu, bianco e rosso|Verde, giallo e rosso|Rosso, bianco e verde in orizzontale
+f|Qual è il numero da chiamare in Italia per un'emergenza sanitaria (ambulanza)?|118|115|113|117
+f|Chi elegge il Presidente della Repubblica italiana?|Il Parlamento in seduta comune con i delegati regionali|I cittadini con voto diretto|Il Senato|Il Governo
+f|Cosa si festeggia in Italia il 25 aprile?|La Liberazione|La Repubblica|L'Unità d'Italia|I lavoratori
+f|Quante stelle ci sono sulla bandiera dell'Unione europea?|12|15|27|10
+f|Quale numero si chiama in Italia per i Vigili del fuoco?|115|112|118|113
+f|In quale città ha sede la Commissione europea?|Bruxelles|Strasburgo|Lussemburgo|Francoforte
+f|Qual è la maggiore età in Italia?|18 anni|16 anni|21 anni|17 anni
+m|In che anno è entrata in vigore la Costituzione italiana?|1948|1946|1950|1945
+m|Quanti articoli ha la Costituzione italiana (senza le disposizioni transitorie)?|139|150|120|99
+m|Dove ha sede la Banca centrale europea?|Francoforte|Bruxelles|Parigi|Lussemburgo
+m|In che anno l'euro è entrato in circolazione come moneta?|2002|1999|2000|2004
+m|Qual è l'età minima per essere eletti Presidente della Repubblica italiana?|50 anni|40 anni|35 anni|45 anni
+m|Quanti sono i deputati della Camera dopo la riforma entrata in vigore nel 2022?|400|630|315|500
+m|Quanti sono i senatori elettivi dopo la riduzione dei parlamentari?|200|315|250|150
+m|Quale organizzazione assegna il riconoscimento di "Patrimonio dell'umanità"?|UNESCO|ONU|FAO|WWF
+m|In quale città ha sede la FAO?|Roma|Ginevra|Parigi|Vienna
+m|Quale articolo della Costituzione afferma che l'Italia è una Repubblica democratica fondata sul lavoro?|Articolo 1|Articolo 3|Articolo 11|Articolo 21
+m|In quale città svizzera ha sede l'Organizzazione mondiale della sanità?|Ginevra|Zurigo|Berna|Losanna
+m|Quale trattato del 1992 ha istituito l'Unione europea?|Trattato di Maastricht|Trattato di Roma|Trattato di Lisbona|Trattato di Nizza
+m|Quale paese ha lasciato l'Unione europea nel 2020?|Regno Unito|Grecia|Norvegia|Svizzera
+m|In quale città ha sede la NATO?|Bruxelles|Washington|Ginevra|L'Aia
+m|Quanto dura il mandato del Presidente della Repubblica italiana?|7 anni|5 anni|6 anni|4 anni
+m|Quale ente rilascia in Italia il codice fiscale?|Agenzia delle Entrate|INPS|Comune|Prefettura
+m|Quale organo giudica la conformità delle leggi alla Costituzione?|Corte costituzionale|Corte di cassazione|Consiglio di Stato|Corte dei conti
+m|In quale città ha sede la Corte internazionale di giustizia dell'ONU?|L'Aia|Ginevra|New York|Strasburgo
+m|In che anno le donne hanno votato per la prima volta a livello nazionale in Italia?|1946|1919|1948|1925
+m|Quale sigla indica in Italia l'imposta sul valore aggiunto?|IVA|IRPEF|IMU|TARI
+m|Chi nomina il Presidente del Consiglio dei ministri in Italia?|Il Presidente della Repubblica|Il Parlamento|Gli elettori|Il Senato
+m|Quale istituto pubblico paga le pensioni in Italia?|INPS|INAIL|ISTAT|Agenzia delle Entrate
+m|Quanti sono i paesi membri dell'Unione europea dopo la Brexit?|27|28|25|30
+d|Quanti giudici compongono la Corte costituzionale italiana?|15|9|12|21
+d|Chi presiede il Consiglio superiore della magistratura?|Il Presidente della Repubblica|Il Ministro della Giustizia|Il Primo presidente della Cassazione|Il Presidente del Senato
+d|Dove si riunisce di norma il Parlamento europeo in sessione plenaria?|Strasburgo|Bruxelles|Lussemburgo|Francoforte
+d|Quale articolo della Costituzione italiana afferma che l'Italia ripudia la guerra?|Articolo 11|Articolo 1|Articolo 21|Articolo 52
+d|Quale ente pubblico italiano produce le statistiche ufficiali su popolazione ed economia?|ISTAT|CENSIS|CNEL|ISPRA
+d|Quale numero minimo di firme serve per chiedere un referendum abrogativo in Italia?|500.000|50.000|1.000.000|100.000
+d|Quanti sono i senatori a vita di nomina presidenziale che possono essere in carica contemporaneamente?|5|3|7|10
+d|In che anno è nato il Servizio sanitario nazionale in Italia?|1978|1948|1968|1992
+d|Quale città ospita il Tribunale penale internazionale (Corte penale internazionale)?|L'Aia|Ginevra|Norimberga|Strasburgo
+d|Quanti sono gli articoli della Dichiarazione universale dei diritti umani del 1948?|30|10|50|25

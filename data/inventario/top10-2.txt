@@ -1,0 +1,625 @@
+# Classifiche Top Dieci (2/2)
+
+## I 10 numeri primi più piccoli | manche | Matematica | Dal più piccolo
+2 = 1° numero primo
+3 = 2° numero primo
+5 = 3° numero primo
+7 = 4° numero primo
+11 = 5° numero primo
+13 = 6° numero primo
+17 = 7° numero primo
+19 = 8° numero primo
+23 = 9° numero primo
+29 = 10° numero primo
+
+## I primi 10 numeri primi dopo il 30 | manche | Matematica | Dal più piccolo
+31 = 11° numero primo
+37 = 12° numero primo
+41 = 13° numero primo
+43 = 14° numero primo
+47 = 15° numero primo
+53 = 16° numero primo
+59 = 17° numero primo
+61 = 18° numero primo
+67 = 19° numero primo
+71 = 20° numero primo
+
+## I primi 10 numeri primi dopo il 100 | finale | Matematica | Dal più piccolo
+101 = 26° numero primo
+103 = 27° numero primo
+107 = 28° numero primo
+109 = 29° numero primo
+113 = 30° numero primo
+127 = 31° numero primo
+131 = 32° numero primo
+137 = 33° numero primo
+139 = 34° numero primo
+149 = 35° numero primo
+
+## Le potenze di 2, da 2¹ a 2¹⁰ | manche | Matematica | In ordine crescente
+2 = 2¹
+4 = 2²
+8 = 2³
+16 = 2⁴
+32 = 2⁵
+64 = 2⁶
+128 = 2⁷
+256 = 2⁸
+512 = 2⁹
+1024 / 1.024 = 2¹⁰
+
+## Le potenze di 3, da 3¹ a 3¹⁰ | finale | Matematica | In ordine crescente
+3 = 3¹
+9 = 3²
+27 = 3³
+81 = 3⁴
+243 = 3⁵
+729 = 3⁶
+2187 / 2.187 = 3⁷
+6561 / 6.561 = 3⁸
+19683 / 19.683 = 3⁹
+59049 / 59.049 = 3¹⁰
+
+## I primi 10 numeri triangolari | manche | Matematica | 1, 1+2, 1+2+3, …
+1 = 1
+3 = 1+2
+6 = 1+2+3
+10 = 1+…+4
+15 = 1+…+5
+21 = 1+…+6
+28 = 1+…+7
+36 = 1+…+8
+45 = 1+…+9
+55 = 1+…+10
+
+## I primi 10 cubi perfetti | manche | Matematica | n³ da 1 a 10
+1 = 1³
+8 = 2³
+27 = 3³
+64 = 4³
+125 = 5³
+216 = 6³
+343 = 7³
+512 = 8³
+729 = 9³
+1000 / 1.000 = 10³
+
+## La successione di Fibonacci dal 2 in poi | manche | Matematica | Ogni numero è la somma dei due precedenti
+2 = 1 + 1
+3 = 1 + 2
+5 = 2 + 3
+8 = 3 + 5
+13 = 5 + 8
+21 = 8 + 13
+34 = 13 + 21
+55 = 21 + 34
+89 = 34 + 55
+144 = 55 + 89
+
+## I poligoni regolari dal triangolo in poi | manche | Matematica | Per numero di lati
+Triangolo / Triangolo equilatero = 3 lati
+Quadrato = 4 lati
+Pentagono = 5 lati
+Esagono = 6 lati
+Ettagono / Eptagono = 7 lati
+Ottagono = 8 lati
+Ennagono / Nonagono = 9 lati
+Decagono = 10 lati
+Endecagono / Undecagono = 11 lati
+Dodecagono = 12 lati
+
+## I vincitori del Festival di Sanremo dal 2005 al 2014 (1° = 2014) | manche | Musica | Albo d'oro del Festival
+Arisa = 2014 · Controvento
+Marco Mengoni / Mengoni = 2013 · L'essenziale
+Emma / Emma Marrone = 2012 · Non è l'inferno
+Roberto Vecchioni / Vecchioni = 2011 · Chiamami ancora amore
+Valerio Scanu / Scanu = 2010 · Per tutte le volte che…
+Marco Carta / Carta = 2009 · La forza mia
+Giò Di Tonno e Lola Ponce / Gio Di Tonno / Lola Ponce = 2008 · Colpo di fulmine
+Simone Cristicchi / Cristicchi = 2007 · Ti regalerò una rosa
+Povia = 2006 · Vorrei avere il becco
+Francesco Renga / Renga = 2005 · Angelo
+
+## I vincitori del Festival di Sanremo dal 1995 al 2004 (1° = 2004) | finale | Musica | Albo d'oro del Festival
+Marco Masini / Masini = 2004 · L'uomo volante
+Alexia = 2003 · Per dire di no
+Matia Bazar = 2002 · Messaggio d'amore
+Elisa = 2001 · Luce (Tramonti a nord est)
+Avion Travel / Piccola Orchestra Avion Travel = 2000 · Sentimento
+Anna Oxa / Oxa = 1999 · Senza pietà
+Annalisa Minetti / Minetti = 1998 · Senza te o con te
+Jalisse = 1997 · Fiumi di parole
+Ron e Tosca / Ron / Tosca = 1996 · Vorrei incontrarti fra cent'anni
+Giorgia = 1995 · Come saprei
+
+## I vincitori dell'Eurovision dal 2015 al 2025 (1° = 2025) | manche | Musica | Edizione 2020 annullata
+JJ = 2025 · Austria · Wasted Love
+Nemo = 2024 · Svizzera · The Code
+Loreen = 2023 · Svezia · Tattoo
+Kalush Orchestra / Kalush = 2022 · Ucraina · Stefania
+Måneskin / Maneskin = 2021 · Italia · Zitti e buoni
+Duncan Laurence = 2019 · Paesi Bassi · Arcade
+Netta = 2018 · Israele · Toy
+Salvador Sobral / Sobral = 2017 · Portogallo · Amar pelos dois
+Jamala = 2016 · Ucraina · 1944
+Måns Zelmerlöw / Mans Zelmerlow / Zelmerlöw = 2015 · Svezia · Heroes
+
+## Le opere di Giacomo Puccini in ordine | finale | Musica | Anno della prima rappresentazione
+Le Villi = 1884
+Edgar = 1889
+Manon Lescaut = 1893
+La bohème / La boheme / Bohème = 1896
+Tosca = 1900
+Madama Butterfly / Butterfly = 1904
+La fanciulla del West / Fanciulla del West = 1910
+La rondine / Rondine = 1917
+Il trittico / Trittico = 1918
+Turandot = 1926 (postuma)
+
+## Le prime 10 opere di Giuseppe Verdi | finale | Musica | Anno della prima rappresentazione
+Oberto, Conte di San Bonifacio / Oberto = 1839
+Un giorno di regno = 1840
+Nabucco = 1842
+I Lombardi alla prima crociata / I Lombardi = 1843
+Ernani = 1844
+I due Foscari = 1844
+Giovanna d'Arco = 1845
+Alzira = 1845
+Attila = 1846
+Macbeth = 1847
+
+## I primi 10 album in studio dei Queen | manche | Musica | Anno di uscita
+Queen = 1973
+Queen II = 1974
+Sheer Heart Attack = 1974
+A Night at the Opera = 1975
+A Day at the Races = 1976
+News of the World = 1977
+Jazz = 1978
+The Game = 1980
+Flash Gordon = 1980
+Hot Space = 1982
+
+## I primi 10 album in studio dei Pink Floyd | finale | Musica | Anno di uscita
+The Piper at the Gates of Dawn = 1967
+A Saucerful of Secrets = 1968
+More = 1969
+Ummagumma = 1969
+Atom Heart Mother = 1970
+Meddle = 1971
+Obscured by Clouds = 1972
+The Dark Side of the Moon / Dark Side of the Moon = 1973
+Wish You Were Here = 1975
+Animals = 1977
+
+## I primi 10 album in studio degli U2 | manche | Musica | Anno di uscita
+Boy = 1980
+October = 1981
+War = 1983
+The Unforgettable Fire / Unforgettable Fire = 1984
+The Joshua Tree / Joshua Tree = 1987
+Rattle and Hum = 1988
+Achtung Baby = 1991
+Zooropa = 1993
+Pop = 1997
+All That You Can't Leave Behind = 2000
+
+## Gli album in studio dei Coldplay | manche | Musica | Anno di uscita
+Parachutes = 2000
+A Rush of Blood to the Head = 2002
+X&Y / X & Y / X and Y = 2005
+Viva la Vida or Death and All His Friends / Viva la Vida = 2008
+Mylo Xyloto = 2011
+Ghost Stories = 2014
+A Head Full of Dreams = 2015
+Everyday Life = 2019
+Music of the Spheres = 2021
+Moon Music = 2024
+
+## L'Oscar al miglior film dal 2016 al 2025 (1° = 2025) | manche | Cinema | Anno della cerimonia
+Anora = 2025
+Oppenheimer = 2024
+Everything Everywhere All at Once = 2023
+CODA - I segni del cuore / CODA = 2022
+Nomadland = 2021
+Parasite = 2020
+Green Book = 2019
+La forma dell'acqua / The Shape of Water = 2018
+Moonlight = 2017
+Il caso Spotlight / Spotlight = 2016
+
+## L'Oscar al miglior film dal 2006 al 2015 (1° = 2015) | manche | Cinema | Anno della cerimonia
+Birdman = 2015
+12 anni schiavo / 12 Years a Slave = 2014
+Argo = 2013
+The Artist = 2012
+Il discorso del re = 2011
+The Hurt Locker = 2010
+The Millionaire / Slumdog Millionaire = 2009
+Non è un paese per vecchi = 2008
+The Departed = 2007
+Crash - Contatto fisico / Crash = 2006
+
+## L'Oscar al miglior film dal 1996 al 2005 (1° = 2005) | manche | Cinema | Anno della cerimonia
+Million Dollar Baby = 2005
+Il Signore degli Anelli - Il ritorno del re / Il ritorno del re = 2004
+Chicago = 2003
+A Beautiful Mind = 2002
+Il gladiatore / Gladiatore = 2001
+American Beauty = 2000
+Shakespeare in Love = 1999
+Titanic = 1998
+Il paziente inglese = 1997
+Braveheart = 1996
+
+## L'Oscar al miglior film dal 1986 al 1995 (1° = 1995) | finale | Cinema | Anno della cerimonia
+Forrest Gump = 1995
+Schindler's List = 1994
+Gli spietati = 1993
+Il silenzio degli innocenti = 1992
+Balla coi lupi = 1991
+A spasso con Daisy = 1990
+Rain Man = 1989
+L'ultimo imperatore = 1988
+Platoon = 1987
+La mia Africa = 1986
+
+## L'Oscar al miglior film dal 1976 al 1985 (1° = 1985) | finale | Cinema | Anno della cerimonia
+Amadeus = 1985
+Voglia di tenerezza = 1984
+Gandhi = 1983
+Momenti di gloria = 1982
+Gente comune = 1981
+Kramer contro Kramer = 1980
+Il cacciatore = 1979
+Io e Annie = 1978
+Rocky = 1977
+Qualcuno volò sul nido del cuculo = 1976
+
+## I primi 10 film di Star Wars in ordine di uscita | manche | Cinema | Anno di uscita nei cinema
+Guerre stellari / Una nuova speranza = 1977
+L'Impero colpisce ancora = 1980
+Il ritorno dello Jedi = 1983
+La minaccia fantasma = 1999
+L'attacco dei cloni = 2002
+La vendetta dei Sith = 2005
+Il risveglio della Forza = 2015
+Rogue One = 2016
+Gli ultimi Jedi = 2017
+Solo / Solo: A Star Wars Story = 2018
+
+## I primi 10 film del Marvel Cinematic Universe | manche | Cinema | In ordine di uscita
+Iron Man = 2008
+L'incredibile Hulk / Hulk = 2008
+Iron Man 2 = 2010
+Thor = 2011
+Captain America - Il primo Vendicatore / Il primo Vendicatore = 2011
+The Avengers / Avengers = 2012
+Iron Man 3 = 2013
+Thor: The Dark World / The Dark World = 2013
+Captain America: The Winter Soldier / The Winter Soldier = 2014
+Guardiani della Galassia = 2014
+
+## I primi 10 film di Christopher Nolan | finale | Cinema | In ordine di uscita
+Following = 1998
+Memento = 2000
+Insomnia = 2002
+Batman Begins = 2005
+The Prestige = 2006
+Il cavaliere oscuro = 2008
+Inception = 2010
+Il cavaliere oscuro - Il ritorno / Il ritorno = 2012
+Interstellar = 2014
+Dunkirk = 2017
+
+## I film di Quentin Tarantino in ordine di uscita | manche | Cinema | Lungometraggi da regista
+Le iene = 1992
+Pulp Fiction = 1994
+Jackie Brown = 1997
+Kill Bill: Volume 1 / Kill Bill 1 = 2003
+Kill Bill: Volume 2 / Kill Bill 2 = 2004
+Grindhouse - A prova di morte / A prova di morte = 2007
+Bastardi senza gloria = 2009
+Django Unchained / Django = 2012
+The Hateful Eight = 2015
+C'era una volta a... Hollywood / C era una volta a Hollywood = 2019
+
+## I primi 10 film di Stanley Kubrick | finale | Cinema | In ordine di uscita
+Paura e desiderio = 1953
+Il bacio dell'assassino = 1955
+Rapina a mano armata = 1956
+Orizzonti di gloria = 1957
+Spartacus = 1960
+Lolita = 1962
+Il dottor Stranamore = 1964
+2001: Odissea nello spazio / 2001 Odissea nello spazio = 1968
+Arancia meccanica = 1971
+Barry Lyndon = 1975
+
+## I primi 10 film di James Bond | manche | Cinema | Serie ufficiale EON, in ordine di uscita
+Licenza di uccidere / Agente 007 - Licenza di uccidere = 1962
+Dalla Russia con amore = 1963
+Missione Goldfinger / Goldfinger = 1964
+Thunderball / Operazione tuono = 1965
+Si vive solo due volte = 1967
+Al servizio segreto di Sua Maestà = 1969
+Una cascata di diamanti = 1971
+Vivi e lascia morire = 1973
+L'uomo dalla pistola d'oro = 1974
+La spia che mi amava = 1977
+
+## I primi 10 Classici Disney | manche | Cartoni Animati e Disney | Walt Disney Animation Studios, in ordine di uscita
+Biancaneve e i sette nani / Biancaneve = 1937
+Pinocchio = 1940
+Fantasia = 1940
+Dumbo = 1941
+Bambi = 1942
+Saludos Amigos = 1942
+I tre caballeros = 1944
+Musica maestro = 1946
+Bongo e i tre avventurieri / Bongo = 1947
+Lo scrigno delle sette perle = 1948
+
+## I Classici Disney dall'11° al 20° | finale | Cartoni Animati e Disney | Walt Disney Animation Studios (1° = 11° Classico)
+Le avventure di Ichabod e Mr. Toad / Ichabod = 1949
+Cenerentola = 1950
+Alice nel Paese delle Meraviglie / Alice = 1951
+Le avventure di Peter Pan / Peter Pan = 1953
+Lilli e il vagabondo = 1955
+La bella addormentata nel bosco / La bella addormentata = 1959
+La carica dei cento e uno / La carica dei 101 = 1961
+La spada nella roccia = 1963
+Il libro della giungla = 1967
+Gli Aristogatti = 1970
+
+## I primi 10 film Pixar | manche | Cartoni Animati e Disney | In ordine di uscita
+Toy Story = 1995
+A Bug's Life / Megaminimondo = 1998
+Toy Story 2 = 1999
+Monsters & Co. / Monsters e Co = 2001
+Alla ricerca di Nemo / Nemo = 2003
+Gli Incredibili = 2004
+Cars = 2006
+Ratatouille = 2007
+WALL•E / Wall-E / Wall E = 2008
+Up = 2009
+
+## I film Pixar dall'11° al 20° | finale | Cartoni Animati e Disney | In ordine di uscita (1° = 11° film)
+Toy Story 3 = 2010
+Cars 2 = 2011
+Ribelle - The Brave / Ribelle / Brave = 2012
+Monsters University = 2013
+Inside Out = 2015
+Il viaggio di Arlo = 2015
+Alla ricerca di Dory / Dory = 2016
+Cars 3 = 2017
+Coco = 2017
+Gli Incredibili 2 = 2018
+
+## I primi 10 Pokémon del Pokédex | manche | Videogiochi | Pokédex nazionale
+Bulbasaur = N. 1
+Ivysaur = N. 2
+Venusaur = N. 3
+Charmander = N. 4
+Charmeleon = N. 5
+Charizard = N. 6
+Squirtle = N. 7
+Wartortle = N. 8
+Blastoise = N. 9
+Caterpie = N. 10
+
+## I Pokémon dal 152 al 161 (seconda generazione) | finale | Videogiochi | Pokédex nazionale
+Chikorita = N. 152
+Bayleef = N. 153
+Meganium = N. 154
+Cyndaquil = N. 155
+Quilava = N. 156
+Typhlosion = N. 157
+Totodile = N. 158
+Croconaw = N. 159
+Feraligatr = N. 160
+Sentret = N. 161
+
+## I Pokémon dal 252 al 261 (terza generazione) | finale | Videogiochi | Pokédex nazionale
+Treecko = N. 252
+Grovyle = N. 253
+Sceptile = N. 254
+Torchic = N. 255
+Combusken = N. 256
+Blaziken = N. 257
+Mudkip = N. 258
+Marshtomp = N. 259
+Swampert = N. 260
+Poochyena = N. 261
+
+## I Pokémon dal 387 al 396 (quarta generazione) | finale | Videogiochi | Pokédex nazionale
+Turtwig = N. 387
+Grotle = N. 388
+Torterra = N. 389
+Chimchar = N. 390
+Monferno = N. 391
+Infernape = N. 392
+Piplup = N. 393
+Prinplup = N. 394
+Empoleon = N. 395
+Starly = N. 396
+
+## I primi 10 libri della Bibbia | manche | Letteratura | Ordine dell'Antico Testamento
+Genesi = 1° libro
+Esodo = 2° libro
+Levitico = 3° libro
+Numeri = 4° libro
+Deuteronomio = 5° libro
+Giosuè / Giosue = 6° libro
+Giudici = 7° libro
+Rut / Ruth = 8° libro
+Primo libro di Samuele / 1 Samuele = 9° libro
+Secondo libro di Samuele / 2 Samuele = 10° libro
+
+## I libri dell'Antico Testamento dall'11° al 20° | finale | Letteratura | Ordine della Bibbia CEI (1° = 11° libro)
+Primo libro dei Re / 1 Re = 11° libro
+Secondo libro dei Re / 2 Re = 12° libro
+Primo libro delle Cronache / 1 Cronache = 13° libro
+Secondo libro delle Cronache / 2 Cronache = 14° libro
+Esdra = 15° libro
+Neemia = 16° libro
+Tobia = 17° libro
+Giuditta = 18° libro
+Ester = 19° libro
+Primo libro dei Maccabei / 1 Maccabei = 20° libro
+
+## I primi 10 libri del Nuovo Testamento | manche | Letteratura | Ordine canonico
+Vangelo secondo Matteo / Matteo = 1° libro
+Vangelo secondo Marco / Marco = 2° libro
+Vangelo secondo Luca / Luca = 3° libro
+Vangelo secondo Giovanni / Giovanni = 4° libro
+Atti degli Apostoli / Atti = 5° libro
+Lettera ai Romani / Romani = 6° libro
+Prima lettera ai Corinzi / 1 Corinzi = 7° libro
+Seconda lettera ai Corinzi / 2 Corinzi = 8° libro
+Lettera ai Galati / Galati = 9° libro
+Lettera agli Efesini / Efesini = 10° libro
+
+## I vincitori del Premio Strega dal 2015 al 2024 (1° = 2024) | manche | Letteratura | Albo d'oro del Premio Strega
+Donatella Di Pietrantonio / Di Pietrantonio = 2024 · L'età fragile
+Ada d'Adamo / d Adamo = 2023 · Come d'aria
+Mario Desiati / Desiati = 2022 · Spatriati
+Emanuele Trevi / Trevi = 2021 · Due vite
+Sandro Veronesi / Veronesi = 2020 · Il colibrì
+Antonio Scurati / Scurati = 2019 · M. Il figlio del secolo
+Helena Janeczek / Janeczek = 2018 · La ragazza con la Leica
+Paolo Cognetti / Cognetti = 2017 · Le otto montagne
+Edoardo Albinati / Albinati = 2016 · La scuola cattolica
+Nicola Lagioia / Lagioia = 2015 · La ferocia
+
+## I vincitori del Premio Strega dal 2005 al 2014 (1° = 2014) | finale | Letteratura | Albo d'oro del Premio Strega
+Francesco Piccolo / Piccolo = 2014 · Il desiderio di essere come tutti
+Walter Siti / Siti = 2013 · Resistere non serve a niente
+Alessandro Piperno / Piperno = 2012 · Inseparabili
+Edoardo Nesi / Nesi = 2011 · Storia della mia gente
+Antonio Pennacchi / Pennacchi = 2010 · Canale Mussolini
+Tiziano Scarpa / Scarpa = 2009 · Stabat mater
+Paolo Giordano / Giordano = 2008 · La solitudine dei numeri primi
+Niccolò Ammaniti / Ammaniti = 2007 · Come Dio comanda
+Sandro Veronesi / Veronesi = 2006 · Caos calmo
+Maurizio Maggiani / Maggiani = 2005 · Il viaggiatore notturno
+
+## Le prime 10 lettere dell'alfabeto greco | manche | Curiosità e Record | Ordine dell'alfabeto greco
+Alfa / Alpha = 1ª lettera
+Beta = 2ª lettera
+Gamma = 3ª lettera
+Delta = 4ª lettera
+Epsilon = 5ª lettera
+Zeta = 6ª lettera
+Eta = 7ª lettera
+Theta / Teta = 8ª lettera
+Iota = 9ª lettera
+Kappa / Cappa = 10ª lettera
+
+## Le lettere dell'alfabeto greco dall'11ª alla 20ª | finale | Curiosità e Record | Ordine dell'alfabeto greco (1° = 11ª lettera)
+Lambda = 11ª lettera
+Mi / Mu = 12ª lettera
+Ni / Nu = 13ª lettera
+Xi / Csi = 14ª lettera
+Omicron = 15ª lettera
+Pi / Pi greco = 16ª lettera
+Rho / Ro = 17ª lettera
+Sigma = 18ª lettera
+Tau = 19ª lettera
+Ipsilon / Upsilon = 20ª lettera
+
+## I segni zodiacali in ordine, dall'Ariete | manche | Curiosità e Record | Zodiaco tropicale, inizio indicativo
+Ariete = dal 21 marzo
+Toro = dal 21 aprile
+Gemelli = dal 21 maggio
+Cancro = dal 22 giugno
+Leone = dal 23 luglio
+Vergine = dal 23 agosto
+Bilancia = dal 23 settembre
+Scorpione = dal 23 ottobre
+Sagittario = dal 22 novembre
+Capricorno = dal 22 dicembre
+
+## L'alfabeto fonetico NATO dalla A alla J | manche | Curiosità e Record | Alfabeto ICAO/NATO
+Alfa / Alpha = A
+Bravo = B
+Charlie = C
+Delta = D
+Echo / Eco = E
+Foxtrot = F
+Golf = G
+Hotel = H
+India = I
+Juliett / Juliet = J
+
+## L'alfabeto fonetico NATO dalla K alla T | finale | Curiosità e Record | Alfabeto ICAO/NATO
+Kilo = K
+Lima = L
+Mike = M
+November = N
+Oscar = O
+Papa = P
+Quebec = Q
+Romeo = R
+Sierra = S
+Tango = T
+
+## Le 10 fatiche di Ercole nell'ordine di Apollodoro | finale | Mitologia | Biblioteca dello Pseudo-Apollodoro (le prime dieci delle dodici)
+Leone di Nemea / Il leone di Nemea = 1ª fatica
+Idra di Lerna / L'idra di Lerna / Idra = 2ª fatica
+Cerva di Cerinea / La cerva di Cerinea = 3ª fatica
+Cinghiale di Erimanto / Il cinghiale di Erimanto = 4ª fatica
+Stalle di Augia / Le stalle di Augia = 5ª fatica
+Uccelli del lago Stinfalo / Uccelli di Stinfalo / Uccelli stinfalidi = 6ª fatica
+Toro di Creta / Il toro di Creta = 7ª fatica
+Cavalle di Diomede / Le cavalle di Diomede = 8ª fatica
+Cintura di Ippolita / La cintura di Ippolita = 9ª fatica
+Buoi di Gerione / I buoi di Gerione = 10ª fatica
+
+## Le prime 10 versioni di Android con nome di un dolce | manche | Tecnologia | Versioni pubbliche del sistema operativo
+Cupcake = Android 1.5
+Donut = Android 1.6
+Eclair = Android 2.0
+Froyo = Android 2.2
+Gingerbread = Android 2.3
+Honeycomb = Android 3.0
+Ice Cream Sandwich = Android 4.0
+Jelly Bean = Android 4.1
+KitKat / Kit Kat = Android 4.4
+Lollipop = Android 5.0
+
+## Le prime 10 versioni di Mac OS X | finale | Tecnologia | Nomi delle versioni, da Cheetah
+Cheetah = Mac OS X 10.0
+Puma = Mac OS X 10.1
+Jaguar = Mac OS X 10.2
+Panther = Mac OS X 10.3
+Tiger = Mac OS X 10.4
+Leopard = Mac OS X 10.5
+Snow Leopard = Mac OS X 10.6
+Lion = Mac OS X 10.7
+Mountain Lion = OS X 10.8
+Mavericks = OS X 10.9
+
+## I primi 10 film di Hayao Miyazaki | manche | Fumetti e Anime | Lungometraggi da regista, in ordine di uscita
+Lupin III - Il castello di Cagliostro / Il castello di Cagliostro = 1979
+Nausicaä della Valle del vento / Nausicaa = 1984
+Laputa - Castello nel cielo / Laputa = 1986
+Il mio vicino Totoro / Totoro = 1988
+Kiki - Consegne a domicilio / Kiki = 1989
+Porco Rosso = 1992
+Principessa Mononoke / Mononoke = 1997
+La città incantata = 2001
+Il castello errante di Howl = 2004
+Ponyo sulla scogliera / Ponyo = 2008
+
+## I primi 10 attori del Dottore in "Doctor Who" | finale | Serie TV | In ordine di interpretazione, serie classica e moderna
+William Hartnell / Hartnell = Primo Dottore
+Patrick Troughton / Troughton = Secondo Dottore
+Jon Pertwee / Pertwee = Terzo Dottore
+Tom Baker = Quarto Dottore
+Peter Davison / Davison = Quinto Dottore
+Colin Baker = Sesto Dottore
+Sylvester McCoy / McCoy = Settimo Dottore
+Paul McGann / McGann = Ottavo Dottore
+Christopher Eccleston / Eccleston = Nono Dottore
+David Tennant / Tennant = Decimo Dottore

@@ -1,0 +1,48 @@
+# Moda e Costume
+f|In quale città si svolge la più importante settimana della moda italiana?|Milano|Roma|Firenze|Torino
+f|Quale stilista francese ha creato il famoso "tubino nero"?|Coco Chanel|Christian Dior|Yves Saint Laurent|Hubert de Givenchy
+f|Di quale materiale sono fatti classicamente i jeans?|Denim|Seta|Lino|Velluto
+f|Quale marchio italiano ha come simbolo la testa di Medusa?|Versace|Gucci|Prada|Armani
+f|Quale capo d'abbigliamento è tipico degli scozzesi?|Kilt|Sari|Kimono|Poncho
+f|Quale indumento tradizionale indossano le donne giapponesi?|Kimono|Sari|Qipao|Hanbok
+f|Quale gioiello si porta al dito come promessa di matrimonio?|Anello di fidanzamento|Bracciale|Collana|Orecchino
+f|Come si chiama il cappello tipico dei cowboy?|Stetson|Bombetta|Basco|Fez
+f|Quale marchio sportivo ha come simbolo lo "swoosh"?|Nike|Adidas|Puma|Reebok
+f|Quale marchio tedesco di abbigliamento sportivo ha tre strisce come simbolo?|Adidas|Puma|Nike|Kappa
+f|Quale stilista italiano è soprannominato "Re Giorgio"?|Giorgio Armani|Gianni Versace|Valentino Garavani|Gianfranco Ferré
+f|Quale tessuto si ottiene dal bozzolo del baco?|Seta|Cotone|Lana|Lino
+f|Quale marchio italiano ha la doppia G nel logo?|Gucci|Gianfranco Ferré|Genny|Guess
+f|Come si chiama la sfilata dove i modelli presentano gli abiti?|Défilé|Vernissage|Première|Casting
+m|Di quale nazionalità è lo stilista Karl Lagerfeld?|Tedesca|Francese|Austriaca|Svizzera
+m|Quale stilista ha fondato la maison che porta il suo nome nel 1946 lanciando il "New Look"?|Christian Dior|Coco Chanel|Cristóbal Balenciaga|Pierre Cardin
+m|Quale marchio italiano è famoso per il triangolo smaltato sulle borse?|Prada|Fendi|Gucci|Bottega Veneta
+m|Come si chiama il rosso inventato da uno stilista romano e che porta il suo nome?|Rosso Valentino|Rosso Ferrari|Rosso Tiziano|Rosso Pompeiano
+m|Quale marchio è noto per la stampa a monogramma "LV"?|Louis Vuitton|Lanvin|Loewe|Longchamp
+m|Quale stilista inglese è nota per lo stile punk degli anni '70?|Vivienne Westwood|Mary Quant|Stella McCartney|Alexander McQueen
+m|Quale stilista britannica ha reso famosa la minigonna negli anni '60?|Mary Quant|Vivienne Westwood|Twiggy|Laura Ashley
+m|Quale marchio italiano è famoso per il motivo "FF"?|Fendi|Ferragamo|Furla|Frankie Morello
+m|Quale città toscana è famosa per la lavorazione della pelle e ospita "Pitti Uomo"?|Firenze|Siena|Prato|Arezzo
+m|Quale stilista italiano ha fondato il marchio con il logo di un'aquila stilizzata (GA)?|Giorgio Armani|Gianfranco Ferré|Gianni Versace|Guccio Gucci
+m|Quale stilista calabrese fondò Versace?|Gianni Versace|Donatella Versace|Santo Versace|Gianfranco Ferré
+m|Come si chiama il tessuto scozzese a quadri?|Tartan|Pied-de-poule|Principe di Galles|Madras
+m|Quale borsa di Hermès porta il nome di un'attrice britannica?|Birkin|Kelly|Speedy|Baguette
+m|Quale borsa di Hermès porta il nome di Grace Kelly?|Kelly|Birkin|Constance|Evelyne
+m|Quale capo nato per i marinai è diventato iconico con le righe orizzontali bianche e blu?|Marinière|Polo|Trench|Montgomery
+m|Quale cappotto nasce per gli ufficiali britannici nella Prima guerra mondiale?|Trench|Montgomery|Loden|Caban
+m|Quale marchio italiano di scarpe ha sede a Firenze e porta il nome di Salvatore?|Ferragamo|Tod's|Hogan|Prada
+m|Quale rivista di moda ha avuto come direttrice storica Anna Wintour?|Vogue|Elle|Harper's Bazaar|Marie Claire
+m|Come si chiama la tecnica di stampa sui tessuti a nodi e colori sfumati tipica degli anni '60?|Tie-dye|Batik|Ikat|Stampa a rilievo
+m|Quale marchio italiano è nato a Treviso e ha reso famose le pubblicità di Oliviero Toscani?|Benetton|Sisley|Diesel|Stefanel
+m|Quale marchio di jeans ha creato il modello 501?|Levi's|Wrangler|Lee|Diesel
+m|Quale stilista ha creato il profumo Chanel N°5 insieme al profumiere Ernest Beaux?|Coco Chanel|Christian Dior|Jean Patou|Elsa Schiaparelli
+m|Quale colore è stato reso famoso da Elsa Schiaparelli?|Rosa shocking|Blu Klein|Verde Tiffany|Rosso Valentino
+d|Quale stilista spagnolo è considerato "il maestro" dell'alta moda del Novecento?|Cristóbal Balenciaga|Paco Rabanne|Manolo Blahnik|Adolfo Domínguez
+d|In quale città ha sede la maison Gucci, fondata nel 1921?|Firenze|Milano|Roma|Venezia
+d|Quale stilista belga fu direttore creativo di Dior dal 2012 al 2015?|Raf Simons|Dries Van Noten|Martin Margiela|Ann Demeulemeester
+d|Quale stilista britannico ha fondato il marchio con il teschio come simbolo e morì nel 2010?|Alexander McQueen|John Galliano|Paul Smith|Christopher Bailey
+d|Quale stilista ha fondato a Roma la maison celebre per l'abito rosso da sera?|Valentino Garavani|Roberto Capucci|Emilio Pucci|Renato Balestra
+d|Quale stilista francese ha disegnato lo "smoking da donna" nel 1966?|Yves Saint Laurent|Pierre Cardin|André Courrèges|Hubert de Givenchy
+d|Quale casa di moda ha creato l'abito nero di Audrey Hepburn in "Colazione da Tiffany"?|Givenchy|Chanel|Dior|Balenciaga
+d|Quale stilista italiano era soprannominato "l'architetto della moda"?|Gianfranco Ferré|Giorgio Armani|Roberto Capucci|Gianni Versace
+d|In quale città nacque Miuccia Prada?|Milano|Firenze|Roma|Bologna
+d|Quale marchio di Biella è famoso per i tessuti di lana pregiati?|Ermenegildo Zegna|Max Mara|Brioni|Kiton

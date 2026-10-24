@@ -1,0 +1,48 @@
+# Cinema
+f|Chi ha diretto "Titanic" (1997)?|James Cameron|Steven Spielberg|Ridley Scott|Christopher Nolan
+f|Come si chiama il mago protagonista della saga creata da J.K. Rowling?|Harry Potter|Gandalf|Merlino|Frodo
+f|In quale film compare la frase "Che la Forza sia con te"?|Star Wars|Star Trek|Matrix|Dune
+f|Quale attore ha interpretato Jack Sparrow?|Johnny Depp|Orlando Bloom|Brad Pitt|Tom Cruise
+f|Chi ha diretto "La vita è bella"?|Roberto Benigni|Nanni Moretti|Giuseppe Tornatore|Paolo Sorrentino
+f|Come si chiama il dinosauro più famoso di "Jurassic Park"?|Tirannosauro|Triceratopo|Brontosauro|Stegosauro
+f|Quale supereroe è noto come "l'uomo d'acciaio"?|Superman|Batman|Iron Man|Capitan America
+f|In quale città è ambientato "Il Padrino" per gran parte del film?|New York|Chicago|Los Angeles|Palermo
+f|Qual è il nome del cowboy giocattolo in "Toy Story"?|Woody|Buzz|Rex|Slinky
+f|Quale attore ha interpretato Rocky Balboa?|Sylvester Stallone|Arnold Schwarzenegger|Bruce Willis|Mel Gibson
+f|Chi è il nemico di Harry Potter?|Voldemort|Silente|Piton|Malfoy
+f|Quale premio cinematografico è rappresentato da una statuetta dorata chiamata "Oscar"?|Academy Award|Golden Globe|Palma d'oro|Leone d'oro
+f|In quale saga compare l'anello del potere da distruggere?|Il Signore degli Anelli|Harry Potter|Narnia|Il Trono di Spade
+f|Chi interpreta Ethan Hunt in "Mission: Impossible"?|Tom Cruise|Matt Damon|Daniel Craig|Keanu Reeves
+m|Chi ha diretto "Lo squalo" (1975)?|Steven Spielberg|George Lucas|Martin Scorsese|Francis Ford Coppola
+m|Quale film di Federico Fellini ha la celebre scena nella Fontana di Trevi?|La dolce vita|8½|Amarcord|La strada
+m|In quale città si assegna il Leone d'oro?|Venezia|Cannes|Berlino|Roma
+m|Chi ha interpretato il Joker in "Il cavaliere oscuro" (2008)?|Heath Ledger|Joaquin Phoenix|Jack Nicholson|Jared Leto
+m|Quale film ha vinto l'Oscar al miglior film nel 2020 (primo in lingua non inglese)?|Parasite|Roma|1917|Joker
+m|Chi ha composto la colonna sonora de "Il buono, il brutto, il cattivo"?|Ennio Morricone|Nino Rota|Hans Zimmer|John Williams
+m|Quale attrice ha interpretato Holly Golightly in "Colazione da Tiffany"?|Audrey Hepburn|Marilyn Monroe|Grace Kelly|Elizabeth Taylor
+m|Come si chiama la città immaginaria di Batman?|Gotham City|Metropolis|Central City|Star City
+m|Chi ha diretto "Pulp Fiction"?|Quentin Tarantino|Martin Scorsese|Guy Ritchie|Robert Rodriguez
+m|Quale film di Giuseppe Tornatore ha vinto l'Oscar come miglior film straniero nel 1990?|Nuovo Cinema Paradiso|La leggenda del pianista sull'oceano|Malèna|Baarìa
+m|In "Matrix", che pillola sceglie Neo?|Rossa|Blu|Verde|Bianca
+m|Chi interpreta Forrest Gump?|Tom Hanks|Kevin Costner|Robin Williams|Jim Carrey
+m|Quale regista ha diretto la trilogia de "Il Signore degli Anelli"?|Peter Jackson|Guillermo del Toro|Sam Raimi|James Cameron
+m|In quale film un DeLorean viaggia nel tempo?|Ritorno al futuro|Terminator|Interstellar|Looper
+m|Chi ha interpretato Iron Man nel Marvel Cinematic Universe?|Robert Downey Jr.|Chris Evans|Chris Hemsworth|Mark Ruffalo
+m|Quale film di Paolo Sorrentino ha vinto l'Oscar al miglior film straniero nel 2014?|La grande bellezza|Youth|Il divo|È stata la mano di Dio
+m|Come si chiama l'alieno protagonista del film di Spielberg del 1982?|E.T.|Alf|Yoda|Paul
+m|Quale attore ha interpretato James Bond in "Casino Royale" (2006)?|Daniel Craig|Pierce Brosnan|Sean Connery|Roger Moore
+m|Chi ha diretto "Psyco" (1960)?|Alfred Hitchcock|Stanley Kubrick|Orson Welles|Billy Wilder
+m|In quale film Leonardo DiCaprio ha finalmente vinto l'Oscar come miglior attore?|Revenant - Redivivo|The Wolf of Wall Street|Inception|The Aviator
+m|Quale film d'animazione Pixar ha per protagonista un topo cuoco?|Ratatouille|Up|Coco|Luca
+m|Chi interpreta Hermione Granger nei film di Harry Potter?|Emma Watson|Emma Stone|Keira Knightley|Natalie Portman
+m|Quale attore italiano ha vinto l'Oscar come miglior attore per "La vita è bella"?|Roberto Benigni|Marcello Mastroianni|Toni Servillo|Giancarlo Giannini
+d|Chi ha diretto "2001: Odissea nello spazio"?|Stanley Kubrick|Ridley Scott|George Lucas|Andrej Tarkovskij
+d|Come si chiama il computer di bordo in "2001: Odissea nello spazio"?|HAL 9000|Skynet|MU-TH-UR|Deep Thought
+d|Quale film del 1941 di Orson Welles è considerato tra i più grandi di sempre?|Quarto potere|L'infernale Quinlan|Il terzo uomo|Casablanca
+d|Chi ha vinto il primo Oscar come miglior regista donna, nel 2010?|Kathryn Bigelow|Sofia Coppola|Jane Campion|Greta Gerwig
+d|Quale film di Vittorio De Sica è un capolavoro del neorealismo del 1948?|Ladri di biciclette|Roma città aperta|Paisà|La terra trema
+d|Chi ha diretto "Roma città aperta"?|Roberto Rossellini|Vittorio De Sica|Luchino Visconti|Pier Paolo Pasolini
+d|Come si chiama la nave spaziale in "Alien" (1979)?|Nostromo|Sulaco|Enterprise|Discovery One
+d|Quale attrice ha vinto più Oscar per la recitazione?|Katharine Hepburn|Meryl Streep|Ingrid Bergman|Bette Davis
+d|In quale città si svolge il festival cinematografico che assegna l'Orso d'oro?|Berlino|Monaco|Vienna|Amsterdam
+d|Quale film di Sergio Leone si apre con la lunga scena alla stazione con tre pistoleri?|C'era una volta il West|Per un pugno di dollari|Giù la testa|Per qualche dollaro in più

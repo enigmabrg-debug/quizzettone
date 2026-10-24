@@ -1,0 +1,50 @@
+# Cartoni Animati e Disney
+f|Come si chiama il topo più famoso della Disney?|Topolino|Gambadilegno|Pippo|Paperino
+f|Quale principessa Disney perde una scarpetta di cristallo?|Cenerentola|Biancaneve|Aurora|Belle
+f|Come si chiama il leoncino protagonista de "Il re leone"?|Simba|Mufasa|Scar|Nala
+f|Quale pesce pagliaccio si perde nel film Pixar?|Nemo|Dory|Marlin|Bruce
+f|Come si chiama la regina delle nevi di "Frozen"?|Elsa|Anna|Merida|Moana
+f|Quanti sono i nani di Biancaneve?|7|5|6|8
+f|Come si chiama il cane di Topolino?|Pluto|Pippo|Ciccio|Bolivar
+f|Quale bambino di legno vuole diventare un bambino vero?|Pinocchio|Peter Pan|Mowgli|Tarzan
+f|Come si chiama lo zio ricchissimo di Paperino?|Paperon de' Paperoni|Paperoga|Archimede|Ciccio
+f|Quale ragazzo non vuole crescere e vive sull'Isola che non c'è?|Peter Pan|Pinocchio|Mowgli|Aladdin
+f|Come si chiama la sirenetta Disney?|Ariel|Ursula|Jasmine|Vaiana
+f|Quale elefantino vola grazie alle grandi orecchie?|Dumbo|Ellie|Babar|Horton
+f|Come si chiamano i tre nipotini di Paperino?|Qui, Quo, Qua|Tip e Tap|Cip e Ciop|Pippo, Pluto e Paperino
+f|Quale personaggio dice "Hakuna Matata" insieme a Timon?|Pumbaa|Rafiki|Zazu|Simba
+m|Come si chiama la fata di Peter Pan?|Trilli|Smeraldina|Flora|Fauna
+m|In quale anno è uscito "Biancaneve e i sette nani"?|1937|1940|1932|1950
+m|Come si chiama il genio della lampada di Aladdin nel film Disney?|Genio|Iago|Abu|Jafar
+m|Quale film Pixar è ambientato nella mente di una ragazzina di nome Riley?|Inside Out|Soul|Coco|Luca
+m|Come si chiama il cattivo de "La sirenetta"?|Ursula|Malefica|Crudelia|Jafar
+m|Quale cartone giapponese racconta di una ragazza delle Alpi svizzere con il nonno?|Heidi|Candy Candy|Lady Oscar|Anna dai capelli rossi
+m|Come si chiama il cowboy di "Toy Story" e chi gli dà la voce in italiano?|Woody, Fabrizio Frizzi|Woody, Gigi Proietti|Buzz, Massimo Dapporto|Woody, Pino Insegno
+m|Quale cattiva Disney vuole farsi una pelliccia con i cuccioli dalmata?|Crudelia De Mon|Malefica|Grimilde|Madame Medusa
+m|Come si chiama il gatto che insegue Titti?|Silvestro|Tom|Gatto Felix|Garfield
+m|Quale coppia di cartoni è formata da un gatto e un topo sempre in lotta?|Tom e Jerry|Itchy e Scratchy|Silvestro e Titti|Gatto e Volpe
+m|Come si chiama il film Pixar ambientato in Liguria con creature marine?|Luca|Coco|Encanto|Elemental
+m|Quale principessa Disney è cinese e combatte per salvare il padre?|Mulan|Pocahontas|Jasmine|Tiana
+m|Come si chiama il robot protagonista del film Pixar del 2008?|WALL•E|EVE|Baymax|Robby
+m|Quale cartone ha per protagonisti i puffi blu?|I Puffi|I Barbapapà|I Fraggle|I Snorky
+m|Come si chiama il villaggio fittizio dei Simpson?|Springfield|Quahog|South Park|Arlen
+m|Quale famiglia di forme colorate cambia aspetto a piacimento?|I Barbapapà|I Puffi|Gli Gnomi|I Teletubbies
+m|In quale film Disney compare il ragazzo cresciuto dai lupi Mowgli?|Il libro della giungla|Tarzan|Robin Hood|Bambi
+m|Come si chiama la principessa addormentata Disney?|Aurora|Biancaneve|Cenerentola|Rapunzel
+m|Quale film Disney del 2016 è ambientato in una città di animali con una coniglietta poliziotta?|Zootropolis|Oceania|Big Hero 6|Ralph Spaccatutto
+m|Come si chiama il pupazzo di neve di "Frozen"?|Olaf|Sven|Kristoff|Hans
+m|Quale studio ha prodotto "Shrek"?|DreamWorks Animation|Pixar|Illumination|Blue Sky Studios
+m|Come si chiamano i piccoli aiutanti gialli di Gru in "Cattivissimo me"?|Minions|Puffi|Gremlins|Oompa Loompa
+m|Quale cartone ha per protagonista un cane investigatore che mangia gli "Scooby Snack"?|Scooby-Doo|Droopy|Snoopy|Brian Griffin
+d|Come si chiama il primo lungometraggio d'animazione Pixar?|Toy Story|A Bug's Life|Monsters & Co.|Cars
+d|In quale anno è uscito "Il re leone" originale?|1994|1989|1998|1991
+d|Quale fu il primo lungometraggio Disney dopo "Biancaneve"?|Pinocchio|Fantasia|Dumbo|Bambi
+d|Come si chiama il pappagallo di Jafar in "Aladdin"?|Iago|Zazu|Abu|Rajah
+d|Quale film Disney del 1940 unisce animazione e musica classica?|Fantasia|Pinocchio|Dumbo|Musica maestro
+d|Chi ha fondato lo studio Disney insieme a Walt Disney?|Roy O. Disney|Ub Iwerks|Ollie Johnston|Frank Thomas
+d|Quale personaggio Disney nasce nel 1934 nel cortometraggio "La gallinella saggia"?|Paperino|Pippo|Pluto|Clarabella
+d|Come si chiama il film Pixar del 2017 ambientato durante il Día de los Muertos?|Coco|Soul|Onward|Encanto
+d|Quale cartone italiano ha per protagonista la Linea disegnata da Osvaldo Cavandoli?|La Linea|Calimero|Pimpa|Signor Rossi
+d|Chi ha creato il pulcino nero Calimero?|Nino e Toni Pagot|Bruno Bozzetto|Osvaldo Cavandoli|Altan
+d|Chi ha creato la Pimpa, la cagnolina a pois rossi?|Altan|Bruno Bozzetto|Guido Crepax|Lele Luzzati
+d|Quale animatore italiano ha creato il Signor Rossi e "Allegro non troppo"?|Bruno Bozzetto|Osvaldo Cavandoli|Altan|Nino Pagot

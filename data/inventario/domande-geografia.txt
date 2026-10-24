@@ -1,0 +1,49 @@
+# Geografia
+f|Qual è la capitale della Spagna?|Madrid|Barcellona|Siviglia|Valencia
+f|Qual è il fiume più lungo d'Italia?|Po|Tevere|Adige|Arno
+f|In quale continente si trova l'Egitto?|Africa|Asia|Europa|Oceania
+f|Qual è la capitale del Giappone?|Tokyo|Kyoto|Osaka|Seul
+f|Quale oceano bagna la costa occidentale degli Stati Uniti?|Oceano Pacifico|Oceano Atlantico|Oceano Indiano|Mar dei Caraibi
+f|Qual è il capoluogo della Sicilia?|Palermo|Catania|Messina|Siracusa
+f|Qual è la montagna più alta del mondo?|Everest|K2|Monte Bianco|Kilimangiaro
+f|In quale città si trova la Torre Eiffel?|Parigi|Lione|Marsiglia|Bruxelles
+f|Qual è la capitale della Germania?|Berlino|Monaco di Baviera|Amburgo|Francoforte
+f|Quale stato è a forma di stivale?|Italia|Grecia|Portogallo|Croazia
+f|Qual è il capoluogo della Toscana?|Firenze|Pisa|Siena|Livorno
+f|Qual è il paese più grande del mondo per superficie?|Russia|Canada|Cina|Stati Uniti
+f|Quale mare bagna Venezia?|Mar Adriatico|Mar Tirreno|Mar Ionio|Mar Ligure
+f|Qual è la capitale dell'Australia?|Canberra|Sydney|Melbourne|Brisbane
+m|Qual è il lago più grande d'Italia?|Lago di Garda|Lago Maggiore|Lago di Como|Lago Trasimeno
+m|Qual è la capitale del Canada?|Ottawa|Toronto|Montréal|Vancouver
+m|Quale stretto separa la Sicilia dalla Calabria?|Stretto di Messina|Stretto di Bonifacio|Canale d'Otranto|Stretto di Gibilterra
+m|Qual è il deserto caldo più grande del mondo?|Sahara|Gobi|Kalahari|Atacama
+m|In quale paese si trova la città di Marrakech?|Marocco|Tunisia|Algeria|Egitto
+m|Qual è la capitale della Turchia?|Ankara|Istanbul|Smirne|Antalya
+m|Quale fiume attraversa Londra?|Tamigi|Senna|Reno|Danubio
+m|Qual è il vulcano attivo più alto d'Europa?|Etna|Vesuvio|Stromboli|Teide
+m|Quale stato confina con l'Italia a est?|Slovenia|Croazia|Ungheria|Serbia
+m|Qual è la capitale del Brasile?|Brasilia|Rio de Janeiro|San Paolo|Salvador
+m|Quante sono le regioni italiane?|20|18|21|22
+m|In quale regione si trova il Monte Bianco (versante italiano)?|Valle d'Aosta|Piemonte|Lombardia|Trentino-Alto Adige
+m|Qual è l'isola più grande del Mediterraneo?|Sicilia|Sardegna|Cipro|Corsica
+m|Quale catena montuosa separa la Francia dalla Spagna?|Pirenei|Alpi|Carpazi|Appennini
+m|Qual è la capitale dell'Argentina?|Buenos Aires|Córdoba|Rosario|Montevideo
+m|Quale fiume attraversa Roma?|Tevere|Arno|Aniene|Volturno
+m|Qual è il paese più popoloso dell'Africa?|Nigeria|Egitto|Etiopia|Sudafrica
+m|In quale paese si trovano le cascate Vittoria, insieme allo Zimbabwe?|Zambia|Kenya|Tanzania|Mozambico
+m|Qual è la capitale della Norvegia?|Oslo|Bergen|Stoccolma|Copenaghen
+m|Quale città è chiamata "la Grande Mela"?|New York|Chicago|Los Angeles|Boston
+d|Qual è la capitale del Kazakistan?|Astana|Almaty|Tashkent|Bishkek
+d|Qual è il lago più profondo del mondo?|Lago Bajkal|Lago Tanganica|Mar Caspio|Lago Superiore
+d|Quale paese ha il maggior numero di fusi orari, contando i territori d'oltremare?|Francia|Russia|Stati Uniti|Regno Unito
+d|Qual è il punto più basso delle terre emerse?|La riva del Mar Morto|La Valle della Morte|La depressione di Qattara|Il lago Assal
+d|Qual è la capitale del Myanmar?|Naypyidaw|Yangon|Mandalay|Bangkok
+d|In quale regione italiana si trova il lago di Bolsena?|Lazio|Umbria|Toscana|Marche
+d|Quale fiume sfocia nel Mar Nero formando un grande delta in Romania?|Danubio|Dnepr|Don|Dnestr
+d|Qual è lo stato più piccolo del mondo dopo la Città del Vaticano?|Principato di Monaco|San Marino|Liechtenstein|Nauru
+d|Qual è la capitale della Nuova Zelanda?|Wellington|Auckland|Christchurch|Queenstown
+d|Quale stato africano ha come capitale Addis Abeba?|Etiopia|Eritrea|Somalia|Kenya
+m|Qual è la capitale del Portogallo?|Lisbona|Porto|Madrid|Coimbra
+m|In quale regione italiana si trovano le Dolomiti di Brenta?|Trentino-Alto Adige|Veneto|Lombardia|Friuli-Venezia Giulia
+m|Quale fiume attraversa Parigi?|Senna|Loira|Rodano|Garonna
+m|Qual è il capoluogo della Puglia?|Bari|Lecce|Taranto|Foggia

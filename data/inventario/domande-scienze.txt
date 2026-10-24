@@ -1,0 +1,49 @@
+# Scienze
+f|Qual è il simbolo chimico dell'acqua?|H₂O|CO₂|O₂|NaCl
+f|Qual è il pianeta più vicino al Sole?|Mercurio|Venere|Marte|Terra
+f|Quale gas respiriamo per vivere?|Ossigeno|Azoto|Anidride carbonica|Elio
+f|Qual è l'organo che pompa il sangue nel corpo umano?|Cuore|Fegato|Polmone|Rene
+f|A quanti gradi Celsius bolle l'acqua a livello del mare?|100|90|80|120
+f|Qual è il pianeta più grande del Sistema solare?|Giove|Saturno|Nettuno|Terra
+f|Quante ossa ha circa il corpo umano adulto?|206|156|306|256
+f|Come si chiama il satellite naturale della Terra?|Luna|Fobos|Titano|Europa
+f|Qual è la stella più vicina alla Terra?|Il Sole|Sirio|Proxima Centauri|Betelgeuse
+f|Qual è il simbolo chimico dell'oro?|Au|Ag|Or|Go
+f|Quale pianeta è chiamato "il pianeta rosso"?|Marte|Venere|Giove|Mercurio
+f|In quale organo avviene principalmente la digestione dei cibi?|Stomaco e intestino|Polmoni|Reni|Milza
+f|Che cosa misura un termometro?|La temperatura|La pressione|L'umidità|Il peso
+f|Quale vitamina produce il corpo esponendosi al sole?|Vitamina D|Vitamina C|Vitamina A|Vitamina B12
+m|Qual è il simbolo chimico del ferro?|Fe|Fr|Ir|F
+m|Quanti cromosomi ha normalmente una cellula umana?|46|23|48|44
+m|Chi ha formulato la teoria della relatività?|Albert Einstein|Isaac Newton|Niels Bohr|Max Planck
+m|Qual è il gas più abbondante nell'atmosfera terrestre?|Azoto|Ossigeno|Argon|Anidride carbonica
+m|Qual è l'unità di misura della corrente elettrica?|Ampere|Volt|Ohm|Watt
+m|Come si chiama il processo con cui le piante producono energia dalla luce?|Fotosintesi|Respirazione|Fermentazione|Traspirazione
+m|Qual è l'osso più lungo del corpo umano?|Femore|Tibia|Omero|Perone
+m|A che velocità viaggia approssimativamente la luce nel vuoto?|300.000 km/s|30.000 km/s|3.000 km/s|3.000.000 km/s
+m|Quale pianeta ha gli anelli più vistosi?|Saturno|Giove|Urano|Nettuno
+m|Chi ha scoperto la radioattività naturale nel 1896?|Henri Becquerel|Marie Curie|Ernest Rutherford|Wilhelm Röntgen
+m|Qual è il simbolo chimico del sodio?|Na|So|Sd|N
+m|Quante camere ha il cuore umano?|4|2|3|6
+m|Qual è l'elemento chimico più leggero?|Idrogeno|Elio|Litio|Carbonio
+m|Come si chiama la parte colorata dell'occhio?|Iride|Pupilla|Cornea|Retina
+m|Chi ha formulato la legge della gravitazione universale?|Isaac Newton|Galileo Galilei|Johannes Kepler|Copernico
+m|Qual è il pH dell'acqua pura a 25 °C?|7|0|14|5
+m|Qual è il gruppo sanguigno chiamato "donatore universale"?|0 negativo|AB positivo|A positivo|B negativo
+m|Quale organo produce l'insulina?|Pancreas|Fegato|Milza|Tiroide
+m|Quale pianeta del Sistema solare ruota "coricato", con l'asse quasi parallelo all'orbita?|Urano|Nettuno|Venere|Saturno
+m|Come si chiama la forza che ci tiene attaccati alla Terra?|Gravità|Attrito|Magnetismo|Inerzia
+m|Qual è il metallo liquido a temperatura ambiente?|Mercurio|Piombo|Stagno|Alluminio
+m|Quale scienziato italiano inventò la pila elettrica?|Alessandro Volta|Galileo Galilei|Guglielmo Marconi|Luigi Galvani
+m|Quanti pianeti ha il Sistema solare?|8|9|7|10
+d|Qual è il numero atomico del carbonio?|6|12|8|14
+d|Quale particella subatomica ha carica negativa?|Elettrone|Protone|Neutrone|Positrone
+d|Qual è il pianeta più caldo del Sistema solare?|Venere|Mercurio|Marte|Giove
+d|Come si chiama la molecola che trasporta l'ossigeno nei globuli rossi?|Emoglobina|Mioglobina|Clorofilla|Insulina
+d|Qual è la formula chimica del sale da cucina?|NaCl|KCl|NaHCO₃|CaCO₃
+d|Chi ha proposto per primo la tavola periodica degli elementi nel 1869?|Dmitrij Mendeleev|Antoine Lavoisier|John Dalton|Amedeo Avogadro
+d|Qual è la temperatura dello zero assoluto in gradi Celsius?|−273,15 °C|−100 °C|−459,67 °C|−212 °C
+d|Quale scienziato ha scoperto le leggi dell'ereditarietà studiando i piselli?|Gregor Mendel|Charles Darwin|Louis Pasteur|Jean-Baptiste Lamarck
+d|Come si chiama la galassia più vicina alla Via Lattea tra le grandi galassie a spirale?|Andromeda|Triangolo|Sombrero|Vortice
+d|Qual è l'unità di misura della frequenza?|Hertz|Joule|Pascal|Newton
+d|Qual è il simbolo chimico del potassio?|K|P|Po|Pt

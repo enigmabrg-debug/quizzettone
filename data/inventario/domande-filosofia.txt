@@ -1,0 +1,48 @@
+# Filosofia
+f|Quale filosofo greco fu maestro di Platone?|Socrate|Aristotele|Pitagora|Eraclito
+f|Chi ha detto "Penso, dunque sono"?|Cartesio|Kant|Spinoza|Pascal
+f|Di quale nazionalità era Aristotele?|Greca|Romana|Egizia|Persiana
+f|Chi fu il maestro di Alessandro Magno?|Aristotele|Platone|Socrate|Diogene
+f|Come si chiama la scuola fondata da Platone ad Atene?|Accademia|Liceo|Stoà|Giardino
+f|Quale filosofo è noto per la frase "So di non sapere"?|Socrate|Platone|Seneca|Talete
+f|Chi ha scritto "Il Principe"?|Niccolò Machiavelli|Francesco Guicciardini|Dante Alighieri|Tommaso Moro
+f|Quale filosofo tedesco ha scritto "Così parlò Zarathustra"?|Friedrich Nietzsche|Immanuel Kant|Karl Marx|Arthur Schopenhauer
+f|Chi ha scritto, insieme a Engels, il "Manifesto del Partito Comunista"?|Karl Marx|Lenin|Hegel|Proudhon
+f|Quale filosofo greco morì bevendo la cicuta?|Socrate|Platone|Aristotele|Zenone
+f|Come si chiama la disciplina filosofica che studia il bello e l'arte?|Estetica|Etica|Logica|Metafisica
+f|Quale filosofo ha scritto i "Dialoghi" con Socrate protagonista?|Platone|Senofonte|Aristotele|Plutarco
+f|Come si chiama la disciplina filosofica che studia il comportamento morale?|Etica|Estetica|Gnoseologia|Ontologia
+f|Quale imperatore romano scrisse i "Pensieri" (Colloqui con sé stesso)?|Marco Aurelio|Adriano|Augusto|Traiano
+m|Chi ha scritto la "Critica della ragion pura"?|Immanuel Kant|Hegel|Fichte|Leibniz
+m|Quale filosofo greco sosteneva che "tutto scorre" (panta rei)?|Eraclito|Parmenide|Democrito|Anassimandro
+m|Quale filosofo ha formulato il "mito della caverna"?|Platone|Aristotele|Socrate|Plotino
+m|A quale scuola filosofica apparteneva Seneca?|Stoicismo|Epicureismo|Scetticismo|Cinismo
+m|Chi ha scritto "Il contratto sociale"?|Jean-Jacques Rousseau|Voltaire|Montesquieu|John Locke
+m|Quale filosofo inglese ha scritto il "Leviatano"?|Thomas Hobbes|John Locke|David Hume|Francis Bacon
+m|Quale filosofo greco viveva in una botte secondo la tradizione?|Diogene di Sinope|Epicuro|Zenone di Cizio|Pirrone
+m|Chi ha detto "L'uomo è un animale politico"?|Aristotele|Platone|Machiavelli|Hobbes
+m|Quale filosofo francese è autore del "Discorso sul metodo"?|Cartesio|Pascal|Montaigne|Voltaire
+m|Quale filosofo greco sosteneva che la materia fosse fatta di atomi indivisibili?|Democrito|Talete|Empedocle|Pitagora
+m|Chi è considerato il primo filosofo della tradizione occidentale, secondo cui il principio di tutto è l'acqua?|Talete|Anassimene|Pitagora|Eraclito
+m|Quale filosofo tedesco ha scritto "Il mondo come volontà e rappresentazione"?|Arthur Schopenhauer|Friedrich Nietzsche|Hegel|Kierkegaard
+m|Quale frate domenicano scrisse la "Summa Theologiae"?|Tommaso d'Aquino|Agostino d'Ippona|Bonaventura|Guglielmo di Ockham
+m|Quale filosofo danese è considerato il padre dell'esistenzialismo?|Søren Kierkegaard|Martin Heidegger|Jean-Paul Sartre|Albert Camus
+m|Chi ha scritto "Le confessioni" nel IV secolo?|Agostino d'Ippona|Tommaso d'Aquino|Boezio|Ambrogio
+m|Quale principio è noto come "rasoio di Ockham"?|A parità di condizioni, la spiegazione più semplice è preferibile|Il fine giustifica i mezzi|Ogni cosa ha una causa|Nulla si crea e nulla si distrugge
+m|Quale filosofo francese ha scritto "L'essere e il nulla"?|Jean-Paul Sartre|Albert Camus|Michel Foucault|Simone de Beauvoir
+m|Chi ha scritto "Il secondo sesso"?|Simone de Beauvoir|Virginia Woolf|Hannah Arendt|Simone Weil
+m|Quale filosofo ha fondato il Giardino, scuola che cercava la felicità nell'assenza di dolore?|Epicuro|Zenone|Aristippo|Pirrone
+m|Quale filosofo olandese ha scritto l'"Etica dimostrata secondo l'ordine geometrico"?|Baruch Spinoza|Erasmo da Rotterdam|Ugo Grozio|Cartesio
+m|Quale filosofo e matematico greco fondò una comunità a Crotone?|Pitagora|Archimede|Euclide|Talete
+m|Chi ha scritto "Al di là del bene e del male"?|Friedrich Nietzsche|Arthur Schopenhauer|Max Weber|Sigmund Freud
+m|Quale filosofo inglese è padre dell'empirismo con il "Saggio sull'intelletto umano"?|John Locke|David Hume|George Berkeley|Thomas Hobbes
+d|Quale filosofo tedesco ha scritto "Essere e tempo"?|Martin Heidegger|Edmund Husserl|Karl Jaspers|Hans-Georg Gadamer
+d|Chi ha scritto la "Fenomenologia dello spirito"?|Georg Wilhelm Friedrich Hegel|Immanuel Kant|Johann Gottlieb Fichte|Friedrich Schelling
+d|Quale filosofo austriaco ha scritto il "Tractatus logico-philosophicus"?|Ludwig Wittgenstein|Karl Popper|Rudolf Carnap|Moritz Schlick
+d|Quale filosofo italiano fu condannato al rogo nel 1600 a Roma?|Giordano Bruno|Tommaso Campanella|Galileo Galilei|Pietro Pomponazzi
+d|Chi ha scritto "La città del Sole"?|Tommaso Campanella|Tommaso Moro|Francesco Bacone|Giordano Bruno
+d|Quale filosofo ha formulato il principio di falsificabilità delle teorie scientifiche?|Karl Popper|Thomas Kuhn|Imre Lakatos|Paul Feyerabend
+d|Quale filosofa ha scritto "La banalità del male" sul processo Eichmann?|Hannah Arendt|Simone Weil|Rosa Luxemburg|Edith Stein
+d|Quale filosofo di Elea sosteneva l'immobilità dell'essere?|Parmenide|Zenone di Elea|Senofane|Melisso
+d|Quale filosofo italiano del Novecento è stato il teorico dell'"egemonia culturale" nei Quaderni del carcere?|Antonio Gramsci|Benedetto Croce|Giovanni Gentile|Norberto Bobbio
+d|Quale filosofo napoletano ha scritto la "Scienza nuova"?|Giambattista Vico|Benedetto Croce|Bernardino Telesio|Giordano Bruno

@@ -1,0 +1,49 @@
+# Letteratura
+f|Chi ha scritto la "Divina Commedia"?|Dante Alighieri|Francesco Petrarca|Giovanni Boccaccio|Ludovico Ariosto
+f|Chi ha scritto "I promessi sposi"?|Alessandro Manzoni|Giacomo Leopardi|Ugo Foscolo|Giovanni Verga
+f|Chi è l'autore di "Romeo e Giulietta"?|William Shakespeare|Charles Dickens|Christopher Marlowe|Oscar Wilde
+f|Chi ha scritto "Le avventure di Pinocchio"?|Carlo Collodi|Gianni Rodari|Edmondo De Amicis|Emilio Salgari
+f|Come si chiama il cavaliere protagonista del romanzo di Cervantes?|Don Chisciotte|Orlando|Ivanhoe|Lancillotto
+f|Chi ha scritto "Il piccolo principe"?|Antoine de Saint-Exupéry|Jules Verne|Victor Hugo|Albert Camus
+f|Chi è l'autore della saga di Harry Potter?|J. K. Rowling|J. R. R. Tolkien|C. S. Lewis|Roald Dahl
+f|Chi ha scritto "Il Signore degli Anelli"?|J. R. R. Tolkien|C. S. Lewis|George R. R. Martin|Terry Brooks
+f|Chi ha scritto "L'infinito" ("Sempre caro mi fu quest'ermo colle")?|Giacomo Leopardi|Ugo Foscolo|Giosuè Carducci|Giovanni Pascoli
+f|Come si chiamano i due innamorati de "I promessi sposi"?|Renzo e Lucia|Paolo e Francesca|Romeo e Giulietta|Tristano e Isotta
+f|Chi ha scritto "Il giro del mondo in 80 giorni"?|Jules Verne|Alexandre Dumas|H. G. Wells|Robert Louis Stevenson
+f|Chi è l'autore dell'"Iliade" secondo la tradizione?|Omero|Virgilio|Esiodo|Sofocle
+f|Chi ha scritto "Cuore"?|Edmondo De Amicis|Carlo Collodi|Luigi Pirandello|Grazia Deledda
+f|Come si chiama il pirata protagonista de "L'isola del tesoro"?|Long John Silver|Capitan Uncino|Barbanera|Il Corsaro Nero
+m|Chi ha scritto il "Decameron"?|Giovanni Boccaccio|Francesco Petrarca|Dante Alighieri|Franco Sacchetti
+m|Chi ha scritto "Il nome della rosa"?|Umberto Eco|Italo Calvino|Alberto Moravia|Leonardo Sciascia
+m|Chi ha scritto "1984"?|George Orwell|Aldous Huxley|Ray Bradbury|H. G. Wells
+m|Chi è l'autore de "I Malavoglia"?|Giovanni Verga|Luigi Capuana|Federico De Roberto|Luigi Pirandello
+m|Chi ha scritto "Il fu Mattia Pascal"?|Luigi Pirandello|Italo Svevo|Gabriele D'Annunzio|Grazia Deledda
+m|Chi ha scritto "Delitto e castigo"?|Fëdor Dostoevskij|Lev Tolstoj|Anton Čechov|Nikolaj Gogol'
+m|Chi ha scritto "Guerra e pace"?|Lev Tolstoj|Fëdor Dostoevskij|Ivan Turgenev|Aleksandr Puškin
+m|Chi è l'autore del "Canzoniere" dedicato a Laura?|Francesco Petrarca|Dante Alighieri|Torquato Tasso|Giovanni Boccaccio
+m|Chi ha scritto "Orgoglio e pregiudizio"?|Jane Austen|Charlotte Brontë|Emily Brontë|Mary Shelley
+m|Chi ha scritto "Frankenstein"?|Mary Shelley|Bram Stoker|Edgar Allan Poe|Robert Louis Stevenson
+m|Chi è l'autore di "Dracula"?|Bram Stoker|Mary Shelley|Sheridan Le Fanu|Oscar Wilde
+m|Chi ha scritto "Il barone rampante"?|Italo Calvino|Dino Buzzati|Elsa Morante|Primo Levi
+m|Chi ha scritto "Se questo è un uomo"?|Primo Levi|Elie Wiesel|Italo Calvino|Natalia Ginzburg
+m|Chi ha scritto "L'Orlando furioso"?|Ludovico Ariosto|Torquato Tasso|Matteo Maria Boiardo|Luigi Pulci
+m|Quale poeta ha scritto "Dei Sepolcri"?|Ugo Foscolo|Giacomo Leopardi|Vincenzo Monti|Alessandro Manzoni
+m|Chi ha scritto "Moby Dick"?|Herman Melville|Mark Twain|Ernest Hemingway|Jack London
+m|Chi è l'autore de "Il vecchio e il mare"?|Ernest Hemingway|John Steinbeck|William Faulkner|F. Scott Fitzgerald
+m|Chi ha scritto "Il grande Gatsby"?|F. Scott Fitzgerald|Ernest Hemingway|J. D. Salinger|Truman Capote
+m|Quale poeta ha scritto "X Agosto" ("San Lorenzo, io lo so perché...")?|Giovanni Pascoli|Giosuè Carducci|Gabriele D'Annunzio|Giuseppe Ungaretti
+m|Chi ha scritto "Il Gattopardo"?|Giuseppe Tomasi di Lampedusa|Leonardo Sciascia|Andrea Camilleri|Vitaliano Brancati
+m|Chi è l'autore de "La coscienza di Zeno"?|Italo Svevo|Luigi Pirandello|Federico Tozzi|Alberto Moravia
+m|Chi ha scritto "Cent'anni di solitudine"?|Gabriel García Márquez|Jorge Luis Borges|Isabel Allende|Mario Vargas Llosa
+m|Chi è l'autore di "Uno, nessuno e centomila"?|Luigi Pirandello|Italo Svevo|Gabriele D'Annunzio|Giovanni Verga
+d|Chi ha scritto "La Gerusalemme liberata"?|Torquato Tasso|Ludovico Ariosto|Matteo Maria Boiardo|Pietro Bembo
+d|Quale scrittrice italiana ha vinto il Premio Nobel per la letteratura nel 1926?|Grazia Deledda|Sibilla Aleramo|Matilde Serao|Natalia Ginzburg
+d|Chi ha scritto l'"Eneide"?|Virgilio|Ovidio|Orazio|Lucrezio
+d|Chi è l'autore di "Ulisse", romanzo ambientato in un solo giorno a Dublino?|James Joyce|Samuel Beckett|Oscar Wilde|William Butler Yeats
+d|Quale poeta ermetico ha scritto "M'illumino d'immenso"?|Giuseppe Ungaretti|Eugenio Montale|Salvatore Quasimodo|Umberto Saba
+d|Chi ha scritto "Ossi di seppia"?|Eugenio Montale|Giuseppe Ungaretti|Salvatore Quasimodo|Cesare Pavese
+d|Chi ha scritto "Il deserto dei Tartari"?|Dino Buzzati|Cesare Pavese|Beppe Fenoglio|Elio Vittorini
+d|Quale scrittore russo ha scritto "Il maestro e Margherita"?|Michail Bulgakov|Boris Pasternak|Vladimir Nabokov|Maksim Gor'kij
+d|Chi ha scritto "Alla ricerca del tempo perduto"?|Marcel Proust|Gustave Flaubert|Honoré de Balzac|Émile Zola
+d|Chi è l'autore delle "Metamorfosi" in cui Gregor Samsa si trasforma in insetto?|Franz Kafka|Thomas Mann|Robert Musil|Hermann Hesse
+d|Quale autore latino ha scritto le "Metamorfosi" con il mito di Apollo e Dafne?|Ovidio|Virgilio|Apuleio|Catullo

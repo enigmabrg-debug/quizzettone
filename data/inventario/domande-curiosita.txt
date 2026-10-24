@@ -1,0 +1,50 @@
+# Curiosità e Record
+f|Qual è l'edificio più alto del mondo?|Burj Khalifa|Shanghai Tower|One World Trade Center|Torre di Tokyo
+f|Quanti giorni ha un anno bisestile?|366|365|364|367
+f|Quante ore ci sono in una settimana?|168|148|186|172
+f|Qual è il giorno più corto dell'anno nell'emisfero nord?|Solstizio d'inverno (intorno al 21 dicembre)|Equinozio di primavera|Solstizio d'estate|1º gennaio
+f|Quale animale è simbolo del WWF?|Panda gigante|Tigre|Elefante|Koala
+f|Quanti colori ha l'arcobaleno nella tradizione?|7|5|6|8
+f|Quanti minuti dura un tempo di una partita di calcio?|45|30|40|50
+f|In quale paese si trova la Grande Muraglia?|Cina|Giappone|Mongolia|India
+f|Quanti anni dura un secolo?|100|1000|50|10
+f|Quale strumento si usa per vedere oggetti molto piccoli?|Microscopio|Telescopio|Periscopio|Caleidoscopio
+f|Qual è la lingua più parlata al mondo come lingua madre?|Cinese mandarino|Inglese|Spagnolo|Hindi
+f|Quante carte ci sono in un mazzo francese senza jolly?|52|54|40|48
+f|Quale città è famosa per i canali e le gondole?|Venezia|Amsterdam|Bruges|Chioggia
+f|Quale animale è il simbolo della pace insieme al ramoscello d'ulivo?|Colomba|Cigno|Gufo|Aquila
+m|Quante carte ci sono in un mazzo di carte napoletane?|40|52|36|32
+m|Quale invenzione si attribuisce a Johannes Gutenberg?|La stampa a caratteri mobili|Il telescopio|La bussola|L'orologio meccanico
+m|Qual è il paese con più abitanti al mondo dal 2023?|India|Cina|Stati Uniti|Indonesia
+m|Quante sono le meraviglie del mondo antico?|7|5|9|10
+m|Quale delle sette meraviglie del mondo antico esiste ancora?|La Piramide di Cheope|Il Colosso di Rodi|Il Faro di Alessandria|I Giardini pensili di Babilonia
+m|Quante tessere ha un set standard di domino doppio sei?|28|24|32|36
+m|Quale città ospita il museo più visitato del mondo, il Louvre?|Parigi|Londra|New York|Roma
+m|Qual è la moneta del Regno Unito?|Sterlina|Euro|Corona|Franco
+m|Quante lettere ha l'alfabeto italiano tradizionale?|21|26|24|22
+m|Quanti sono i tasti bianchi di un pianoforte standard a 88 tasti?|52|36|44|60
+m|Quale personaggio storico ha dato il nome al mese di luglio?|Giulio Cesare|Augusto|Giulio II|Giuliano l'Apostata
+m|Da quale imperatore prende il nome il mese di agosto?|Augusto|Adriano|Tiberio|Traiano
+m|Quale paese ha la forma più simile a una lunga striscia lungo il Pacifico in Sud America?|Cile|Perù|Ecuador|Argentina
+m|Quale gioco da tavolo si gioca su 64 caselle con re, regina e alfieri?|Scacchi|Dama|Go|Backgammon
+m|Quanti pezzi ha ogni giocatore all'inizio di una partita a scacchi?|16|12|18|20
+m|Quanti punti ci sono in totale su un dado a sei facce?|21|18|24|36
+m|In quale città è stato inventato il tiramisù secondo la versione più accreditata?|Treviso|Venezia|Milano|Torino
+m|In quale paese si trova La Paz, la sede di governo più alta del mondo?|Bolivia|Perù|Ecuador|Cile
+m|Quale segno zodiacale si festeggia a fine luglio e inizio agosto?|Leone|Cancro|Vergine|Bilancia
+m|Quante sono le note della scala musicale con i semitoni (scala cromatica) in un'ottava?|12|7|8|10
+m|Quale numero è considerato sfortunato in Italia, oltre al 13?|17|11|9|4
+m|Quale è il paese più piccolo del mondo?|Città del Vaticano|Principato di Monaco|San Marino|Malta
+m|Quanti sono i fusi orari principali del mondo?|24|12|20|36
+d|Quale lingua ha l'alfabeto con più lettere tra queste?|Khmer|Russo|Greco|Arabo
+d|Qual è la parola italiana più lunga presente nei dizionari, spesso citata come record?|Precipitevolissimevolmente|Particolareggiatissimo|Incomprensibilmente|Sovraccaricabilità
+d|Quanti sono i paesi membri dell'ONU?|193|175|204|186
+d|Qual è il lago navigabile più alto del mondo?|Titicaca|Bajkal|Vittoria|Tanganica
+d|Quale paese ha più isole al mondo?|Svezia|Indonesia|Filippine|Norvegia
+d|Quante sono le lingue ufficiali della Svizzera?|4|3|2|5
+d|In che anno Samuel Morse inviò il primo messaggio telegrafico tra Washington e Baltimora?|1844|1820|1876|1901
+d|Qual è il più antico ateneo del mondo occidentale ancora in attività?|Università di Bologna|Università di Oxford|Sorbona|Università di Salamanca
+d|Qual è il paese più grande dell'Africa per superficie?|Algeria|Repubblica Democratica del Congo|Sudan|Libia
+d|Qual è il fiume con la maggiore portata d'acqua al mondo?|Rio delle Amazzoni|Nilo|Congo|Yangtze
+d|Quale paese ha vinto più medaglie d'oro nella storia delle Olimpiadi estive?|Stati Uniti|Unione Sovietica|Cina|Regno Unito
+d|Quale record detiene il francobollo "Penny Black" del 1840?|È il primo francobollo adesivo della storia|È il più costoso del mondo|È il più piccolo del mondo|È il primo francobollo a colori

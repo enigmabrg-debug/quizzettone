@@ -1,0 +1,50 @@
+# Fumetti e Anime
+f|Come si chiama il ragazzo di gomma protagonista di "One Piece"?|Monkey D. Luffy|Roronoa Zoro|Naruto Uzumaki|Goku
+f|Quale supereroe Marvel viene morso da un ragno radioattivo?|Spider-Man|Ant-Man|Daredevil|Iron Man
+f|Come si chiama il protagonista di "Dragon Ball"?|Goku|Vegeta|Gohan|Piccolo
+f|Quale ninja con la volpe a nove code nel corpo è protagonista di un anime?|Naruto|Sasuke|Kakashi|Itachi
+f|Come si chiama il cane bianco di Tintin?|Milou|Snoopy|Idefix|Pluto
+f|Quale personaggio dei fumetti italiani è un ranger del Texas creato da Bonelli?|Tex Willer|Zagor|Dylan Dog|Martin Mystère
+f|Come si chiama il cane di Charlie Brown?|Snoopy|Odie|Pluto|Milou
+f|Quale supereroe DC è il Cavaliere Oscuro di Gotham?|Batman|Superman|Flash|Lanterna Verde
+f|Come si chiama il gatto arancione pigro che ama le lasagne?|Garfield|Felix|Tom|Silvestro
+f|Quale eroe gallico beve la pozione magica?|Asterix|Obelix|Panoramix|Abraracourcix
+f|Come si chiama l'indagatore dell'incubo di Sergio Bonelli Editore?|Dylan Dog|Nathan Never|Martin Mystère|Julia
+f|Quale robot gigante giapponese è pilotato da Koji Kabuto?|Mazinga Z|Goldrake|Gundam|Jeeg
+f|Quale anime racconta la storia di una ragazza con i poteri di "Sailor Moon"?|Sailor Moon|Lady Oscar|Creamy|Pretty Cure
+f|Come si chiama l'amico grande e forte di Asterix?|Obelix|Idefix|Panoramix|Assurancetourix
+m|Chi ha creato Spider-Man insieme a Steve Ditko?|Stan Lee|Jack Kirby|Bob Kane|Jerry Siegel
+m|Come si chiama l'alter ego di Superman?|Clark Kent|Bruce Wayne|Peter Parker|Barry Allen
+m|In quale anime si combatte contro i Giganti che hanno invaso l'umanità?|L'attacco dei giganti|Tokyo Ghoul|Death Note|Neon Genesis Evangelion
+m|Come si chiama il quaderno che uccide chi vi viene scritto in un anime famoso?|Death Note|Grimorio|Necronomicon|Codex
+m|Quale personaggio Bonelli è l'"eroe dalla scure" che vive a Darkwood?|Zagor|Tex|Mister No|Ken Parker
+m|Chi è l'autore di "Corto Maltese"?|Hugo Pratt|Milo Manara|Guido Crepax|Andrea Pazienza
+m|Come si chiama la compagnia di eroi che include Iron Man, Thor e Capitan America?|Avengers|Justice League|X-Men|Fantastici Quattro
+m|Quale studio d'animazione ha prodotto "La città incantata"?|Studio Ghibli|Toei Animation|Madhouse|Sunrise
+m|Chi ha diretto "Il mio vicino Totoro"?|Hayao Miyazaki|Isao Takahata|Makoto Shinkai|Mamoru Hosoda
+m|Come si chiama il professore che guida gli X-Men?|Charles Xavier|Magneto|Logan|Scott Summers
+m|Quale personaggio di "Dragon Ball" è il principe dei Saiyan?|Vegeta|Goku|Trunks|Radish
+m|In quale manga compare il pirata Roronoa Zoro?|One Piece|Bleach|Fairy Tail|Hunter x Hunter
+m|Come si chiama il fumetto di Zerocalcare ambientato a Rebibbia, diventato anche serie Netflix?|Strappare lungo i bordi|Kobane Calling|Dimentica il mio nome|La profezia dell'armadillo
+m|Quale supereroe Marvel ha uno scudo con una stella?|Capitan America|Thor|Falcon|Iron Man
+m|Come si chiama il villain di Batman con il volto da clown?|Joker|Pinguino|Enigmista|Due Facce
+m|Quale robot di Go Nagai si trasforma con il grido "Alabarda spaziale"?|Goldrake|Mazinga Z|Jeeg Robot|Getter Robot
+m|In quale anime i protagonisti cercano le sette sfere del drago?|Dragon Ball|Naruto|One Piece|Yu-Gi-Oh!
+m|Come si chiama il personaggio femminile creato da Guido Crepax?|Valentina|Diabolika|Julia|Satanik
+m|Chi è il ladro con la tuta nera creato dalle sorelle Giussani?|Diabolik|Kriminal|Satanik|Fantomas
+m|Come si chiama la compagna di Diabolik?|Eva Kant|Altea|Valentina|Selina Kyle
+m|Quale eroe dei fumetti americani diventa verde e gigante quando si arrabbia?|Hulk|La Cosa|Swamp Thing|Lanterna Verde
+m|Come si chiama l'ispettore che dà la caccia a Diabolik?|Ginko|Zenigata|Gordon|Maigret
+m|Quale anime ha per protagonista un pilota dell'EVA-01, Shinji Ikari?|Neon Genesis Evangelion|Gundam|Code Geass|Macross
+d|Come si chiama l'autore di "One Piece"?|Eiichirō Oda|Akira Toriyama|Masashi Kishimoto|Tite Kubo
+d|Chi ha creato "Dragon Ball"?|Akira Toriyama|Eiichirō Oda|Rumiko Takahashi|Osamu Tezuka
+d|Quale autore giapponese è considerato "il dio dei manga", creatore di Astro Boy?|Osamu Tezuka|Go Nagai|Leiji Matsumoto|Shōtarō Ishinomori
+d|In quale anno è nato Topolino come personaggio dei cartoni (Steamboat Willie)?|1928|1932|1925|1936
+d|Come si chiama l'autore de "Le avventure di Tintin"?|Hergé|Goscinny|Uderzo|Franquin
+d|Chi ha scritto i testi di Asterix insieme ai disegni di Uderzo?|René Goscinny|Hergé|Morris|Jean Giraud
+d|In che anno è uscito il primo numero di Topolino in formato libretto?|1949|1932|1960|1955
+d|Chi ha creato Lupo Alberto?|Silver (Guido Silvestri)|Bonvi|Benito Jacovitti|Altan
+d|Quale personaggio di Jacovitti è un cowboy dal naso enorme?|Cocco Bill|Tex Willer|Lucky Luke|Pecos Bill
+d|Quale serie di Go Nagai ha per protagonista Akira Fudo?|Devilman|Mazinga Z|Getter Robot|Cutie Honey
+d|Come si chiama il mondo di "Fullmetal Alchemist" in cui vivono i fratelli Elric?|Amestris|Hyrule|Midgar|Spira
+d|Quale autrice ha creato "Ranma ½" e "Lamù"?|Rumiko Takahashi|Naoko Takeuchi|Riyoko Ikeda|Clamp
